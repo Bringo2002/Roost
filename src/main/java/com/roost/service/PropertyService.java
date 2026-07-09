@@ -21,4 +21,17 @@ public class PropertyService {
     public Property addProperty(Property property) {
         return propertyRepository.save(property);
     }
+
+    public List<Property> getByLocation(String location) {
+        return propertyRepository.findByLocationContainingIgnoreCase(location);
+    }
+
+    public List<Property> getAvailableProperties() {
+        return propertyRepository.findByAvailableTrue();
+    }
+
+    public List<Property> getByType(String type) {
+        return propertyRepository.findByType(type);
+    }
 }
+
