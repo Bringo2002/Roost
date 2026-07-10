@@ -53,5 +53,10 @@ public class PropertyService {
         existing.setAvailable(updated.isAvailable());
         return propertyRepository.save(existing);
     }
+
+    public Property getPropertyById(Long id) {
+        return propertyRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Property not with with id: " + id));
+    }
 }
 

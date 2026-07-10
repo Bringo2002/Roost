@@ -63,4 +63,9 @@ public class PropertyController {
         return propertyService.updateProperty(id, property);
     }
 
+    @GetMapping("/{id}")
+    public Property getPropertyById(@PathVariable Long id) {
+        return propertyService.getPropertyById(id);
+    }
+
 }
