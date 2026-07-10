@@ -1,9 +1,6 @@
 package com.roost.controller;
 
-import jakarta.persistence.metamodel.ListAttribute;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+
 import com.roost.model.Property;
 import com.roost.service.PropertyService;
 import org.springframework.web.bind.annotation.*;
@@ -54,6 +51,16 @@ public class PropertyController {
             @RequestParam double min,
             @RequestParam double max) {
         return propertyService.getByPriceRange(min, max);
+    }
+
+    @DeleteMapping("/{id}")
+    public void deleteProperty(@PathVariable Long id) {
+        propertyService.deleteProperty(id);
+    }
+
+    @PutMapping("/{id}")
+    public Property updateProperty(@PathVariable Long id, @RequestBody Property property) {
+        return propertyService.updateProperty(id, property);
     }
 
 }

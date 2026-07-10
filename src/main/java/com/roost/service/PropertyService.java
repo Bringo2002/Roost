@@ -37,5 +37,21 @@ public class PropertyService {
     public List<Property> getByPriceRange(double minPrice, double maxPrice) {
         return propertyRepository.findByPriceBetween(minPrice, maxPrice);
     }
+
+    public void deleteProperty(Long id) {
+        propertyRepository.deleteById(id);
+    }
+
+    public Property updateProperty(Long id, Property updated) {
+        Property existing = propertyRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Property not found with id: " + id));
+        existing.setTitle(updated.getTitle());
+        existing.setLocation(updated.getLocation());
+        existing.setPrice(updated.getPrice());
+        existing.setBedrooms(updated.getBedrooms());
+        existing.setType(updated.getType());
+        existing.setAvailable(updated.isAvailable());
+        return propertyRepository.save(existing);
+    }
 }
 
