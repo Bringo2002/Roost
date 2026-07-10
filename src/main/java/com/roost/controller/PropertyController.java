@@ -48,4 +48,12 @@ public class PropertyController {
     public List<Property> getByType(@PathVariable String type) {
         return propertyService.getByType(type);
     }
+
+    @GetMapping("/price")
+    public List<Property> getByPriceRange(
+            @RequestParam double min,
+            @RequestParam double max) {
+        return propertyService.getByPriceRange(min, max);
+    }
+
 }

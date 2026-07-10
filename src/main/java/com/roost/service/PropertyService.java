@@ -33,5 +33,9 @@ public class PropertyService {
     public List<Property> getByType(String type) {
         return propertyRepository.findByType(type);
     }
+
+    public List<Property> getByPriceRange(double minPrice, double maxPrice) {
+        return propertyRepository.findByPriceBetween(minPrice, maxPrice);
+    }
 }
 

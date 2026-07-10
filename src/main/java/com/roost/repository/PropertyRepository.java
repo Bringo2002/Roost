@@ -10,4 +10,5 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
     List<Property>findByLocationContainingIgnoreCase(String Location);
     List<Property>findByAvailableTrue();
     List<Property>findByType(String type);
+    List<Property>findByPriceBetween(double minPrice, double maxPrice);
 }
