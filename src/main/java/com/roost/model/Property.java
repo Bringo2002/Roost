@@ -18,4 +18,5 @@ public class Property {
     private int bedrooms;
     private String type; // rental, sale, airbnb
     private boolean available;
+    private String landlordPhone;
 }
