@@ -14,7 +14,7 @@ public class DatabaseConfig {
     @Bean
     @Primary
     public DataSource dataSource() {
-        // 1. Try standard connection URLs (Railway public/private or general spring datasource override)
+        // 1. Try standard connection URLs (Railway public/private or general spring datasource overrides)
         String databaseUrl = System.getenv("DATABASE_URL");
         if (databaseUrl == null || databaseUrl.trim().isEmpty()) {
             databaseUrl = System.getenv("DATABASE_PRIVATE_URL");
@@ -23,10 +23,30 @@ public class DatabaseConfig {
             databaseUrl = System.getenv("SPRING_DATASOURCE_URL");
         }
         
-        // 2. If a connection URL is found, parse it
+        // 2. If a connection URL is found, parse or use directly
         if (databaseUrl != null && !databaseUrl.trim().isEmpty()) {
+            if (databaseUrl.startsWith("jdbc:")) {
+                // If it's already a JDBC URL, use it directly with optionally provided username and password
+                String username = System.getenv("SPRING_DATASOURCE_USERNAME");
+                if (username == null || username.trim().isEmpty()) {
+                    username = System.getenv("PGUSER");
+                }
+                String password = System.getenv("SPRING_DATASOURCE_PASSWORD");
+                if (password == null || password.trim().isEmpty()) {
+                    password = System.getenv("PGPASSWORD");
+                }
+
+                System.out.println("JDBC URL detected. Configuring datasource directly: " + databaseUrl);
+                return DataSourceBuilder.create()
+                        .url(databaseUrl)
+                        .username(username)
+                        .password(password)
+                        .driverClassName("org.postgresql.Driver")
+                        .build();
+            }
+
             try {
-                System.out.println("Database URL found. Parsing: " + databaseUrl.replaceAll(":([^@]+)@", ":****@"));
+                System.out.println("Standard connection URL detected (postgresql:// format). Parsing: " + databaseUrl.replaceAll(":([^@]+)@", ":****@"));
                 
                 // Clean up the URL format if it contains "postgresql://" or "postgres://"
                 URI dbUri = new URI(databaseUrl);
