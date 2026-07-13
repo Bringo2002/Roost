@@ -1,6 +1,7 @@
 package com.roost.repository;
 
 import com.roost.model.Property;
+import com.roost.model.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 import java.util.List;
@@ -11,4 +12,5 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
     List<Property>findByAvailableTrue();
     List<Property>findByType(String type);
     List<Property>findByPriceBetween(double minPrice, double maxPrice);
+    List<Property>findByOwner(User owner);
 }

@@ -1,11 +1,14 @@
 package com.roost.service;
 
 import com.roost.model.Property;
+import com.roost.model.User;
 import com.roost.repository.PropertyRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 
 @Service
+@Transactional
 public class PropertyService {
 
     private final PropertyRepository propertyRepository;
@@ -20,6 +23,10 @@ public class PropertyService {
 
     public Property addProperty(Property property) {
         return propertyRepository.save(property);
+    }
+
+    public List<Property> getPropertiesByOwner(User owner) {
+        return propertyRepository.findByOwner(owner);
     }
 
     public List<Property> getByLocation(String location) {
@@ -51,12 +58,18 @@ public class PropertyService {
         existing.setBedrooms(updated.getBedrooms());
         existing.setType(updated.getType());
         existing.setAvailable(updated.isAvailable());
+        existing.setLandlordPhone(updated.getLandlordPhone());
+        existing.setDescription(updated.getDescription());
+        existing.setImageUrl(updated.getImageUrl());
+        existing.setLatitude(updated.getLatitude());
+        existing.setLongitude(updated.getLongitude());
+        existing.setImageUrls(updated.getImageUrls());
         return propertyRepository.save(existing);
     }
 
     public Property getPropertyById(Long id) {
         return propertyRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Property not with with id: " + id));
+                .orElseThrow(() -> new RuntimeException("Property not found with id: " + id));
     }
 }
 
