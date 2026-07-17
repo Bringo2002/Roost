@@ -64,6 +64,7 @@ public class PropertyService {
         existing.setLatitude(updated.getLatitude());
         existing.setLongitude(updated.getLongitude());
         existing.setImageUrls(updated.getImageUrls());
+        existing.setVideoUrl(updated.getVideoUrl());
         return propertyRepository.save(existing);
     }
 

@@ -35,6 +35,8 @@ public class Property {
 
     private Double longitude;
 
+    private String videoUrl;
+
     @ElementCollection
     @CollectionTable(name = "property_image_urls", joinColumns = @JoinColumn(name = "property_id"))
     @Column(name = "image_url")
