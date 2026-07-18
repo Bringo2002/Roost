@@ -1,0 +1,19 @@
+diff --git a/src/main/java/com/roost/controller/ChatController.java b/src/main/java/com/roost/controller/ChatController.java
+index 2e0c18d..61bc46b 100644
+--- a/src/main/java/com/roost/controller/ChatController.java
++++ b/src/main/java/com/roost/controller/ChatController.java
+@@ -78,8 +78,13 @@ public class ChatController {
+         Message message = new Message();
+         message.setSender(sender);
+         message.setRecipient(recipient);
++        // content still has a NOT NULL constraint at the database level --
++        // Hibernate's ddl-auto=update won't retroactively drop a
++        // constraint on an existing column just because the entity
++        // annotation changed, so a captionless attachment message must
++        // store "" rather than null here to avoid failing the insert.
++        message.setContent(hasContent ? content : "");
+         if (hasContent) {
+-            message.setContent(content);
+             message.setNonce(nonce);
+         }
+         if (hasAttachment) {
