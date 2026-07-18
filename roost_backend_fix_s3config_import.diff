@@ -1,0 +1,16 @@
+diff --git a/src/main/java/com/roost/service/R2StorageService.java b/src/main/java/com/roost/service/R2StorageService.java
+index a1cf238..7ed04cd 100644
+--- a/src/main/java/com/roost/service/R2StorageService.java
++++ b/src/main/java/com/roost/service/R2StorageService.java
+@@ -7,10 +7,10 @@ import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+ import software.amazon.awssdk.core.sync.RequestBody;
+ import software.amazon.awssdk.regions.Region;
+ import software.amazon.awssdk.services.s3.S3Client;
++import software.amazon.awssdk.services.s3.S3Configuration;
+ import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+ import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+ import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+-import software.amazon.awssdk.services.s3.model.S3Configuration;
+ 
+ import java.io.IOException;
+ import java.io.UncheckedIOException;
