@@ -1,0 +1,268 @@
+diff --git a/pom.xml b/pom.xml
+index 1a39838..13f2fcf 100644
+--- a/pom.xml
++++ b/pom.xml
+@@ -75,6 +75,13 @@
+ 			<version>0.12.6</version>
+ 			<scope>runtime</scope>
+ 		</dependency>
++		<!-- S3-compatible client, used against Cloudflare R2 for encrypted
++		     chat attachment storage (R2 only ever sees ciphertext). -->
++		<dependency>
++			<groupId>software.amazon.awssdk</groupId>
++			<artifactId>s3</artifactId>
++			<version>2.46.18</version>
++		</dependency>
+ 	</dependencies>
+ 
+ 	<build>
+diff --git a/src/main/java/com/roost/controller/ChatController.java b/src/main/java/com/roost/controller/ChatController.java
+index 3f0407f..2e0c18d 100644
+--- a/src/main/java/com/roost/controller/ChatController.java
++++ b/src/main/java/com/roost/controller/ChatController.java
+@@ -4,12 +4,14 @@ import com.roost.model.Message;
+ import com.roost.model.User;
+ import com.roost.repository.MessageRepository;
+ import com.roost.repository.UserRepository;
++import com.roost.service.R2StorageService;
+ import org.springframework.beans.factory.annotation.Autowired;
+ import org.springframework.http.ResponseEntity;
+ import org.springframework.security.core.annotation.AuthenticationPrincipal;
+ import org.springframework.web.bind.annotation.*;
+ 
+ import java.time.LocalDateTime;
++import java.util.Base64;
+ import java.util.List;
+ import java.util.Map;
+ 
+@@ -24,6 +26,9 @@ public class ChatController {
+     @Autowired
+     private UserRepository userRepository;
+ 
++    @Autowired
++    private R2StorageService r2StorageService;
++
+     /** Base64 attachment payload cap (~5MB raw file after base64 overhead). */
+     private static final int MAX_ATTACHMENT_BASE64_CHARS = 7_000_000;
+ 
+@@ -78,7 +83,21 @@ public class ChatController {
+             message.setNonce(nonce);
+         }
+         if (hasAttachment) {
+-            message.setAttachmentData(attachmentData);
++            byte[] rawBytes;
++            try {
++                rawBytes = Base64.getDecoder().decode(attachmentData);
++            } catch (IllegalArgumentException e) {
++                return ResponseEntity.badRequest().body(Map.of("error", "Attachment data is not valid base64"));
++            }
++
++            String storageKey;
++            try {
++                storageKey = r2StorageService.upload(rawBytes);
++            } catch (IllegalStateException e) {
++                return ResponseEntity.status(503).body(Map.of("error", e.getMessage()));
++            }
++
++            message.setAttachmentStorageKey(storageKey);
+             message.setAttachmentNonce(attachmentNonce);
+             message.setAttachmentMeta(attachmentMeta);
+             message.setAttachmentMetaNonce(attachmentMetaNonce);
+@@ -86,6 +105,12 @@ public class ChatController {
+         message.setTimestamp(LocalDateTime.now());
+ 
+         Message savedMessage = messageRepository.save(message);
++        if (hasAttachment) {
++            // Not persisted (attachmentData is @Transient) -- populate it
++            // on the response so the caller doesn't need a second round
++            // trip to read back what it just sent.
++            savedMessage.setAttachmentData(attachmentData);
++        }
+         return ResponseEntity.ok(savedMessage);
+     }
+ 
+@@ -102,6 +127,18 @@ public class ChatController {
+         }
+         
+         List<Message> history = messageRepository.findChatHistory(user, otherUser);
++        for (Message message : history) {
++            if (message.hasAttachment()) {
++                try {
++                    byte[] bytes = r2StorageService.download(message.getAttachmentStorageKey());
++                    message.setAttachmentData(Base64.getEncoder().encodeToString(bytes));
++                } catch (Exception e) {
++                    // Leave attachmentData null -- the client shows a
++                    // "couldn't load attachment" state rather than the
++                    // whole history request failing over one bad file.
++                }
++            }
++        }
+         return ResponseEntity.ok(history);
+     }
+ 
+diff --git a/src/main/java/com/roost/model/Message.java b/src/main/java/com/roost/model/Message.java
+index acbc369..bc3d7ec 100644
+--- a/src/main/java/com/roost/model/Message.java
++++ b/src/main/java/com/roost/model/Message.java
+@@ -41,16 +41,24 @@ public class Message {
+     private String nonce;
+ 
+     /**
+-     * Base64-encoded ciphertext of the attached file's raw bytes, encrypted
+-     * the same way as [content]. Stored as TEXT (base64) rather than a
+-     * binary column to keep this consistent with the rest of the schema;
+-     * the server stores an opaque blob and can never read the file.
+-     * MVP tradeoff: files live in Postgres, not object storage, so this
+-     * is only suitable for small attachments (size-capped client- and
+-     * server-side) -- worth moving to S3/Cloudinary/etc if usage grows.
++     * Object key for this attachment's encrypted bytes in Cloudflare R2
++     * (see R2StorageService) -- e.g. "attachments/&lt;uuid&gt;". Only a
++     * small reference lives in Postgres; the actual (still encrypted)
++     * file content lives in object storage.
+      */
+-    @Lob
+     @Column(columnDefinition = "TEXT")
++    private String attachmentStorageKey;
++
++    /**
++     * Base64-encoded ciphertext of the attachment's raw bytes. NOT
++     * persisted -- this is populated on the way out (ChatController reads
++     * the bytes from R2 via [attachmentStorageKey] and base64-encodes
++     * them here) and read on the way in (ChatController uploads the
++     * decoded bytes to R2 and discards this field before saving). Kept as
++     * a real field, not a DTO, so the JSON wire shape for clients is
++     * unchanged from before this moved out of Postgres.
++     */
++    @Transient
+     private String attachmentData;
+ 
+     /** Nonce for [attachmentData]. Must differ from [nonce]. */
+@@ -72,4 +80,8 @@ public class Message {
+     private LocalDateTime timestamp = LocalDateTime.now();
+ 
+     private boolean read = false;
++
++    public boolean hasAttachment() {
++        return attachmentStorageKey != null && !attachmentStorageKey.isBlank();
++    }
+ }
+diff --git a/src/main/java/com/roost/service/R2StorageService.java b/src/main/java/com/roost/service/R2StorageService.java
+new file mode 100644
+index 0000000..a1cf238
+--- /dev/null
++++ b/src/main/java/com/roost/service/R2StorageService.java
+@@ -0,0 +1,97 @@
++package com.roost.service;
++
++import org.springframework.beans.factory.annotation.Value;
++import org.springframework.stereotype.Service;
++import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
++import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
++import software.amazon.awssdk.core.sync.RequestBody;
++import software.amazon.awssdk.regions.Region;
++import software.amazon.awssdk.services.s3.S3Client;
++import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
++import software.amazon.awssdk.services.s3.model.GetObjectRequest;
++import software.amazon.awssdk.services.s3.model.PutObjectRequest;
++import software.amazon.awssdk.services.s3.model.S3Configuration;
++
++import java.io.IOException;
++import java.io.UncheckedIOException;
++import java.net.URI;
++import java.util.UUID;
++
++/**
++ * Stores and retrieves opaque encrypted attachment bytes in Cloudflare R2
++ * (S3-compatible object storage). The server only ever handles ciphertext
++ * here -- files are encrypted client-side before upload and decrypted
++ * client-side after download, so R2 (like the database before it) never
++ * has the keys needed to read them.
++ *
++ * Configured via env vars: R2_ACCOUNT_ID, R2_ACCESS_KEY_ID,
++ * R2_SECRET_ACCESS_KEY, R2_BUCKET. If any are unset, the service stays
++ * inert (rather than failing app startup) and throws a clear error only
++ * when an upload/download is actually attempted -- so a missing R2 config
++ * doesn't take down login, browsing, or text-only messaging.
++ */
++@Service
++public class R2StorageService {
++
++    private final S3Client s3Client;
++    private final String bucket;
++    private final boolean configured;
++
++    public R2StorageService(
++            @Value("${r2.account-id:}") String accountId,
++            @Value("${r2.access-key-id:}") String accessKeyId,
++            @Value("${r2.secret-access-key:}") String secretAccessKey,
++            @Value("${r2.bucket:}") String bucket
++    ) {
++        this.bucket = bucket;
++        this.configured = !accountId.isBlank() && !accessKeyId.isBlank()
++                && !secretAccessKey.isBlank() && !bucket.isBlank();
++
++        this.s3Client = configured
++                ? S3Client.builder()
++                        .endpointOverride(URI.create("https://" + accountId + ".r2.cloudflarestorage.com"))
++                        .credentialsProvider(StaticCredentialsProvider.create(
++                                AwsBasicCredentials.create(accessKeyId, secretAccessKey)))
++                        .region(Region.of("auto"))
++                        .serviceConfiguration(S3Configuration.builder()
++                                .pathStyleAccessEnabled(true)
++                                .build())
++                        .build()
++                : null;
++    }
++
++    /** Uploads opaque bytes under a fresh random key and returns that key. */
++    public String upload(byte[] data) {
++        requireConfigured();
++        String key = "attachments/" + UUID.randomUUID();
++        s3Client.putObject(
++                PutObjectRequest.builder().bucket(bucket).key(key).build(),
++                RequestBody.fromBytes(data)
++        );
++        return key;
++    }
++
++    public byte[] download(String key) {
++        requireConfigured();
++        try (var stream = s3Client.getObject(
++                GetObjectRequest.builder().bucket(bucket).key(key).build())) {
++            return stream.readAllBytes();
++        } catch (IOException e) {
++            throw new UncheckedIOException("Failed to read attachment from R2", e);
++        }
++    }
++
++    public void delete(String key) {
++        requireConfigured();
++        s3Client.deleteObject(DeleteObjectRequest.builder().bucket(bucket).key(key).build());
++    }
++
++    private void requireConfigured() {
++        if (!configured) {
++            throw new IllegalStateException(
++                    "R2 storage is not configured. Set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, " +
++                    "R2_SECRET_ACCESS_KEY, and R2_BUCKET environment variables."
++            );
++        }
++    }
++}
+diff --git a/src/main/resources/application.properties b/src/main/resources/application.properties
+index fad8f46..1f4587c 100644
+--- a/src/main/resources/application.properties
++++ b/src/main/resources/application.properties
+@@ -25,3 +25,12 @@ spring.jpa.defer-datasource-initialization=true
+ 
+ # JWT
+ jwt.secret=${JWT_SECRET:404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}
++
++# Cloudflare R2 (S3-compatible) storage for encrypted chat attachments.
++# Set these in Railway once you've created an R2 bucket + API token --
++# until then, attachment upload/download returns a clear 503 instead of
++# breaking the rest of the app.
++r2.account-id=${R2_ACCOUNT_ID:}
++r2.access-key-id=${R2_ACCESS_KEY_ID:}
++r2.secret-access-key=${R2_SECRET_ACCESS_KEY:}
++r2.bucket=${R2_BUCKET:}

@@ -4,12 +4,14 @@ import com.roost.model.Message;
 import com.roost.model.User;
 import com.roost.repository.MessageRepository;
 import com.roost.repository.UserRepository;
+import com.roost.service.R2StorageService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 
@@ -23,6 +25,9 @@ public class ChatController {
 
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired
+    private R2StorageService r2StorageService;
 
     /** Base64 attachment payload cap (~5MB raw file after base64 overhead). */
     private static final int MAX_ATTACHMENT_BASE64_CHARS = 7_000_000;
@@ -78,7 +83,21 @@ public class ChatController {
             message.setNonce(nonce);
         }
         if (hasAttachment) {
-            message.setAttachmentData(attachmentData);
+            byte[] rawBytes;
+            try {
+                rawBytes = Base64.getDecoder().decode(attachmentData);
+            } catch (IllegalArgumentException e) {
+                return ResponseEntity.badRequest().body(Map.of("error", "Attachment data is not valid base64"));
+            }
+
+            String storageKey;
+            try {
+                storageKey = r2StorageService.upload(rawBytes);
+            } catch (IllegalStateException e) {
+                return ResponseEntity.status(503).body(Map.of("error", e.getMessage()));
+            }
+
+            message.setAttachmentStorageKey(storageKey);
             message.setAttachmentNonce(attachmentNonce);
             message.setAttachmentMeta(attachmentMeta);
             message.setAttachmentMetaNonce(attachmentMetaNonce);
@@ -86,6 +105,12 @@ public class ChatController {
         message.setTimestamp(LocalDateTime.now());
 
         Message savedMessage = messageRepository.save(message);
+        if (hasAttachment) {
+            // Not persisted (attachmentData is @Transient) -- populate it
+            // on the response so the caller doesn't need a second round
+            // trip to read back what it just sent.
+            savedMessage.setAttachmentData(attachmentData);
+        }
         return ResponseEntity.ok(savedMessage);
     }
 
@@ -102,6 +127,18 @@ public class ChatController {
         }
         
         List<Message> history = messageRepository.findChatHistory(user, otherUser);
+        for (Message message : history) {
+            if (message.hasAttachment()) {
+                try {
+                    byte[] bytes = r2StorageService.download(message.getAttachmentStorageKey());
+                    message.setAttachmentData(Base64.getEncoder().encodeToString(bytes));
+                } catch (Exception e) {
+                    // Leave attachmentData null -- the client shows a
+                    // "couldn't load attachment" state rather than the
+                    // whole history request failing over one bad file.
+                }
+            }
+        }
         return ResponseEntity.ok(history);
     }
 

@@ -75,6 +75,13 @@
 			<version>0.12.6</version>
 			<scope>runtime</scope>
 		</dependency>
+		<!-- S3-compatible client, used against Cloudflare R2 for encrypted
+		     chat attachment storage (R2 only ever sees ciphertext). -->
+		<dependency>
+			<groupId>software.amazon.awssdk</groupId>
+			<artifactId>s3</artifactId>
+			<version>2.46.18</version>
+		</dependency>
 	</dependencies>
 
 	<build>

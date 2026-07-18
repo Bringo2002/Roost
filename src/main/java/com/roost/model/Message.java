@@ -41,16 +41,24 @@ public class Message {
     private String nonce;
 
     /**
-     * Base64-encoded ciphertext of the attached file's raw bytes, encrypted
-     * the same way as [content]. Stored as TEXT (base64) rather than a
-     * binary column to keep this consistent with the rest of the schema;
-     * the server stores an opaque blob and can never read the file.
-     * MVP tradeoff: files live in Postgres, not object storage, so this
-     * is only suitable for small attachments (size-capped client- and
-     * server-side) -- worth moving to S3/Cloudinary/etc if usage grows.
+     * Object key for this attachment's encrypted bytes in Cloudflare R2
+     * (see R2StorageService) -- e.g. "attachments/&lt;uuid&gt;". Only a
+     * small reference lives in Postgres; the actual (still encrypted)
+     * file content lives in object storage.
      */
-    @Lob
     @Column(columnDefinition = "TEXT")
+    private String attachmentStorageKey;
+
+    /**
+     * Base64-encoded ciphertext of the attachment's raw bytes. NOT
+     * persisted -- this is populated on the way out (ChatController reads
+     * the bytes from R2 via [attachmentStorageKey] and base64-encodes
+     * them here) and read on the way in (ChatController uploads the
+     * decoded bytes to R2 and discards this field before saving). Kept as
+     * a real field, not a DTO, so the JSON wire shape for clients is
+     * unchanged from before this moved out of Postgres.
+     */
+    @Transient
     private String attachmentData;
 
     /** Nonce for [attachmentData]. Must differ from [nonce]. */
@@ -72,4 +80,8 @@ public class Message {
     private LocalDateTime timestamp = LocalDateTime.now();
 
     private boolean read = false;
+
+    public boolean hasAttachment() {
+        return attachmentStorageKey != null && !attachmentStorageKey.isBlank();
+    }
 }
