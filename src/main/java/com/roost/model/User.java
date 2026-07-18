@@ -32,6 +32,15 @@ public class User implements UserDetails {
     @Enumerated(EnumType.STRING)
     private Role role;
 
+    /**
+     * Base64-encoded X25519 public key, uploaded by the client for
+     * end-to-end encrypted messaging. The matching private key never
+     * leaves the user's device. Null until the user's app generates and
+     * uploads a keypair (e.g. on first login after this feature ships).
+     */
+    @Column(columnDefinition = "TEXT")
+    private String publicKey;
+
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
         return List.of(new SimpleGrantedAuthority(role.name()));

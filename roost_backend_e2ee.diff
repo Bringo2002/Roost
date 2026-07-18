@@ -1,0 +1,157 @@
+diff --git a/src/main/java/com/roost/controller/ChatController.java b/src/main/java/com/roost/controller/ChatController.java
+index f0d167d..8ba4291 100644
+--- a/src/main/java/com/roost/controller/ChatController.java
++++ b/src/main/java/com/roost/controller/ChatController.java
+@@ -35,8 +35,9 @@ public class ChatController {
+             return ResponseEntity.badRequest().body("Invalid recipientId");
+         }
+         String content = payload.get("content") != null ? payload.get("content").toString() : "";
+-        if (content.trim().isEmpty()) {
+-            return ResponseEntity.badRequest().body(Map.of("error", "Message content cannot be empty"));
++        String nonce = payload.get("nonce") != null ? payload.get("nonce").toString() : "";
++        if (content.trim().isEmpty() || nonce.trim().isEmpty()) {
++            return ResponseEntity.badRequest().body(Map.of("error", "Encrypted content and nonce are required"));
+         }
+ 
+         if (sender.getId().equals(recipientId)) {
+@@ -47,11 +48,15 @@ public class ChatController {
+         if (recipient == null) {
+             return ResponseEntity.badRequest().body(Map.of("error", "Recipient not found"));
+         }
++        if (recipient.getPublicKey() == null || recipient.getPublicKey().isBlank()) {
++            return ResponseEntity.badRequest().body(Map.of("error", "Recipient hasn't enabled secure messaging yet"));
++        }
+ 
+         Message message = new Message();
+         message.setSender(sender);
+         message.setRecipient(recipient);
+         message.setContent(content);
++        message.setNonce(nonce);
+         message.setTimestamp(LocalDateTime.now());
+ 
+         Message savedMessage = messageRepository.save(message);
+diff --git a/src/main/java/com/roost/controller/UserController.java b/src/main/java/com/roost/controller/UserController.java
+index 49a8054..8af70ea 100644
+--- a/src/main/java/com/roost/controller/UserController.java
++++ b/src/main/java/com/roost/controller/UserController.java
+@@ -2,17 +2,22 @@ package com.roost.controller;
+ 
+ import com.roost.dto.UserProfileResponse;
+ import com.roost.model.User;
++import com.roost.repository.UserRepository;
+ import lombok.RequiredArgsConstructor;
+ import org.springframework.http.ResponseEntity;
+ import org.springframework.security.core.annotation.AuthenticationPrincipal;
+ import org.springframework.web.bind.annotation.*;
+ 
++import java.util.Map;
++
+ @RestController
+ @RequestMapping("/api/users")
+ @RequiredArgsConstructor
+ @CrossOrigin(origins = "*")
+ public class UserController {
+ 
++    private final UserRepository userRepository;
++
+     @GetMapping("/me")
+     public ResponseEntity<UserProfileResponse> getCurrentUser(@AuthenticationPrincipal User user) {
+         return ResponseEntity.ok(
+@@ -21,7 +26,39 @@ public class UserController {
+                         .name(user.getName())
+                         .email(user.getEmail())
+                         .role(user.getRole())
++                        .publicKey(user.getPublicKey())
+                         .build()
+         );
+     }
++
++    /**
++     * Uploads (or replaces) the caller's X25519 public key for end-to-end
++     * encrypted messaging. Re-uploading — e.g. after a reinstall that
++     * generated a new local keypair — is allowed, but note that any
++     * messages encrypted under the old key will no longer be decryptable
++     * by this account; that's an inherent tradeoff of E2EE, not a bug.
++     */
++    @PutMapping("/public-key")
++    public ResponseEntity<?> setPublicKey(@AuthenticationPrincipal User user, @RequestBody Map<String, String> payload) {
++        if (user == null) return ResponseEntity.status(401).build();
++        String publicKey = payload.get("publicKey");
++        if (publicKey == null || publicKey.isBlank()) {
++            return ResponseEntity.badRequest().body(Map.of("error", "publicKey is required"));
++        }
++        user.setPublicKey(publicKey);
++        userRepository.save(user);
++        return ResponseEntity.ok(Map.of("status", "ok"));
++    }
++
++    /**
++     * Looks up another user's public key so the caller can encrypt a
++     * message to them. Returns null if that user hasn't uploaded one yet.
++     */
++    @GetMapping("/{id}/public-key")
++    public ResponseEntity<?> getPublicKey(@AuthenticationPrincipal User user, @PathVariable Long id) {
++        if (user == null) return ResponseEntity.status(401).build();
++        User target = userRepository.findById(id).orElse(null);
++        if (target == null) return ResponseEntity.notFound().build();
++        return ResponseEntity.ok(Map.of("publicKey", target.getPublicKey() == null ? "" : target.getPublicKey()));
++    }
+ }
+diff --git a/src/main/java/com/roost/dto/UserProfileResponse.java b/src/main/java/com/roost/dto/UserProfileResponse.java
+index 133370f..ac16d3d 100644
+--- a/src/main/java/com/roost/dto/UserProfileResponse.java
++++ b/src/main/java/com/roost/dto/UserProfileResponse.java
+@@ -15,4 +15,5 @@ public class UserProfileResponse {
+     private String name;
+     private String email;
+     private Role role;
++    private String publicKey;
+ }
+diff --git a/src/main/java/com/roost/model/Message.java b/src/main/java/com/roost/model/Message.java
+index 972b6e2..20180fd 100644
+--- a/src/main/java/com/roost/model/Message.java
++++ b/src/main/java/com/roost/model/Message.java
+@@ -23,9 +23,23 @@ public class Message {
+     @JoinColumn(name = "recipient_id", nullable = false)
+     private User recipient;
+ 
++    /**
++     * Base64-encoded ciphertext. Encrypted client-side with the sender's
++     * private key + recipient's public key (X25519 + ChaCha20-Poly1305) —
++     * the server never has the keys needed to read this.
++     */
+     @Column(columnDefinition = "TEXT", nullable = false)
+     private String content;
+ 
++    /**
++     * Base64-encoded nonce used for this message's encryption. Nullable
++     * only to avoid breaking any pre-existing plaintext rows on deploy;
++     * every message sent through the updated /api/chat endpoint will
++     * always include one.
++     */
++    @Column(columnDefinition = "TEXT")
++    private String nonce;
++
+     private LocalDateTime timestamp = LocalDateTime.now();
+ 
+     private boolean read = false;
+diff --git a/src/main/java/com/roost/model/User.java b/src/main/java/com/roost/model/User.java
+index 32f4a8d..8a7c25c 100644
+--- a/src/main/java/com/roost/model/User.java
++++ b/src/main/java/com/roost/model/User.java
+@@ -32,6 +32,15 @@ public class User implements UserDetails {
+     @Enumerated(EnumType.STRING)
+     private Role role;
+ 
++    /**
++     * Base64-encoded X25519 public key, uploaded by the client for
++     * end-to-end encrypted messaging. The matching private key never
++     * leaves the user's device. Null until the user's app generates and
++     * uploads a keypair (e.g. on first login after this feature ships).
++     */
++    @Column(columnDefinition = "TEXT")
++    private String publicKey;
++
+     @Override
+     public Collection<? extends GrantedAuthority> getAuthorities() {
+         return List.of(new SimpleGrantedAuthority(role.name()));

@@ -35,8 +35,9 @@ public class ChatController {
             return ResponseEntity.badRequest().body("Invalid recipientId");
         }
         String content = payload.get("content") != null ? payload.get("content").toString() : "";
-        if (content.trim().isEmpty()) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Message content cannot be empty"));
+        String nonce = payload.get("nonce") != null ? payload.get("nonce").toString() : "";
+        if (content.trim().isEmpty() || nonce.trim().isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Encrypted content and nonce are required"));
         }
 
         if (sender.getId().equals(recipientId)) {
@@ -47,11 +48,15 @@ public class ChatController {
         if (recipient == null) {
             return ResponseEntity.badRequest().body(Map.of("error", "Recipient not found"));
         }
+        if (recipient.getPublicKey() == null || recipient.getPublicKey().isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Recipient hasn't enabled secure messaging yet"));
+        }
 
         Message message = new Message();
         message.setSender(sender);
         message.setRecipient(recipient);
         message.setContent(content);
+        message.setNonce(nonce);
         message.setTimestamp(LocalDateTime.now());
 
         Message savedMessage = messageRepository.save(message);
