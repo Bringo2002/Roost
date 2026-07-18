@@ -27,6 +27,30 @@ public class UserController {
                         .email(user.getEmail())
                         .role(user.getRole())
                         .publicKey(user.getPublicKey())
+                        .lastActiveAt(user.getLastActiveAt())
+                        .build()
+        );
+    }
+
+    /**
+     * Looks up another user's basic profile -- used by the chat UI to
+     * show and refresh online / last-seen status for a conversation
+     * partner. Same fields already visible via /api/chat/active and
+     * message sender/recipient objects; this just adds a way to fetch
+     * them for a specific id without depending on message history.
+     */
+    @GetMapping("/{id}")
+    public ResponseEntity<UserProfileResponse> getUserProfile(@AuthenticationPrincipal User user, @PathVariable Long id) {
+        if (user == null) return ResponseEntity.status(401).build();
+        User target = userRepository.findById(id).orElse(null);
+        if (target == null) return ResponseEntity.notFound().build();
+        return ResponseEntity.ok(
+                UserProfileResponse.builder()
+                        .id(target.getId())
+                        .name(target.getName())
+                        .email(target.getEmail())
+                        .role(target.getRole())
+                        .lastActiveAt(target.getLastActiveAt())
                         .build()
         );
     }

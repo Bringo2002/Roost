@@ -24,6 +24,9 @@ public class ChatController {
     @Autowired
     private UserRepository userRepository;
 
+    /** Base64 attachment payload cap (~5MB raw file after base64 overhead). */
+    private static final int MAX_ATTACHMENT_BASE64_CHARS = 7_000_000;
+
     @PostMapping
     public ResponseEntity<?> sendMessage(@AuthenticationPrincipal User sender, @RequestBody Map<String, Object> payload) {
         if (sender == null) return ResponseEntity.status(401).build();
@@ -34,10 +37,25 @@ public class ChatController {
         } catch (Exception e) {
             return ResponseEntity.badRequest().body("Invalid recipientId");
         }
-        String content = payload.get("content") != null ? payload.get("content").toString() : "";
-        String nonce = payload.get("nonce") != null ? payload.get("nonce").toString() : "";
-        if (content.trim().isEmpty() || nonce.trim().isEmpty()) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Encrypted content and nonce are required"));
+
+        String content = stringOrNull(payload.get("content"));
+        String nonce = stringOrNull(payload.get("nonce"));
+        String attachmentData = stringOrNull(payload.get("attachmentData"));
+        String attachmentNonce = stringOrNull(payload.get("attachmentNonce"));
+        String attachmentMeta = stringOrNull(payload.get("attachmentMeta"));
+        String attachmentMetaNonce = stringOrNull(payload.get("attachmentMetaNonce"));
+
+        boolean hasContent = content != null && !content.isBlank() && nonce != null && !nonce.isBlank();
+        boolean hasAttachment = attachmentData != null && !attachmentData.isBlank()
+                && attachmentNonce != null && !attachmentNonce.isBlank()
+                && attachmentMeta != null && !attachmentMeta.isBlank()
+                && attachmentMetaNonce != null && !attachmentMetaNonce.isBlank();
+
+        if (!hasContent && !hasAttachment) {
+            return ResponseEntity.badRequest().body(Map.of("error", "A message needs encrypted content, an attachment, or both"));
+        }
+        if (hasAttachment && attachmentData.length() > MAX_ATTACHMENT_BASE64_CHARS) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Attachment is too large"));
         }
 
         if (sender.getId().equals(recipientId)) {
@@ -55,12 +73,24 @@ public class ChatController {
         Message message = new Message();
         message.setSender(sender);
         message.setRecipient(recipient);
-        message.setContent(content);
-        message.setNonce(nonce);
+        if (hasContent) {
+            message.setContent(content);
+            message.setNonce(nonce);
+        }
+        if (hasAttachment) {
+            message.setAttachmentData(attachmentData);
+            message.setAttachmentNonce(attachmentNonce);
+            message.setAttachmentMeta(attachmentMeta);
+            message.setAttachmentMetaNonce(attachmentMetaNonce);
+        }
         message.setTimestamp(LocalDateTime.now());
 
         Message savedMessage = messageRepository.save(message);
         return ResponseEntity.ok(savedMessage);
+    }
+
+    private static String stringOrNull(Object value) {
+        return value != null ? value.toString() : null;
     }
 
     @GetMapping("/history/{userId}")

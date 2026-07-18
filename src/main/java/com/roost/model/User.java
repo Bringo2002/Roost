@@ -41,6 +41,13 @@ public class User implements UserDetails {
     @Column(columnDefinition = "TEXT")
     private String publicKey;
 
+    /**
+     * Updated automatically by JwtAuthenticationFilter on authenticated
+     * requests (throttled). Used to derive "online" / "last seen" status
+     * -- there's no separate heartbeat call from the client.
+     */
+    private java.time.LocalDateTime lastActiveAt;
+
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
         return List.of(new SimpleGrantedAuthority(role.name()));
