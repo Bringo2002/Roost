@@ -17,7 +17,7 @@ public class Message {
     private Long replyToMessageId;
 
     @Column
-    private boolean edited = false;
+    private Boolean edited = false;
 
     @Column
     private LocalDateTime editedAt;
@@ -56,7 +56,7 @@ public class Message {
 
     private LocalDateTime timestamp = LocalDateTime.now();
 
-    private boolean read = false;
+    private Boolean read = false;
 
     public Message() {}
 
@@ -77,10 +77,10 @@ public class Message {
     }
 
     public boolean isEdited() {
-        return edited;
+        return edited != null && edited;
     }
 
-    public void setEdited(boolean edited) {
+    public void setEdited(Boolean edited) {
         this.edited = edited;
     }
 
@@ -181,10 +181,10 @@ public class Message {
     }
 
     public boolean isRead() {
-        return read;
+        return read != null && read;
     }
 
-    public void setRead(boolean read) {
+    public void setRead(Boolean read) {
         this.read = read;
     }
 
