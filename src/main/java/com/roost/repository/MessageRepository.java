@@ -23,4 +23,10 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
 
     @Query("SELECT m FROM Message m WHERE m.sender = :sender AND m.recipient = :recipient AND m.read = false")
     List<Message> findUnreadFromUser(@Param("sender") User sender, @Param("recipient") User recipient);
+
+    @Query("SELECT m FROM Message m WHERE m.id = (SELECT MAX(m2.id) FROM Message m2 WHERE (m2.sender = :user AND m2.recipient = :partner) OR (m2.sender = :partner AND m2.recipient = :user))")
+    Message findLastMessage(@Param("user") User user, @Param("partner") User partner);
+
+    @Query("SELECT COUNT(m) FROM Message m WHERE m.sender = :sender AND m.recipient = :recipient AND m.read = false")
+    Long countUnreadFromUser(@Param("sender") User sender, @Param("recipient") User recipient);
 }

@@ -1,17 +1,13 @@
 package com.roost.model;
 
 import jakarta.persistence.*;
-import lombok.Getter;
-import lombok.Setter;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
-
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 
-@Getter
-@Setter
 @Entity
 @Table(name = "users")
 public class User implements UserDetails {
@@ -32,21 +28,78 @@ public class User implements UserDetails {
     @Enumerated(EnumType.STRING)
     private Role role;
 
-    /**
-     * Base64-encoded X25519 public key, uploaded by the client for
-     * end-to-end encrypted messaging. The matching private key never
-     * leaves the user's device. Null until the user's app generates and
-     * uploads a keypair (e.g. on first login after this feature ships).
-     */
     @Column(columnDefinition = "TEXT")
     private String publicKey;
 
-    /**
-     * Updated automatically by JwtAuthenticationFilter on authenticated
-     * requests (throttled). Used to derive "online" / "last seen" status
-     * -- there's no separate heartbeat call from the client.
-     */
-    private java.time.LocalDateTime lastActiveAt;
+    private LocalDateTime lastActiveAt;
+
+    public User() {}
+
+    public User(Long id, String name, String email, String password, Role role, String publicKey, LocalDateTime lastActiveAt) {
+        this.id = id;
+        this.name = name;
+        this.email = email;
+        this.password = password;
+        this.role = role;
+        this.publicKey = publicKey;
+        this.lastActiveAt = lastActiveAt;
+    }
+
+    public Long getId() {
+        return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public String getEmail() {
+        return email;
+    }
+
+    public void setEmail(String email) {
+        this.email = email;
+    }
+
+    public String getPassword() {
+        return password;
+    }
+
+    public void setPassword(String password) {
+        this.password = password;
+    }
+
+    public Role getRole() {
+        return role;
+    }
+
+    public void setRole(Role role) {
+        this.role = role;
+    }
+
+    public String getPublicKey() {
+        return publicKey;
+    }
+
+    public void setPublicKey(String publicKey) {
+        this.publicKey = publicKey;
+    }
+
+    public LocalDateTime getLastActiveAt() {
+        return lastActiveAt;
+    }
+
+    public void setLastActiveAt(LocalDateTime lastActiveAt) {
+        this.lastActiveAt = lastActiveAt;
+    }
 
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {

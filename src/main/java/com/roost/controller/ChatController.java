@@ -1,7 +1,10 @@
 package com.roost.controller;
 
+import com.roost.dto.ConversationSummaryDto;
 import com.roost.model.Message;
+import com.roost.model.MessageReaction;
 import com.roost.model.User;
+import com.roost.repository.MessageReactionRepository;
 import com.roost.repository.MessageRepository;
 import com.roost.repository.UserRepository;
 import com.roost.service.R2StorageService;
@@ -29,8 +32,13 @@ public class ChatController {
     @Autowired
     private R2StorageService r2StorageService;
 
+    @Autowired
+    private MessageReactionRepository reactionRepository;
+
     /** Base64 attachment payload cap (~5MB raw file after base64 overhead). */
     private static final int MAX_ATTACHMENT_BASE64_CHARS = 7_000_000;
+
+    private static final java.util.concurrent.ConcurrentHashMap<String, LocalDateTime> typingTimestamps = new java.util.concurrent.ConcurrentHashMap<>();
 
     @PostMapping
     public ResponseEntity<?> sendMessage(@AuthenticationPrincipal User sender, @RequestBody Map<String, Object> payload) {
@@ -109,6 +117,13 @@ public class ChatController {
         }
         message.setTimestamp(LocalDateTime.now());
 
+        Object replyToIdObj = payload.get("replyToMessageId");
+        if (replyToIdObj != null) {
+            try {
+                message.setReplyToMessageId(Long.valueOf(replyToIdObj.toString()));
+            } catch (NumberFormatException ignored) {}
+        }
+
         Message savedMessage = messageRepository.save(message);
         if (hasAttachment) {
             // Not persisted (attachmentData is @Transient) -- populate it
@@ -174,5 +189,110 @@ public class ChatController {
         }
         messageRepository.saveAll(unread);
         return ResponseEntity.ok(Map.of("marked", unread.size()));
+    }
+
+    @PutMapping("/{messageId}")
+    public ResponseEntity<?> editMessage(@AuthenticationPrincipal User user, @PathVariable Long messageId, @RequestBody Map<String, Object> payload) {
+        if (user == null) return ResponseEntity.status(401).build();
+        Message message = messageRepository.findById(messageId).orElse(null);
+        if (message == null) return ResponseEntity.notFound().build();
+        if (!message.getSender().getId().equals(user.getId())) {
+            return ResponseEntity.status(403).body(Map.of("error", "You can only edit your own messages"));
+        }
+        String content = stringOrNull(payload.get("content"));
+        String nonce = stringOrNull(payload.get("nonce"));
+        if (content == null || content.isBlank() || nonce == null || nonce.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Edited content and nonce are required"));
+        }
+        message.setContent(content);
+        message.setNonce(nonce);
+        message.setEdited(true);
+        message.setEditedAt(LocalDateTime.now());
+        return ResponseEntity.ok(messageRepository.save(message));
+    }
+
+    @DeleteMapping("/{messageId}")
+    public ResponseEntity<?> deleteMessage(@AuthenticationPrincipal User user, @PathVariable Long messageId) {
+        if (user == null) return ResponseEntity.status(401).build();
+        Message message = messageRepository.findById(messageId).orElse(null);
+        if (message == null) return ResponseEntity.notFound().build();
+        if (!message.getSender().getId().equals(user.getId()) && !message.getRecipient().getId().equals(user.getId())) {
+            return ResponseEntity.status(403).body(Map.of("error", "You can only delete messages in your conversations"));
+        }
+        if (message.hasAttachment()) {
+            try { r2StorageService.delete(message.getAttachmentStorageKey()); } catch (Exception ignored) {}
+        }
+        messageRepository.delete(message);
+        return ResponseEntity.ok(Map.of("deleted", true));
+    }
+
+    @GetMapping("/conversations")
+    public ResponseEntity<List<ConversationSummaryDto>> getConversations(@AuthenticationPrincipal User user) {
+        if (user == null) return ResponseEntity.status(401).build();
+        List<User> partners = messageRepository.findActiveChatPartners(user);
+        List<ConversationSummaryDto> summaries = new java.util.ArrayList<>();
+        for (User partner : partners) {
+            Message lastMsg = messageRepository.findLastMessage(user, partner);
+            Long unread = messageRepository.countUnreadFromUser(partner, user);
+            ConversationSummaryDto dto = new ConversationSummaryDto();
+            dto.setPartner(partner);
+            dto.setUnreadCount(unread != null ? unread : 0);
+            if (lastMsg != null) {
+                dto.setLastMessageContent(lastMsg.getContent());
+                dto.setLastMessageNonce(lastMsg.getNonce());
+                dto.setLastMessageTimestamp(lastMsg.getTimestamp());
+                dto.setLastMessageSenderId(lastMsg.getSender().getId());
+                dto.setLastMessageAttachmentMeta(lastMsg.getAttachmentMeta());
+                dto.setLastMessageAttachmentMetaNonce(lastMsg.getAttachmentMetaNonce());
+                dto.setHasAttachment(lastMsg.hasAttachment());
+            }
+            summaries.add(dto);
+        }
+        summaries.sort((a, b) -> {
+            if (a.getLastMessageTimestamp() == null && b.getLastMessageTimestamp() == null) return 0;
+            if (a.getLastMessageTimestamp() == null) return 1;
+            if (b.getLastMessageTimestamp() == null) return -1;
+            return b.getLastMessageTimestamp().compareTo(a.getLastMessageTimestamp());
+        });
+        return ResponseEntity.ok(summaries);
+    }
+
+    @PostMapping("/react/{messageId}")
+    public ResponseEntity<?> toggleReaction(@AuthenticationPrincipal User user, @PathVariable Long messageId, @RequestBody Map<String, String> payload) {
+        if (user == null) return ResponseEntity.status(401).build();
+        Message message = messageRepository.findById(messageId).orElse(null);
+        if (message == null) return ResponseEntity.notFound().build();
+        if (!message.getSender().getId().equals(user.getId()) && !message.getRecipient().getId().equals(user.getId())) {
+            return ResponseEntity.status(403).body(Map.of("error", "Not a participant"));
+        }
+        String emoji = payload.get("emoji");
+        if (emoji == null || emoji.isBlank()) return ResponseEntity.badRequest().body(Map.of("error", "emoji required"));
+        var existing = reactionRepository.findByMessageAndUserAndEmoji(message, user, emoji);
+        if (existing.isPresent()) {
+            reactionRepository.delete(existing.get());
+            return ResponseEntity.ok(Map.of("action", "removed"));
+        }
+        MessageReaction reaction = new MessageReaction();
+        reaction.setMessage(message);
+        reaction.setUser(user);
+        reaction.setEmoji(emoji);
+        reactionRepository.save(reaction);
+        return ResponseEntity.ok(Map.of("action", "added"));
+    }
+
+    @PostMapping("/typing/{recipientId}")
+    public ResponseEntity<?> sendTypingIndicator(@AuthenticationPrincipal User user, @PathVariable Long recipientId) {
+        if (user == null) return ResponseEntity.status(401).build();
+        typingTimestamps.put(user.getId() + "->" + recipientId, LocalDateTime.now());
+        return ResponseEntity.ok().build();
+    }
+
+    @GetMapping("/typing-status/{partnerId}")
+    public ResponseEntity<?> getTypingStatus(@AuthenticationPrincipal User user, @PathVariable Long partnerId) {
+        if (user == null) return ResponseEntity.status(401).build();
+        String key = partnerId + "->" + user.getId();
+        LocalDateTime lastTyped = typingTimestamps.get(key);
+        boolean isTyping = lastTyped != null && lastTyped.isAfter(LocalDateTime.now().minusSeconds(4));
+        return ResponseEntity.ok(Map.of("typing", isTyping));
     }
 }
