@@ -2,8 +2,8 @@ package com.roost.config;
 
 import com.roost.model.Property;
 import com.roost.repository.PropertyRepository;
-import org.slf.Logger;
-import org.slf.LoggerFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Component;
 

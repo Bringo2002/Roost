@@ -2,8 +2,8 @@ package com.roost.service;
 
 import com.roost.model.Property;
 import com.roost.repository.PropertyRepository;
-import org.slf.Logger;
-import org.slf.LoggerFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
