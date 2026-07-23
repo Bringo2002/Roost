@@ -7,16 +7,20 @@ public class UserProfileResponse {
     private Long id;
     private String name;
     private String email;
+    private String phone;
+    private boolean phoneVerified;
     private Role role;
     private String publicKey;
     private LocalDateTime lastActiveAt;
 
     public UserProfileResponse() {}
 
-    public UserProfileResponse(Long id, String name, String email, Role role, String publicKey, LocalDateTime lastActiveAt) {
+    public UserProfileResponse(Long id, String name, String email, String phone, boolean phoneVerified, Role role, String publicKey, LocalDateTime lastActiveAt) {
         this.id = id;
         this.name = name;
         this.email = email;
+        this.phone = phone;
+        this.phoneVerified = phoneVerified;
         this.role = role;
         this.publicKey = publicKey;
         this.lastActiveAt = lastActiveAt;
@@ -44,6 +48,22 @@ public class UserProfileResponse {
 
     public void setEmail(String email) {
         this.email = email;
+    }
+
+    public String getPhone() {
+        return phone;
+    }
+
+    public void setPhone(String phone) {
+        this.phone = phone;
+    }
+
+    public boolean isPhoneVerified() {
+        return phoneVerified;
+    }
+
+    public void setPhoneVerified(boolean phoneVerified) {
+        this.phoneVerified = phoneVerified;
     }
 
     public Role getRole() {
@@ -78,6 +98,8 @@ public class UserProfileResponse {
         private Long id;
         private String name;
         private String email;
+        private String phone;
+        private boolean phoneVerified;
         private Role role;
         private String publicKey;
         private LocalDateTime lastActiveAt;
@@ -97,6 +119,16 @@ public class UserProfileResponse {
             return this;
         }
 
+        public Builder phone(String phone) {
+            this.phone = phone;
+            return this;
+        }
+
+        public Builder phoneVerified(boolean phoneVerified) {
+            this.phoneVerified = phoneVerified;
+            return this;
+        }
+
         public Builder role(Role role) {
             this.role = role;
             return this;
@@ -113,7 +145,7 @@ public class UserProfileResponse {
         }
 
         public UserProfileResponse build() {
-            return new UserProfileResponse(id, name, email, role, publicKey, lastActiveAt);
+            return new UserProfileResponse(id, name, email, phone, phoneVerified, role, publicKey, lastActiveAt);
         }
     }
 }

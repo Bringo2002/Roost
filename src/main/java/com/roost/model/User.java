@@ -6,7 +6,9 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 import java.time.LocalDateTime;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 @Entity
 @Table(name = "users")
@@ -21,6 +23,8 @@ public class User implements UserDetails {
     @Column(unique = true, nullable = false)
     private String email;
 
+    private String phone;
+
     @Column(nullable = false)
     @com.fasterxml.jackson.annotation.JsonIgnore
     private String password;
@@ -32,6 +36,13 @@ public class User implements UserDetails {
     private String publicKey;
 
     private LocalDateTime lastActiveAt;
+
+    private boolean phoneVerified = false;
+
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "user_saved_properties", joinColumns = @JoinColumn(name = "user_id"))
+    @Column(name = "property_id")
+    private Set<Long> savedPropertyIds = new HashSet<>();
 
     public User() {}
 
@@ -69,6 +80,14 @@ public class User implements UserDetails {
         this.email = email;
     }
 
+    public String getPhone() {
+        return phone;
+    }
+
+    public void setPhone(String phone) {
+        this.phone = phone;
+    }
+
     public String getPassword() {
         return password;
     }
@@ -101,9 +120,25 @@ public class User implements UserDetails {
         this.lastActiveAt = lastActiveAt;
     }
 
+    public boolean isPhoneVerified() {
+        return phoneVerified;
+    }
+
+    public void setPhoneVerified(boolean phoneVerified) {
+        this.phoneVerified = phoneVerified;
+    }
+
+    public Set<Long> getSavedPropertyIds() {
+        return savedPropertyIds;
+    }
+
+    public void setSavedPropertyIds(Set<Long> savedPropertyIds) {
+        this.savedPropertyIds = savedPropertyIds;
+    }
+
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
-        return List.of(new SimpleGrantedAuthority(role.name()));
+        return List.of(new SimpleGrantedAuthority(role != null ? role.name() : Role.TENANT.name()));
     }
 
     @Override

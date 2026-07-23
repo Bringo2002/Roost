@@ -3,6 +3,7 @@ package com.roost.controller;
 import com.roost.dto.AuthRequest;
 import com.roost.dto.AuthResponse;
 import com.roost.dto.SignupRequest;
+import com.roost.dto.UserProfileResponse;
 import com.roost.model.Role;
 import com.roost.model.User;
 import com.roost.repository.UserRepository;
@@ -10,8 +11,11 @@ import com.roost.security.JwtService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -30,7 +34,7 @@ public class AuthController {
         this.authenticationManager = authenticationManager;
     }
 
-    @PostMapping("/signup")
+    @PostMapping({"/signup", "/register"})
     public ResponseEntity<AuthResponse> signup(@RequestBody SignupRequest request) {
         if (userRepository.findByEmail(request.getEmail()).isPresent()) {
             throw new RuntimeException("Email is already in use.");
@@ -39,6 +43,7 @@ public class AuthController {
         var user = new User();
         user.setName(request.getName());
         user.setEmail(request.getEmail());
+        user.setPhone(request.getPhone());
         user.setPassword(passwordEncoder.encode(request.getPassword()));
         user.setRole(request.getRole() != null ? request.getRole() : Role.TENANT);
         userRepository.save(user);
@@ -59,5 +64,50 @@ public class AuthController {
                 .orElseThrow(() -> new RuntimeException("User not found"));
         var jwtToken = jwtService.generateToken(user);
         return ResponseEntity.ok(AuthResponse.builder().token(jwtToken).build());
+    }
+
+    @GetMapping("/me")
+    public ResponseEntity<UserProfileResponse> getCurrentUser(@AuthenticationPrincipal User user) {
+        if (user == null) return ResponseEntity.status(401).build();
+        return ResponseEntity.ok(
+                UserProfileResponse.builder()
+                        .id(user.getId())
+                        .name(user.getName())
+                        .email(user.getEmail())
+                        .phone(user.getPhone())
+                        .phoneVerified(user.isPhoneVerified())
+                        .role(user.getRole())
+                        .publicKey(user.getPublicKey())
+                        .lastActiveAt(user.getLastActiveAt())
+                        .build()
+        );
+    }
+
+    @PutMapping("/me")
+    public ResponseEntity<UserProfileResponse> updateCurrentUser(@AuthenticationPrincipal User user, @RequestBody Map<String, String> body) {
+        if (user == null) return ResponseEntity.status(401).build();
+        if (body.containsKey("name")) user.setName(body.get("name"));
+        if (body.containsKey("phone")) user.setPhone(body.get("phone"));
+        userRepository.save(user);
+        return ResponseEntity.ok(
+                UserProfileResponse.builder()
+                        .id(user.getId())
+                        .name(user.getName())
+                        .email(user.getEmail())
+                        .phone(user.getPhone())
+                        .phoneVerified(user.isPhoneVerified())
+                        .role(user.getRole())
+                        .publicKey(user.getPublicKey())
+                        .lastActiveAt(user.getLastActiveAt())
+                        .build()
+        );
+    }
+
+    @PostMapping("/verify-phone")
+    public ResponseEntity<?> verifyPhone(@AuthenticationPrincipal User user, @RequestBody(required = false) Map<String, String> body) {
+        if (user == null) return ResponseEntity.status(401).build();
+        user.setPhoneVerified(true);
+        userRepository.save(user);
+        return ResponseEntity.ok(Map.of("message", "Phone verified successfully"));
     }
 }

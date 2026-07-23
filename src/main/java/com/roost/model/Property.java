@@ -1,6 +1,7 @@
 package com.roost.model;
 
 import jakarta.persistence.*;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -17,8 +18,10 @@ public class Property {
     private double price;
     private int bedrooms;
     private String type; // rental, sale, airbnb
-    private boolean available;
+    private boolean available = true;
     private String landlordPhone;
+    private String landlordName;
+    private String landlordId;
 
     @Column(columnDefinition = "TEXT")
     private String description;
@@ -34,6 +37,24 @@ public class Property {
     private Double longitude;
 
     private String videoUrl;
+
+    private String houseType; // BEDSITTER, STUDIO, 1BR, 2BR, 3BR
+    private int bathrooms;
+    private boolean furnished;
+    private boolean parking;
+    private boolean water;
+    private boolean wifi;
+    private boolean security;
+    private boolean petFriendly;
+    private boolean balcony;
+    private String deposit;
+    private String moveInDate;
+
+    private LocalDateTime listedAt = LocalDateTime.now();
+    private LocalDateTime lastConfirmedAt = LocalDateTime.now();
+
+    private int viewCount = 0;
+    private int saveCount = 0;
 
     @ElementCollection
     @CollectionTable(name = "property_image_urls", joinColumns = @JoinColumn(name = "property_id"))
@@ -116,6 +137,22 @@ public class Property {
         this.landlordPhone = landlordPhone;
     }
 
+    public String getLandlordName() {
+        return landlordName;
+    }
+
+    public void setLandlordName(String landlordName) {
+        this.landlordName = landlordName;
+    }
+
+    public String getLandlordId() {
+        return landlordId;
+    }
+
+    public void setLandlordId(String landlordId) {
+        this.landlordId = landlordId;
+    }
+
     public String getDescription() {
         return description;
     }
@@ -170,6 +207,126 @@ public class Property {
 
     public void setVideoUrl(String videoUrl) {
         this.videoUrl = videoUrl;
+    }
+
+    public String getHouseType() {
+        return houseType;
+    }
+
+    public void setHouseType(String houseType) {
+        this.houseType = houseType;
+    }
+
+    public int getBathrooms() {
+        return bathrooms;
+    }
+
+    public void setBathrooms(int bathrooms) {
+        this.bathrooms = bathrooms;
+    }
+
+    public boolean isFurnished() {
+        return furnished;
+    }
+
+    public void setFurnished(boolean furnished) {
+        this.furnished = furnished;
+    }
+
+    public boolean isParking() {
+        return parking;
+    }
+
+    public void setParking(boolean parking) {
+        this.parking = parking;
+    }
+
+    public boolean isWater() {
+        return water;
+    }
+
+    public void setWater(boolean water) {
+        this.water = water;
+    }
+
+    public boolean isWifi() {
+        return wifi;
+    }
+
+    public void setWifi(boolean wifi) {
+        this.wifi = wifi;
+    }
+
+    public boolean isSecurity() {
+        return security;
+    }
+
+    public void setSecurity(boolean security) {
+        this.security = security;
+    }
+
+    public boolean isPetFriendly() {
+        return petFriendly;
+    }
+
+    public void setPetFriendly(boolean petFriendly) {
+        this.petFriendly = petFriendly;
+    }
+
+    public boolean isBalcony() {
+        return balcony;
+    }
+
+    public void setBalcony(boolean balcony) {
+        this.balcony = balcony;
+    }
+
+    public String getDeposit() {
+        return deposit;
+    }
+
+    public void setDeposit(String deposit) {
+        this.deposit = deposit;
+    }
+
+    public String getMoveInDate() {
+        return moveInDate;
+    }
+
+    public void setMoveInDate(String moveInDate) {
+        this.moveInDate = moveInDate;
+    }
+
+    public LocalDateTime getListedAt() {
+        return listedAt;
+    }
+
+    public void setListedAt(LocalDateTime listedAt) {
+        this.listedAt = listedAt;
+    }
+
+    public LocalDateTime getLastConfirmedAt() {
+        return lastConfirmedAt;
+    }
+
+    public void setLastConfirmedAt(LocalDateTime lastConfirmedAt) {
+        this.lastConfirmedAt = lastConfirmedAt;
+    }
+
+    public int getViewCount() {
+        return viewCount;
+    }
+
+    public void setViewCount(int viewCount) {
+        this.viewCount = viewCount;
+    }
+
+    public int getSaveCount() {
+        return saveCount;
+    }
+
+    public void setSaveCount(int saveCount) {
+        this.saveCount = saveCount;
     }
 
     public List<String> getImageUrls() {

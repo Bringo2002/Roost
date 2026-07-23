@@ -5,14 +5,16 @@ import com.roost.model.Role;
 public class SignupRequest {
     private String name;
     private String email;
+    private String phone;
     private String password;
     private Role role;
 
     public SignupRequest() {}
 
-    public SignupRequest(String name, String email, String password, Role role) {
+    public SignupRequest(String name, String email, String phone, String password, Role role) {
         this.name = name;
         this.email = email;
+        this.phone = phone;
         this.password = password;
         this.role = role;
     }
@@ -31,6 +33,14 @@ public class SignupRequest {
 
     public void setEmail(String email) {
         this.email = email;
+    }
+
+    public String getPhone() {
+        return phone;
+    }
+
+    public void setPhone(String phone) {
+        this.phone = phone;
     }
 
     public String getPassword() {
@@ -56,6 +66,7 @@ public class SignupRequest {
     public static class Builder {
         private String name;
         private String email;
+        private String phone;
         private String password;
         private Role role;
 
@@ -66,6 +77,11 @@ public class SignupRequest {
 
         public Builder email(String email) {
             this.email = email;
+            return this;
+        }
+
+        public Builder phone(String phone) {
+            this.phone = phone;
             return this;
         }
 
@@ -80,7 +96,7 @@ public class SignupRequest {
         }
 
         public SignupRequest build() {
-            return new SignupRequest(name, email, password, role);
+            return new SignupRequest(name, email, phone, password, role);
         }
     }
 }
