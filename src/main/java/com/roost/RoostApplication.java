@@ -21,12 +21,13 @@ public class RoostApplication {
 		if (dbUrl != null && !dbUrl.isEmpty()) {
 			if (dbUrl.startsWith("postgres://")) {
 				dbUrl = "jdbc:postgresql://" + dbUrl.substring("postgres://".length());
-				System.setProperty("spring.datasource.url", dbUrl);
 			} else if (dbUrl.startsWith("postgresql://")) {
 				dbUrl = "jdbc:postgresql://" + dbUrl.substring("postgresql://".length());
-				System.setProperty("spring.datasource.url", dbUrl);
 			}
+			System.setProperty("SPRING_DATASOURCE_URL", dbUrl);
+			System.setProperty("spring.datasource.url", dbUrl);
 		}
 	}
 }
+
 
