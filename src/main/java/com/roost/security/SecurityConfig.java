@@ -33,8 +33,9 @@ public class SecurityConfig {
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/auth/**").permitAll()
-                // Require auth for all property endpoints except GET
+                // Require auth for all property endpoints except GET and POST report
                 .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/properties/**").permitAll()
+                .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/properties/*/report").permitAll()
                 .anyRequest().authenticated()
             )
             .sessionManagement(sess -> sess.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
