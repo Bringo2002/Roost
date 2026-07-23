@@ -139,6 +139,7 @@ public class PropertyService {
         existing.setMoveInDate(updated.getMoveInDate());
         existing.setImageUrls(updated.getImageUrls());
         existing.setVideoUrl(updated.getVideoUrl());
+        if (updated.getCountry() != null) existing.setCountry(updated.getCountry());
         existing.setLastConfirmedAt(LocalDateTime.now());
         return propertyRepository.save(existing);
     }

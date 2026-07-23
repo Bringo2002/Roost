@@ -49,6 +49,7 @@ public class Property {
     private boolean balcony;
     private String deposit;
     private String moveInDate;
+    private String country = "KE";
 
     private LocalDateTime listedAt = LocalDateTime.now();
     private LocalDateTime lastConfirmedAt = LocalDateTime.now();
@@ -295,6 +296,14 @@ public class Property {
 
     public void setMoveInDate(String moveInDate) {
         this.moveInDate = moveInDate;
+    }
+
+    public String getCountry() {
+        return country;
+    }
+
+    public void setCountry(String country) {
+        this.country = country;
     }
 
     public LocalDateTime getListedAt() {
