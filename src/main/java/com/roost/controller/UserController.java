@@ -5,6 +5,7 @@ import com.roost.model.User;
 import com.roost.repository.UserRepository;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
@@ -15,9 +16,11 @@ import java.util.Map;
 public class UserController {
 
     private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
 
-    public UserController(UserRepository userRepository) {
+    public UserController(UserRepository userRepository, PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
+        this.passwordEncoder = passwordEncoder;
     }
 
     @GetMapping("/me")
@@ -93,5 +96,34 @@ public class UserController {
         User target = userRepository.findById(id).orElse(null);
         if (target == null) return ResponseEntity.notFound().build();
         return ResponseEntity.ok(Map.of("publicKey", target.getPublicKey() == null ? "" : target.getPublicKey()));
+    }
+
+    @PostMapping({"/me/change-password", "/change-password"})
+    public ResponseEntity<?> changePassword(@AuthenticationPrincipal User user, @RequestBody Map<String, String> payload) {
+        if (user == null) return ResponseEntity.status(401).build();
+
+        String currentPassword = payload.get("currentPassword");
+        if (currentPassword == null) currentPassword = payload.get("oldPassword");
+        String newPassword = payload.get("newPassword");
+        if (newPassword == null) newPassword = payload.get("password");
+
+        if (currentPassword == null || currentPassword.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Current password is required"));
+        }
+        if (newPassword == null || newPassword.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "New password is required"));
+        }
+        if (newPassword.length() < 6) {
+            return ResponseEntity.badRequest().body(Map.of("error", "New password must be at least 6 characters long"));
+        }
+
+        if (!passwordEncoder.matches(currentPassword, user.getPassword())) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Current password is incorrect"));
+        }
+
+        user.setPassword(passwordEncoder.encode(newPassword));
+        userRepository.save(user);
+
+        return ResponseEntity.ok(Map.of("message", "Password updated successfully"));
     }
 }

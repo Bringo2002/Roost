@@ -110,4 +110,33 @@ public class AuthController {
         userRepository.save(user);
         return ResponseEntity.ok(Map.of("message", "Phone verified successfully"));
     }
+
+    @PostMapping("/change-password")
+    public ResponseEntity<?> changePassword(@AuthenticationPrincipal User user, @RequestBody Map<String, String> payload) {
+        if (user == null) return ResponseEntity.status(401).build();
+
+        String currentPassword = payload.get("currentPassword");
+        if (currentPassword == null) currentPassword = payload.get("oldPassword");
+        String newPassword = payload.get("newPassword");
+        if (newPassword == null) newPassword = payload.get("password");
+
+        if (currentPassword == null || currentPassword.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Current password is required"));
+        }
+        if (newPassword == null || newPassword.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "New password is required"));
+        }
+        if (newPassword.length() < 6) {
+            return ResponseEntity.badRequest().body(Map.of("error", "New password must be at least 6 characters long"));
+        }
+
+        if (!passwordEncoder.matches(currentPassword, user.getPassword())) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Current password is incorrect"));
+        }
+
+        user.setPassword(passwordEncoder.encode(newPassword));
+        userRepository.save(user);
+
+        return ResponseEntity.ok(Map.of("message", "Password updated successfully"));
+    }
 }
