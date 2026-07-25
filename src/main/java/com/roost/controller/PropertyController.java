@@ -12,11 +12,14 @@ import org.springframework.web.bind.annotation.*;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.logging.Logger;
 
 @RestController
 @RequestMapping("/api/properties")
 @CrossOrigin(origins = "*")
 public class PropertyController {
+
+    private static final Logger log = Logger.getLogger(PropertyController.class.getName());
 
     private final PropertyService propertyService;
 
@@ -178,7 +181,10 @@ public class PropertyController {
             String url = r2StorageService.uploadPublic(bytes);
             return ResponseEntity.ok(Map.of("url", url));
         } catch (IllegalStateException e) {
-            return ResponseEntity.status(503).body(Map.of("error", e.getMessage()));
+            log.warning("Property photo upload failed: " + e.getMessage());
+            return ResponseEntity.status(503).body(Map.of(
+                    "error", "Photo uploads aren't available right now. Please try again shortly."
+            ));
         }
     }
 
