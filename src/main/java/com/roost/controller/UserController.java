@@ -2,10 +2,10 @@ package com.roost.controller;
 
 import com.roost.dto.UserProfileResponse;
 import com.roost.model.User;
-import com.roost.repository.UserRepository;
+import com.roost.service.AuthService;
+import com.roost.service.UserService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
@@ -15,104 +15,63 @@ import java.util.Map;
 @CrossOrigin(origins = "*")
 public class UserController {
 
-    private final UserRepository userRepository;
-    private final PasswordEncoder passwordEncoder;
+    // /me and /change-password below intentionally reuse AuthService rather
+    // than duplicating that logic here -- they're the same operations
+    // AuthController exposes under /api/auth, just also mounted under
+    // /api/users for backward compatibility with the frontend.
+    private final AuthService authService;
+    private final UserService userService;
 
-    public UserController(UserRepository userRepository, PasswordEncoder passwordEncoder) {
-        this.userRepository = userRepository;
-        this.passwordEncoder = passwordEncoder;
+    public UserController(AuthService authService, UserService userService) {
+        this.authService = authService;
+        this.userService = userService;
     }
 
     @GetMapping("/me")
     public ResponseEntity<UserProfileResponse> getCurrentUser(@AuthenticationPrincipal User user) {
         if (user == null) return ResponseEntity.status(401).build();
-        return ResponseEntity.ok(
-                UserProfileResponse.builder()
-                        .id(user.getId())
-                        .name(user.getName())
-                        .email(user.getEmail())
-                        .phone(user.getPhone())
-                        .phoneVerified(user.isPhoneVerified())
-                        .role(user.getRole())
-                        .publicKey(user.getPublicKey())
-                        .lastActiveAt(user.getLastActiveAt())
-                        .build()
-        );
+        return ResponseEntity.ok(authService.getProfile(user));
     }
 
     @PutMapping("/me")
-    public ResponseEntity<UserProfileResponse> updateCurrentUser(@AuthenticationPrincipal User user, @RequestBody Map<String, String> body) {
+    public ResponseEntity<UserProfileResponse> updateCurrentUser(@AuthenticationPrincipal User user,
+                                                                    @RequestBody Map<String, String> body) {
         if (user == null) return ResponseEntity.status(401).build();
-        if (body.containsKey("name")) user.setName(body.get("name"));
-        if (body.containsKey("phone")) user.setPhone(body.get("phone"));
-        userRepository.save(user);
-        return ResponseEntity.ok(
-                UserProfileResponse.builder()
-                        .id(user.getId())
-                        .name(user.getName())
-                        .email(user.getEmail())
-                        .phone(user.getPhone())
-                        .phoneVerified(user.isPhoneVerified())
-                        .role(user.getRole())
-                        .publicKey(user.getPublicKey())
-                        .lastActiveAt(user.getLastActiveAt())
-                        .build()
-        );
+        return ResponseEntity.ok(authService.updateProfile(user, body));
     }
 
     @GetMapping("/{id}")
     public ResponseEntity<UserProfileResponse> getUserProfile(@AuthenticationPrincipal User user, @PathVariable Long id) {
         if (user == null) return ResponseEntity.status(401).build();
-        User target = userRepository.findById(id).orElse(null);
-        if (target == null) return ResponseEntity.notFound().build();
-        return ResponseEntity.ok(
-                UserProfileResponse.builder()
-                        .id(target.getId())
-                        .name(target.getName())
-                        .email(target.getEmail())
-                        .phone(target.getPhone())
-                        .phoneVerified(target.isPhoneVerified())
-                        .role(target.getRole())
-                        .lastActiveAt(target.getLastActiveAt())
-                        .build()
-        );
+        return ResponseEntity.ok(userService.getUserProfile(id));
     }
 
     @PutMapping("/public-key")
-    public ResponseEntity<?> setPublicKey(@AuthenticationPrincipal User user, @RequestBody Map<String, String> payload) {
+    public ResponseEntity<Map<String, String>> setPublicKey(@AuthenticationPrincipal User user,
+                                                               @RequestBody Map<String, String> payload) {
         if (user == null) return ResponseEntity.status(401).build();
-        String publicKey = payload.get("publicKey");
-        if (publicKey == null || publicKey.isBlank()) {
-            return ResponseEntity.badRequest().body(Map.of("error", "publicKey is required"));
-        }
-        user.setPublicKey(publicKey);
-        userRepository.save(user);
+        userService.setPublicKey(user, payload.get("publicKey"));
         return ResponseEntity.ok(Map.of("status", "ok"));
     }
 
     /** Registers/updates this device's FCM token for push notifications. */
     @PostMapping("/me/fcm-token")
-    public ResponseEntity<?> setDeviceToken(@AuthenticationPrincipal User user, @RequestBody Map<String, String> payload) {
+    public ResponseEntity<Map<String, String>> setDeviceToken(@AuthenticationPrincipal User user,
+                                                                 @RequestBody Map<String, String> payload) {
         if (user == null) return ResponseEntity.status(401).build();
-        String token = payload.get("fcmToken");
-        if (token == null || token.isBlank()) {
-            return ResponseEntity.badRequest().body(Map.of("error", "fcmToken is required"));
-        }
-        user.setDeviceToken(token);
-        userRepository.save(user);
+        userService.setDeviceToken(user, payload.get("fcmToken"));
         return ResponseEntity.ok(Map.of("status", "ok"));
     }
 
     @GetMapping("/{id}/public-key")
-    public ResponseEntity<?> getPublicKey(@AuthenticationPrincipal User user, @PathVariable Long id) {
+    public ResponseEntity<Map<String, String>> getPublicKey(@AuthenticationPrincipal User user, @PathVariable Long id) {
         if (user == null) return ResponseEntity.status(401).build();
-        User target = userRepository.findById(id).orElse(null);
-        if (target == null) return ResponseEntity.notFound().build();
-        return ResponseEntity.ok(Map.of("publicKey", target.getPublicKey() == null ? "" : target.getPublicKey()));
+        return ResponseEntity.ok(Map.of("publicKey", userService.getPublicKey(id)));
     }
 
     @PostMapping({"/me/change-password", "/change-password"})
-    public ResponseEntity<?> changePassword(@AuthenticationPrincipal User user, @RequestBody Map<String, String> payload) {
+    public ResponseEntity<Map<String, String>> changePassword(@AuthenticationPrincipal User user,
+                                                                  @RequestBody Map<String, String> payload) {
         if (user == null) return ResponseEntity.status(401).build();
 
         String currentPassword = payload.get("currentPassword");
@@ -120,23 +79,7 @@ public class UserController {
         String newPassword = payload.get("newPassword");
         if (newPassword == null) newPassword = payload.get("password");
 
-        if (currentPassword == null || currentPassword.isBlank()) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Current password is required"));
-        }
-        if (newPassword == null || newPassword.isBlank()) {
-            return ResponseEntity.badRequest().body(Map.of("error", "New password is required"));
-        }
-        if (newPassword.length() < 6) {
-            return ResponseEntity.badRequest().body(Map.of("error", "New password must be at least 6 characters long"));
-        }
-
-        if (!passwordEncoder.matches(currentPassword, user.getPassword())) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Current password is incorrect"));
-        }
-
-        user.setPassword(passwordEncoder.encode(newPassword));
-        userRepository.save(user);
-
+        authService.changePassword(user, currentPassword, newPassword);
         return ResponseEntity.ok(Map.of("message", "Password updated successfully"));
     }
 }
