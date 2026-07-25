@@ -40,8 +40,11 @@ public class User implements UserDetails {
     private boolean phoneVerified = false;
 
     /** FCM device registration token for push notifications. Null until
-     *  the app registers one; overwritten on refresh/re-login. */
+     *  the app registers one; overwritten on refresh/re-login. Never
+     *  serialized -- Message.sender/recipient embed the full User, so
+     *  without this every chat response would leak both parties' tokens. */
     @Column(columnDefinition = "TEXT")
+    @com.fasterxml.jackson.annotation.JsonIgnore
     private String deviceToken;
 
     @ElementCollection(fetch = FetchType.EAGER)
