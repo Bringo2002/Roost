@@ -52,5 +52,42 @@ public class DatabaseSchemaMigrator implements CommandLineRunner {
         } catch (Exception e) {
             log.warn("Database schema migration notice: " + e.getMessage());
         }
+
+        // The entity fields for these columns are primitives (boolean/int),
+        // so Hibernate's own ddl-auto=update tries to mark them NOT NULL on
+        // every boot. That silently fails on any row still holding a null
+        // from before the column existed, which is why the same warning
+        // reappears on every startup without actually fixing anything.
+        // Backfill first, then enforce the constraint at the DB level so
+        // Hibernate's check becomes a no-op going forward.
+        enforceNotNull("properties", "bathrooms", "1");
+        enforceNotNull("properties", "furnished", "FALSE");
+        enforceNotNull("properties", "parking", "FALSE");
+        enforceNotNull("properties", "water", "TRUE");
+        enforceNotNull("properties", "wifi", "FALSE");
+        enforceNotNull("properties", "security", "TRUE");
+        enforceNotNull("properties", "pet_friendly", "FALSE");
+        enforceNotNull("properties", "balcony", "FALSE");
+        enforceNotNull("properties", "view_count", "0");
+        enforceNotNull("properties", "save_count", "0");
+        enforceNotNull("users", "phone_verified", "FALSE");
+    }
+
+    /**
+     * Backfills any existing null values in {@code table.column} with
+     * {@code defaultValue}, then applies a NOT NULL constraint. Each column
+     * is isolated in its own try/catch -- one failing column (e.g. a
+     * permissions issue, or a lock held by another connection) must not
+     * prevent the rest from being enforced.
+     */
+    private void enforceNotNull(String table, String column, String defaultValue) {
+        try {
+            jdbcTemplate.execute(String.format(
+                    "UPDATE %s SET %s = %s WHERE %s IS NULL;", table, column, defaultValue, column));
+            jdbcTemplate.execute(String.format(
+                    "ALTER TABLE %s ALTER COLUMN %s SET NOT NULL;", table, column));
+        } catch (Exception e) {
+            log.warn("Could not enforce NOT NULL on {}.{}: {}", table, column, e.getMessage());
+        }
     }
 }
