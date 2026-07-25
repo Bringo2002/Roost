@@ -35,6 +35,9 @@ public class ChatController {
     @Autowired
     private MessageReactionRepository reactionRepository;
 
+    @Autowired
+    private com.roost.service.FirebasePushService firebasePushService;
+
     /** Base64 attachment payload cap (~5MB raw file after base64 overhead). */
     private static final int MAX_ATTACHMENT_BASE64_CHARS = 7_000_000;
 
@@ -131,6 +134,17 @@ public class ChatController {
             // trip to read back what it just sent.
             savedMessage.setAttachmentData(attachmentData);
         }
+
+        // Notify the recipient's device. The body is intentionally generic
+        // -- messages are E2EE, so the server never has the keys to read
+        // content and must not attempt to summarize it in a push payload.
+        firebasePushService.sendToUser(
+                recipient,
+                sender.getName() != null && !sender.getName().isBlank() ? sender.getName() : "New message",
+                hasAttachment ? "Sent you an attachment" : "Sent you a message",
+                Map.of("type", "chat", "senderId", sender.getId().toString())
+        );
+
         return ResponseEntity.ok(savedMessage);
     }
 

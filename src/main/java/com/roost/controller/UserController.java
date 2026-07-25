@@ -90,6 +90,19 @@ public class UserController {
         return ResponseEntity.ok(Map.of("status", "ok"));
     }
 
+    /** Registers/updates this device's FCM token for push notifications. */
+    @PostMapping("/me/fcm-token")
+    public ResponseEntity<?> setDeviceToken(@AuthenticationPrincipal User user, @RequestBody Map<String, String> payload) {
+        if (user == null) return ResponseEntity.status(401).build();
+        String token = payload.get("fcmToken");
+        if (token == null || token.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "fcmToken is required"));
+        }
+        user.setDeviceToken(token);
+        userRepository.save(user);
+        return ResponseEntity.ok(Map.of("status", "ok"));
+    }
+
     @GetMapping("/{id}/public-key")
     public ResponseEntity<?> getPublicKey(@AuthenticationPrincipal User user, @PathVariable Long id) {
         if (user == null) return ResponseEntity.status(401).build();

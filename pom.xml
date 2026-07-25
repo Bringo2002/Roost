@@ -78,6 +78,13 @@
 			<artifactId>s3</artifactId>
 			<version>2.46.18</version>
 		</dependency>
+		<!-- Firebase Admin SDK, used server-side to send push notifications
+		     via FCM to registered device tokens. -->
+		<dependency>
+			<groupId>com.google.firebase</groupId>
+			<artifactId>firebase-admin</artifactId>
+			<version>9.10.0</version>
+		</dependency>
 	</dependencies>
 
 	<build>

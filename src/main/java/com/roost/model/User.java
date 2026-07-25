@@ -39,6 +39,11 @@ public class User implements UserDetails {
 
     private boolean phoneVerified = false;
 
+    /** FCM device registration token for push notifications. Null until
+     *  the app registers one; overwritten on refresh/re-login. */
+    @Column(columnDefinition = "TEXT")
+    private String deviceToken;
+
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "user_saved_properties", joinColumns = @JoinColumn(name = "user_id"))
     @Column(name = "property_id")
@@ -126,6 +131,14 @@ public class User implements UserDetails {
 
     public void setPhoneVerified(boolean phoneVerified) {
         this.phoneVerified = phoneVerified;
+    }
+
+    public String getDeviceToken() {
+        return deviceToken;
+    }
+
+    public void setDeviceToken(String deviceToken) {
+        this.deviceToken = deviceToken;
     }
 
     public Set<Long> getSavedPropertyIds() {
