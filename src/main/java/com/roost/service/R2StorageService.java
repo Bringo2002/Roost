@@ -18,34 +18,47 @@ import java.net.URI;
 import java.util.UUID;
 
 /**
- * Stores and retrieves opaque encrypted attachment bytes in Cloudflare R2
- * (S3-compatible object storage). The server only ever handles ciphertext
- * here -- files are encrypted client-side before upload and decrypted
- * client-side after download, so R2 (like the database before it) never
- * has the keys needed to read them.
+ * Stores and retrieves files in Cloudflare R2 (S3-compatible object
+ * storage). Used for two distinct purposes:
+ *
+ *  - Encrypted chat attachments: opaque ciphertext, stored under
+ *    "attachments/", only ever fetched through the authenticated
+ *    download proxy -- the server never has the keys to read them.
+ *  - Property photos: plain public content, stored under "properties/",
+ *    returned as a direct public URL so the app can load them straight
+ *    from R2/CDN without proxying every image view through this backend.
  *
  * Configured via env vars: R2_ACCOUNT_ID, R2_ACCESS_KEY_ID,
- * R2_SECRET_ACCESS_KEY, R2_BUCKET. If any are unset, the service stays
- * inert (rather than failing app startup) and throws a clear error only
- * when an upload/download is actually attempted -- so a missing R2 config
- * doesn't take down login, browsing, or text-only messaging.
+ * R2_SECRET_ACCESS_KEY, R2_BUCKET, and (for public uploads only)
+ * R2_PUBLIC_BASE_URL -- the public r2.dev subdomain or custom domain
+ * Cloudflare gives the bucket once public access is enabled on it. If
+ * any required var is unset, the service stays inert (rather than
+ * failing app startup) and throws a clear error only when an
+ * upload/download is actually attempted.
  */
 @Service
 public class R2StorageService {
 
     private final S3Client s3Client;
     private final String bucket;
+    private final String publicBaseUrl;
     private final boolean configured;
+    private final boolean publicUploadConfigured;
 
     public R2StorageService(
             @Value("${r2.account-id:}") String accountId,
             @Value("${r2.access-key-id:}") String accessKeyId,
             @Value("${r2.secret-access-key:}") String secretAccessKey,
-            @Value("${r2.bucket:}") String bucket
+            @Value("${r2.bucket:}") String bucket,
+            @Value("${r2.public-base-url:}") String publicBaseUrl
     ) {
         this.bucket = bucket;
+        this.publicBaseUrl = publicBaseUrl.endsWith("/")
+                ? publicBaseUrl.substring(0, publicBaseUrl.length() - 1)
+                : publicBaseUrl;
         this.configured = !accountId.isBlank() && !accessKeyId.isBlank()
                 && !secretAccessKey.isBlank() && !bucket.isBlank();
+        this.publicUploadConfigured = configured && !publicBaseUrl.isBlank();
 
         this.s3Client = configured
                 ? S3Client.builder()
@@ -60,10 +73,26 @@ public class R2StorageService {
                 : null;
     }
 
-    /** Uploads opaque bytes under a fresh random key and returns that key. */
+    /** Uploads opaque bytes under "attachments/" and returns the storage
+     *  key (not a URL) -- for private content fetched via the
+     *  authenticated download proxy, e.g. encrypted chat attachments. */
     public String upload(byte[] data) {
+        return upload(data, "attachments/");
+    }
+
+    /** Uploads bytes under "properties/" intended for public, direct
+     *  access and returns the full public URL. Requires
+     *  R2_PUBLIC_BASE_URL -- without it, callers get a clear error
+     *  rather than a URL that won't actually load anything. */
+    public String uploadPublic(byte[] data) {
+        requirePublicConfigured();
+        String key = upload(data, "properties/");
+        return publicBaseUrl + "/" + key;
+    }
+
+    private String upload(byte[] data, String keyPrefix) {
         requireConfigured();
-        String key = "attachments/" + UUID.randomUUID();
+        String key = keyPrefix + UUID.randomUUID();
         s3Client.putObject(
                 PutObjectRequest.builder().bucket(bucket).key(key).build(),
                 RequestBody.fromBytes(data)
@@ -91,6 +120,17 @@ public class R2StorageService {
             throw new IllegalStateException(
                     "R2 storage is not configured. Set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, " +
                     "R2_SECRET_ACCESS_KEY, and R2_BUCKET environment variables."
+            );
+        }
+    }
+
+    private void requirePublicConfigured() {
+        requireConfigured();
+        if (!publicUploadConfigured) {
+            throw new IllegalStateException(
+                    "R2 public uploads are not configured. Enable public access on the R2 " +
+                    "bucket and set the R2_PUBLIC_BASE_URL environment variable to the " +
+                    "resulting r2.dev (or custom domain) URL."
             );
         }
     }

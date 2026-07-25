@@ -112,6 +112,20 @@ public class PropertyService {
         propertyRepository.deleteById(id);
     }
 
+    /**
+     * Flips availability only -- deliberately avoids touching any other
+     * field. See PropertyController.setAvailability for why: updateProperty
+     * above does a full overwrite, which is only safe when the caller has
+     * the complete, current object (e.g. the edit-listing flow), not for
+     * a simple toggle from a listings dashboard.
+     */
+    public Property setAvailability(Long id, boolean available) {
+        Property existing = getPropertyById(id);
+        existing.setAvailable(available);
+        existing.setLastConfirmedAt(LocalDateTime.now());
+        return propertyRepository.save(existing);
+    }
+
     public Property updateProperty(Long id, Property updated) {
         Property existing = getPropertyById(id);
         existing.setTitle(updated.getTitle());
