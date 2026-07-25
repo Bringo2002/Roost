@@ -4,15 +4,10 @@ import com.roost.dto.AuthRequest;
 import com.roost.dto.AuthResponse;
 import com.roost.dto.SignupRequest;
 import com.roost.dto.UserProfileResponse;
-import com.roost.model.Role;
 import com.roost.model.User;
-import com.roost.repository.UserRepository;
-import com.roost.security.JwtService;
+import com.roost.service.AuthService;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
@@ -22,121 +17,55 @@ import java.util.Map;
 @CrossOrigin(origins = "*")
 public class AuthController {
 
-    private final UserRepository userRepository;
-    private final PasswordEncoder passwordEncoder;
-    private final JwtService jwtService;
-    private final AuthenticationManager authenticationManager;
+    private final AuthService authService;
 
-    public AuthController(UserRepository userRepository, PasswordEncoder passwordEncoder, JwtService jwtService, AuthenticationManager authenticationManager) {
-        this.userRepository = userRepository;
-        this.passwordEncoder = passwordEncoder;
-        this.jwtService = jwtService;
-        this.authenticationManager = authenticationManager;
+    public AuthController(AuthService authService) {
+        this.authService = authService;
     }
 
     @PostMapping({"/signup", "/register"})
     public ResponseEntity<AuthResponse> signup(@RequestBody SignupRequest request) {
-        if (userRepository.findByEmail(request.getEmail()).isPresent()) {
-            throw new RuntimeException("Email is already in use.");
-        }
-
-        var user = new User();
-        user.setName(request.getName());
-        user.setEmail(request.getEmail());
-        user.setPhone(request.getPhone());
-        user.setPassword(passwordEncoder.encode(request.getPassword()));
-        user.setRole(request.getRole() != null ? request.getRole() : Role.TENANT);
-        userRepository.save(user);
-
-        var jwtToken = jwtService.generateToken(user);
-        return ResponseEntity.ok(AuthResponse.builder().token(jwtToken).build());
+        return ResponseEntity.ok(authService.signup(request));
     }
 
     @PostMapping("/login")
     public ResponseEntity<AuthResponse> login(@RequestBody AuthRequest request) {
-        authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(
-                        request.getEmail(),
-                        request.getPassword()
-                )
-        );
-        var user = userRepository.findByEmail(request.getEmail())
-                .orElseThrow(() -> new RuntimeException("User not found"));
-        var jwtToken = jwtService.generateToken(user);
-        return ResponseEntity.ok(AuthResponse.builder().token(jwtToken).build());
+        return ResponseEntity.ok(authService.login(request.getEmail(), request.getPassword()));
     }
 
     @GetMapping("/me")
     public ResponseEntity<UserProfileResponse> getCurrentUser(@AuthenticationPrincipal User user) {
         if (user == null) return ResponseEntity.status(401).build();
-        return ResponseEntity.ok(
-                UserProfileResponse.builder()
-                        .id(user.getId())
-                        .name(user.getName())
-                        .email(user.getEmail())
-                        .phone(user.getPhone())
-                        .phoneVerified(user.isPhoneVerified())
-                        .role(user.getRole())
-                        .publicKey(user.getPublicKey())
-                        .lastActiveAt(user.getLastActiveAt())
-                        .build()
-        );
+        return ResponseEntity.ok(authService.getProfile(user));
     }
 
     @PutMapping("/me")
-    public ResponseEntity<UserProfileResponse> updateCurrentUser(@AuthenticationPrincipal User user, @RequestBody Map<String, String> body) {
+    public ResponseEntity<UserProfileResponse> updateCurrentUser(@AuthenticationPrincipal User user,
+                                                                    @RequestBody Map<String, String> body) {
         if (user == null) return ResponseEntity.status(401).build();
-        if (body.containsKey("name")) user.setName(body.get("name"));
-        if (body.containsKey("phone")) user.setPhone(body.get("phone"));
-        userRepository.save(user);
-        return ResponseEntity.ok(
-                UserProfileResponse.builder()
-                        .id(user.getId())
-                        .name(user.getName())
-                        .email(user.getEmail())
-                        .phone(user.getPhone())
-                        .phoneVerified(user.isPhoneVerified())
-                        .role(user.getRole())
-                        .publicKey(user.getPublicKey())
-                        .lastActiveAt(user.getLastActiveAt())
-                        .build()
-        );
+        return ResponseEntity.ok(authService.updateProfile(user, body));
     }
 
     @PostMapping("/verify-phone")
-    public ResponseEntity<?> verifyPhone(@AuthenticationPrincipal User user, @RequestBody(required = false) Map<String, String> body) {
+    public ResponseEntity<Map<String, String>> verifyPhone(@AuthenticationPrincipal User user,
+                                                              @RequestBody(required = false) Map<String, String> body) {
         if (user == null) return ResponseEntity.status(401).build();
-        user.setPhoneVerified(true);
-        userRepository.save(user);
+        authService.verifyPhone(user);
         return ResponseEntity.ok(Map.of("message", "Phone verified successfully"));
     }
 
     @PostMapping("/change-password")
-    public ResponseEntity<?> changePassword(@AuthenticationPrincipal User user, @RequestBody Map<String, String> payload) {
+    public ResponseEntity<Map<String, String>> changePassword(@AuthenticationPrincipal User user,
+                                                                 @RequestBody Map<String, String> payload) {
         if (user == null) return ResponseEntity.status(401).build();
 
+        // Accept either naming the frontend has used historically.
         String currentPassword = payload.get("currentPassword");
         if (currentPassword == null) currentPassword = payload.get("oldPassword");
         String newPassword = payload.get("newPassword");
         if (newPassword == null) newPassword = payload.get("password");
 
-        if (currentPassword == null || currentPassword.isBlank()) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Current password is required"));
-        }
-        if (newPassword == null || newPassword.isBlank()) {
-            return ResponseEntity.badRequest().body(Map.of("error", "New password is required"));
-        }
-        if (newPassword.length() < 6) {
-            return ResponseEntity.badRequest().body(Map.of("error", "New password must be at least 6 characters long"));
-        }
-
-        if (!passwordEncoder.matches(currentPassword, user.getPassword())) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Current password is incorrect"));
-        }
-
-        user.setPassword(passwordEncoder.encode(newPassword));
-        userRepository.save(user);
-
+        authService.changePassword(user, currentPassword, newPassword);
         return ResponseEntity.ok(Map.of("message", "Password updated successfully"));
     }
 }
