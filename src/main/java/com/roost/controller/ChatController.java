@@ -31,9 +31,12 @@ public class ChatController {
 
     @GetMapping("/history/{userId}")
     public ResponseEntity<List<Message>> getChatHistory(@AuthenticationPrincipal User user,
-                                                          @PathVariable Long userId) {
+                                                          @PathVariable Long userId,
+                                                          @RequestParam(required = false) Long beforeId,
+                                                          @RequestParam(required = false) Long afterId,
+                                                          @RequestParam(required = false) Integer limit) {
         if (user == null) return ResponseEntity.status(401).build();
-        return ResponseEntity.ok(chatService.getChatHistory(user, userId));
+        return ResponseEntity.ok(chatService.getChatHistory(user, userId, beforeId, afterId, limit));
     }
 
     @GetMapping("/active")

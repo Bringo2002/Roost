@@ -8,12 +8,14 @@ import com.roost.model.User;
 import com.roost.repository.MessageReactionRepository;
 import com.roost.repository.MessageRepository;
 import com.roost.repository.UserRepository;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -117,11 +119,48 @@ public class ChatService {
         return savedMessage;
     }
 
-    public List<Message> getChatHistory(User user, Long otherUserId) {
+    /** Default page size when the client doesn't specify one. */
+    private static final int DEFAULT_HISTORY_PAGE_SIZE = 30;
+    /** Hard ceiling regardless of what the client asks for. */
+    private static final int MAX_HISTORY_PAGE_SIZE = 100;
+
+    /**
+     * Fetches chat history with {@code otherUserId}, decrypting attachments
+     * as before. Exactly one of the following applies, in priority order:
+     * <ul>
+     *   <li>{@code afterId} set -- returns every message newer than it,
+     *       oldest first, no limit. Used by the client's polling loop so
+     *       each poll only pulls new messages instead of the whole
+     *       conversation.</li>
+     *   <li>{@code beforeId} set -- returns up to {@code limit} messages
+     *       older than it, oldest first. Used for "load earlier messages"
+     *       when the user scrolls to the top.</li>
+     *   <li>neither set -- returns the most recent {@code limit} messages,
+     *       oldest first. Used for the initial load of a conversation.</li>
+     * </ul>
+     */
+    public List<Message> getChatHistory(User user, Long otherUserId, Long beforeId, Long afterId, Integer limit) {
         User otherUser = userRepository.findById(otherUserId)
                 .orElseThrow(() -> ApiException.badRequest("User not found"));
 
-        List<Message> history = messageRepository.findChatHistory(user, otherUser);
+        int pageSize = (limit != null && limit > 0) ? Math.min(limit, MAX_HISTORY_PAGE_SIZE) : DEFAULT_HISTORY_PAGE_SIZE;
+
+        List<Message> history;
+        if (afterId != null) {
+            history = messageRepository.findChatHistoryAfter(user, otherUser, afterId);
+        } else if (beforeId != null) {
+            history = messageRepository.findChatHistoryBeforeDesc(user, otherUser, beforeId, PageRequest.of(0, pageSize));
+            Collections.reverse(history);
+        } else {
+            history = messageRepository.findChatHistoryLatestDesc(user, otherUser, PageRequest.of(0, pageSize));
+            Collections.reverse(history);
+        }
+
+        decryptAttachments(history);
+        return history;
+    }
+
+    private void decryptAttachments(List<Message> history) {
         for (Message message : history) {
             if (message.hasAttachment()) {
                 try {
@@ -134,7 +173,6 @@ public class ChatService {
                 }
             }
         }
-        return history;
     }
 
     public List<User> getActiveChats(User user) {
