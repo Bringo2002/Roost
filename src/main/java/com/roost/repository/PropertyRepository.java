@@ -26,7 +26,12 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
 
     List<Property> findByIdIn(Collection<Long> ids);
 
-    List<Property> findByAvailableTrueAndLastConfirmedAtBefore(LocalDateTime threshold);
+    /** Listings due for the 7-day "still available?" reminder -- no
+     *  reminder sent yet, and it's been long enough since last confirmed. */
+    List<Property> findByAvailableTrueAndRemindedAtIsNullAndLastConfirmedAtBefore(LocalDateTime threshold);
+
+    /** Listings whose reminder grace period has expired with no response. */
+    List<Property> findByAvailableTrueAndRemindedAtIsNotNullAndRemindedAtBefore(LocalDateTime threshold);
 
     @Query("SELECT p FROM Property p WHERE " +
            "p.available = true AND " +

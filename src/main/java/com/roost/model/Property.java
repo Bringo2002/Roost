@@ -53,6 +53,11 @@ public class Property {
     private LocalDateTime listedAt = LocalDateTime.now();
     private LocalDateTime lastConfirmedAt = LocalDateTime.now();
 
+    /** Set when the 7-day "is this still available?" reminder push is
+     *  sent; cleared whenever the landlord confirms or otherwise touches
+     *  availability. Null means no reminder is currently pending. */
+    private LocalDateTime remindedAt;
+
     private int viewCount = 0;
     private int saveCount = 0;
 
@@ -319,6 +324,14 @@ public class Property {
 
     public void setLastConfirmedAt(LocalDateTime lastConfirmedAt) {
         this.lastConfirmedAt = lastConfirmedAt;
+    }
+
+    public LocalDateTime getRemindedAt() {
+        return remindedAt;
+    }
+
+    public void setRemindedAt(LocalDateTime remindedAt) {
+        this.remindedAt = remindedAt;
     }
 
     public int getViewCount() {

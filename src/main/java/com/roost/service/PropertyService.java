@@ -78,6 +78,7 @@ public class PropertyService {
         Property property = getPropertyById(id);
         property.setAvailable(true);
         property.setLastConfirmedAt(LocalDateTime.now());
+        property.setRemindedAt(null);
         return propertyRepository.save(property);
     }
 
@@ -123,6 +124,7 @@ public class PropertyService {
         Property existing = getPropertyById(id);
         existing.setAvailable(available);
         existing.setLastConfirmedAt(LocalDateTime.now());
+        existing.setRemindedAt(null);
         return propertyRepository.save(existing);
     }
 
