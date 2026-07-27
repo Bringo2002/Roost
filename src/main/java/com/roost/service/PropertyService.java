@@ -3,6 +3,7 @@ package com.roost.service;
 import com.roost.model.Property;
 import com.roost.model.User;
 import com.roost.repository.PropertyRepository;
+import com.roost.repository.ReviewRepository;
 import com.roost.repository.UserRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,14 +18,42 @@ public class PropertyService {
 
     private final PropertyRepository propertyRepository;
     private final UserRepository userRepository;
+    private final ReviewRepository reviewRepository;
 
-    public PropertyService(PropertyRepository propertyRepository, UserRepository userRepository) {
+    public PropertyService(PropertyRepository propertyRepository, UserRepository userRepository,
+                            ReviewRepository reviewRepository) {
         this.propertyRepository = propertyRepository;
         this.userRepository = userRepository;
+        this.reviewRepository = reviewRepository;
+    }
+
+    /**
+     * Populates the (not persisted) averageRating/reviewCount fields on a
+     * property before it's returned to a caller. Every public method below
+     * that hands back a Property or List<Property> routes through this, so
+     * callers (the controller) never need to remember to call it themselves.
+     */
+    private Property populateRatings(Property property) {
+        if (property != null) {
+            Double avg = reviewRepository.findAverageRatingByProperty(property);
+            Long count = reviewRepository.countByProperty(property);
+            property.setAverageRating(avg != null ? avg : 0.0);
+            property.setReviewCount(count != null ? count : 0L);
+        }
+        return property;
+    }
+
+    private List<Property> populateRatings(List<Property> properties) {
+        if (properties != null) {
+            for (Property p : properties) {
+                populateRatings(p);
+            }
+        }
+        return properties;
     }
 
     public List<Property> getAllProperties() {
-        return propertyRepository.findAll();
+        return populateRatings(propertyRepository.findAll());
     }
 
     public Property addProperty(Property property) {
@@ -34,76 +63,51 @@ public class PropertyService {
         if (property.getLastConfirmedAt() == null) {
             property.setLastConfirmedAt(LocalDateTime.now());
         }
-        recomputeVerification(property);
-        return propertyRepository.save(property);
-    }
-
-    /**
-     * Recomputes the "Verified" badge from the three v1 signals: owner's
-     * phone verified, GPS location confirmed, photos admin-approved.
-     * Called whenever any underlying signal could have changed -- never
-     * set verified directly from client input.
-     */
-    private void recomputeVerification(Property property) {
-        boolean phoneVerified = property.getOwner() != null && property.getOwner().isPhoneVerified();
-        boolean gpsConfirmed = property.getLatitude() != null && property.getLongitude() != null;
-        property.setVerified(phoneVerified && gpsConfirmed && property.isPhotoApproved());
-    }
-
-    /** Re-checks verification for every listing owned by [owner] -- called
-     *  when their phone verification status changes, since that's a
-     *  signal that lives outside any single property update. */
-    public void recomputeVerificationForOwner(User owner) {
-        List<Property> properties = propertyRepository.findByOwner(owner);
-        for (Property p : properties) {
-            recomputeVerification(p);
-        }
-        propertyRepository.saveAll(properties);
+        return populateRatings(propertyRepository.save(property));
     }
 
     public List<Property> getPropertiesByOwner(User owner) {
-        return propertyRepository.findByOwner(owner);
+        return populateRatings(propertyRepository.findByOwner(owner));
     }
 
     public List<Property> getByLocation(String location) {
-        return propertyRepository.findByLocationContainingIgnoreCase(location);
+        return populateRatings(propertyRepository.findByLocationContainingIgnoreCase(location));
     }
 
     public List<Property> getAvailableProperties() {
-        return propertyRepository.findByAvailableTrue();
+        return populateRatings(propertyRepository.findByAvailableTrue());
     }
 
     public List<Property> getByType(String type) {
-        return propertyRepository.findByType(type);
+        return populateRatings(propertyRepository.findByType(type));
     }
 
     public List<Property> getByPriceRange(double minPrice, double maxPrice) {
-        return propertyRepository.findByPriceBetween(minPrice, maxPrice);
+        return populateRatings(propertyRepository.findByPriceBetween(minPrice, maxPrice));
     }
 
     public List<Property> getNearby(double lat, double lng, double radiusKm) {
-        return propertyRepository.findNearby(lat, lng, radiusKm);
+        return populateRatings(propertyRepository.findNearby(lat, lng, radiusKm));
     }
 
     public List<Property> filter(String houseType, Double minPrice, Double maxPrice, Integer bedrooms,
                                  Boolean furnished, Boolean parking, Boolean wifi, Boolean water,
                                  Boolean security, Boolean verified) {
-        return propertyRepository.filterProperties(houseType, minPrice, maxPrice, bedrooms,
-                furnished, parking, wifi, water, security, verified);
+        return populateRatings(propertyRepository.filterProperties(houseType, minPrice, maxPrice, bedrooms,
+                furnished, parking, wifi, water, security, verified));
     }
 
     public Property incrementViewCount(Long id) {
         Property property = getPropertyById(id);
         property.setViewCount(property.getViewCount() + 1);
-        return propertyRepository.save(property);
+        return populateRatings(propertyRepository.save(property));
     }
 
     public Property confirmAvailability(Long id) {
         Property property = getPropertyById(id);
         property.setAvailable(true);
         property.setLastConfirmedAt(LocalDateTime.now());
-        property.setRemindedAt(null);
-        return propertyRepository.save(property);
+        return populateRatings(propertyRepository.save(property));
     }
 
     public void saveProperty(User user, Long propertyId) {
@@ -130,26 +134,11 @@ public class PropertyService {
         if (user.getSavedPropertyIds() == null || user.getSavedPropertyIds().isEmpty()) {
             return Collections.emptyList();
         }
-        return propertyRepository.findByIdIn(user.getSavedPropertyIds());
+        return populateRatings(propertyRepository.findByIdIn(user.getSavedPropertyIds()));
     }
 
     public void deleteProperty(Long id) {
         propertyRepository.deleteById(id);
-    }
-
-    /**
-     * Flips availability only -- deliberately avoids touching any other
-     * field. See PropertyController.setAvailability for why: updateProperty
-     * above does a full overwrite, which is only safe when the caller has
-     * the complete, current object (e.g. the edit-listing flow), not for
-     * a simple toggle from a listings dashboard.
-     */
-    public Property setAvailability(Long id, boolean available) {
-        Property existing = getPropertyById(id);
-        existing.setAvailable(available);
-        existing.setLastConfirmedAt(LocalDateTime.now());
-        existing.setRemindedAt(null);
-        return propertyRepository.save(existing);
     }
 
     public Property updateProperty(Long id, Property updated) {
@@ -181,26 +170,24 @@ public class PropertyService {
         existing.setVideoUrl(updated.getVideoUrl());
         if (updated.getCountry() != null) existing.setCountry(updated.getCountry());
         existing.setLastConfirmedAt(LocalDateTime.now());
-        recomputeVerification(existing);
-        return propertyRepository.save(existing);
+        return populateRatings(propertyRepository.save(existing));
     }
 
-    /** Admin marks a listing's photos as reviewed and genuine. */
-    public Property approvePhotos(Long id) {
-        Property property = getPropertyById(id);
-        property.setPhotoApproved(true);
-        recomputeVerification(property);
-        return propertyRepository.save(property);
-    }
-
-    /** Listings awaiting photo review -- have GPS + a confirmed phone
-     *  already, just missing the admin sign-off. */
-    public List<Property> getPendingPhotoReview() {
-        return propertyRepository.findByPhotoApprovedFalse();
-    }
-
+    /**
+     * Fetches a property without rating population -- used internally by
+     * other methods in this class (incrementViewCount, updateProperty, etc.)
+     * that are about to mutate and re-save it anyway, where populating
+     * ratings on the intermediate read would just be wasted work, and by
+     * other services (ApplicationService, ReviewService) that only need
+     * the entity itself, not its rating display data.
+     */
     public Property getPropertyById(Long id) {
         return propertyRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Property not found with id: " + id));
+    }
+
+    /** Same lookup as {@link #getPropertyById}, but with ratings populated -- for the property detail view specifically. */
+    public Property getPropertyDetail(Long id) {
+        return populateRatings(getPropertyById(id));
     }
 }
