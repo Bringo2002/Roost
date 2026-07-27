@@ -30,8 +30,11 @@ public class PropertyService {
     /**
      * Populates the (not persisted) averageRating/reviewCount fields on a
      * property before it's returned to a caller. Every public method below
-     * that hands back a Property or List<Property> routes through this, so
-     * callers (the controller) never need to remember to call it themselves.
+     * that hands back a Property or List<Property> to the controller routes
+     * through this, so callers never need to remember to call it themselves.
+     * Deliberately NOT applied in getPendingPhotoReview/approvePhotos (the
+     * admin photo-review queue never populated ratings before this refactor
+     * either) or in the internal getPropertyById used for ownership checks.
      */
     private Property populateRatings(Property property) {
         if (property != null) {
@@ -63,7 +66,31 @@ public class PropertyService {
         if (property.getLastConfirmedAt() == null) {
             property.setLastConfirmedAt(LocalDateTime.now());
         }
+        recomputeVerification(property);
         return populateRatings(propertyRepository.save(property));
+    }
+
+    /**
+     * Recomputes the "Verified" badge from the three v1 signals: owner's
+     * phone verified, GPS location confirmed, photos admin-approved.
+     * Called whenever any underlying signal could have changed -- never
+     * set verified directly from client input.
+     */
+    private void recomputeVerification(Property property) {
+        boolean phoneVerified = property.getOwner() != null && property.getOwner().isPhoneVerified();
+        boolean gpsConfirmed = property.getLatitude() != null && property.getLongitude() != null;
+        property.setVerified(phoneVerified && gpsConfirmed && property.isPhotoApproved());
+    }
+
+    /** Re-checks verification for every listing owned by [owner] -- called
+     *  when their phone verification status changes, since that's a
+     *  signal that lives outside any single property update. */
+    public void recomputeVerificationForOwner(User owner) {
+        List<Property> properties = propertyRepository.findByOwner(owner);
+        for (Property p : properties) {
+            recomputeVerification(p);
+        }
+        propertyRepository.saveAll(properties);
     }
 
     public List<Property> getPropertiesByOwner(User owner) {
@@ -107,6 +134,7 @@ public class PropertyService {
         Property property = getPropertyById(id);
         property.setAvailable(true);
         property.setLastConfirmedAt(LocalDateTime.now());
+        property.setRemindedAt(null);
         return populateRatings(propertyRepository.save(property));
     }
 
@@ -141,6 +169,21 @@ public class PropertyService {
         propertyRepository.deleteById(id);
     }
 
+    /**
+     * Flips availability only -- deliberately avoids touching any other
+     * field. See PropertyController.setAvailability for why: updateProperty
+     * above does a full overwrite, which is only safe when the caller has
+     * the complete, current object (e.g. the edit-listing flow), not for
+     * a simple toggle from a listings dashboard.
+     */
+    public Property setAvailability(Long id, boolean available) {
+        Property existing = getPropertyById(id);
+        existing.setAvailable(available);
+        existing.setLastConfirmedAt(LocalDateTime.now());
+        existing.setRemindedAt(null);
+        return populateRatings(propertyRepository.save(existing));
+    }
+
     public Property updateProperty(Long id, Property updated) {
         Property existing = getPropertyById(id);
         existing.setTitle(updated.getTitle());
@@ -170,7 +213,22 @@ public class PropertyService {
         existing.setVideoUrl(updated.getVideoUrl());
         if (updated.getCountry() != null) existing.setCountry(updated.getCountry());
         existing.setLastConfirmedAt(LocalDateTime.now());
+        recomputeVerification(existing);
         return populateRatings(propertyRepository.save(existing));
+    }
+
+    /** Admin marks a listing's photos as reviewed and genuine. */
+    public Property approvePhotos(Long id) {
+        Property property = getPropertyById(id);
+        property.setPhotoApproved(true);
+        recomputeVerification(property);
+        return propertyRepository.save(property);
+    }
+
+    /** Listings awaiting photo review -- have GPS + a confirmed phone
+     *  already, just missing the admin sign-off. */
+    public List<Property> getPendingPhotoReview() {
+        return propertyRepository.findByPhotoApprovedFalse();
     }
 
     /**
@@ -178,8 +236,8 @@ public class PropertyService {
      * other methods in this class (incrementViewCount, updateProperty, etc.)
      * that are about to mutate and re-save it anyway, where populating
      * ratings on the intermediate read would just be wasted work, and by
-     * other services (ApplicationService, ReviewService) that only need
-     * the entity itself, not its rating display data.
+     * other services (ApplicationService, ReviewService) and ownership
+     * checks that only need the entity itself, not its rating display data.
      */
     public Property getPropertyById(Long id) {
         return propertyRepository.findById(id)
