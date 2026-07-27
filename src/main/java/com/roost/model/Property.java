@@ -27,7 +27,17 @@ public class Property {
 
     private String imageUrl;
 
+    /**
+     * The "Verified" badge shown throughout the app. Computed, not set
+     * directly by clients -- see PropertyService.recomputeVerification.
+     * True only when all three v1 verification signals are met: owner's
+     * phone verified, GPS location confirmed, and photos admin-approved.
+     */
     private boolean verified = false;
+
+    /** Admin sign-off that photos are real (not stock/screenshots).
+     *  One of the three signals composing [verified]. */
+    private boolean photoApproved = false;
 
     private boolean holdingFeePaid = false;
 
@@ -180,6 +190,14 @@ public class Property {
 
     public void setVerified(boolean verified) {
         this.verified = verified;
+    }
+
+    public boolean isPhotoApproved() {
+        return photoApproved;
+    }
+
+    public void setPhotoApproved(boolean photoApproved) {
+        this.photoApproved = photoApproved;
     }
 
     public boolean isHoldingFeePaid() {

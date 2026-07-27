@@ -33,6 +33,8 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
     /** Listings whose reminder grace period has expired with no response. */
     List<Property> findByAvailableTrueAndRemindedAtIsNotNullAndRemindedAtBefore(LocalDateTime threshold);
 
+    List<Property> findByPhotoApprovedFalse();
+
     @Query("SELECT p FROM Property p WHERE " +
            "p.available = true AND " +
            "p.latitude IS NOT NULL AND p.longitude IS NOT NULL AND " +

@@ -63,6 +63,18 @@ public class UserController {
         return ResponseEntity.ok(Map.of("status", "ok"));
     }
 
+    /**
+     * Verifies a Firebase phone-auth ID token the client obtained after
+     * completing the SMS OTP flow, and marks the phone verified.
+     */
+    @PostMapping("/me/verify-phone")
+    public ResponseEntity<Map<String, String>> verifyPhone(@AuthenticationPrincipal User user,
+                                                              @RequestBody Map<String, String> payload) {
+        if (user == null) return ResponseEntity.status(401).build();
+        String phone = userService.verifyPhone(user, payload.get("idToken"));
+        return ResponseEntity.ok(Map.of("status", "ok", "phone", phone));
+    }
+
     @GetMapping("/{id}/public-key")
     public ResponseEntity<Map<String, String>> getPublicKey(@AuthenticationPrincipal User user, @PathVariable Long id) {
         if (user == null) return ResponseEntity.status(401).build();

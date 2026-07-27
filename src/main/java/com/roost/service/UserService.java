@@ -12,9 +12,13 @@ import org.springframework.transaction.annotation.Transactional;
 public class UserService {
 
     private final UserRepository userRepository;
+    private final FirebasePhoneAuthService firebasePhoneAuthService;
+    private final PropertyService propertyService;
 
-    public UserService(UserRepository userRepository) {
+    public UserService(UserRepository userRepository, FirebasePhoneAuthService firebasePhoneAuthService, PropertyService propertyService) {
         this.userRepository = userRepository;
+        this.firebasePhoneAuthService = firebasePhoneAuthService;
+        this.propertyService = propertyService;
     }
 
     /**
@@ -57,5 +61,28 @@ public class UserService {
         }
         user.setDeviceToken(token);
         userRepository.save(user);
+    }
+
+    /**
+     * Verifies a Firebase phone-auth ID token (the client completes the
+     * SMS OTP flow itself; this confirms it actually happened rather than
+     * trusting the client's word for it) and marks the phone verified.
+     * Also re-checks the "Verified" badge on every listing this user
+     * owns, since phone verification is one of the three signals that
+     * compose it.
+     */
+    public String verifyPhone(User user, String idToken) {
+        if (idToken == null || idToken.isBlank()) {
+            throw ApiException.badRequest("idToken is required");
+        }
+        String phoneNumber = firebasePhoneAuthService.verifyPhoneToken(idToken);
+        if (phoneNumber == null) {
+            throw ApiException.badRequest("Could not verify phone number. Please try again.");
+        }
+        user.setPhone(phoneNumber);
+        user.setPhoneVerified(true);
+        userRepository.save(user);
+        propertyService.recomputeVerificationForOwner(user);
+        return phoneNumber;
     }
 }

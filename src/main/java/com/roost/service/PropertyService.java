@@ -34,7 +34,31 @@ public class PropertyService {
         if (property.getLastConfirmedAt() == null) {
             property.setLastConfirmedAt(LocalDateTime.now());
         }
+        recomputeVerification(property);
         return propertyRepository.save(property);
+    }
+
+    /**
+     * Recomputes the "Verified" badge from the three v1 signals: owner's
+     * phone verified, GPS location confirmed, photos admin-approved.
+     * Called whenever any underlying signal could have changed -- never
+     * set verified directly from client input.
+     */
+    private void recomputeVerification(Property property) {
+        boolean phoneVerified = property.getOwner() != null && property.getOwner().isPhoneVerified();
+        boolean gpsConfirmed = property.getLatitude() != null && property.getLongitude() != null;
+        property.setVerified(phoneVerified && gpsConfirmed && property.isPhotoApproved());
+    }
+
+    /** Re-checks verification for every listing owned by [owner] -- called
+     *  when their phone verification status changes, since that's a
+     *  signal that lives outside any single property update. */
+    public void recomputeVerificationForOwner(User owner) {
+        List<Property> properties = propertyRepository.findByOwner(owner);
+        for (Property p : properties) {
+            recomputeVerification(p);
+        }
+        propertyRepository.saveAll(properties);
     }
 
     public List<Property> getPropertiesByOwner(User owner) {
@@ -157,7 +181,22 @@ public class PropertyService {
         existing.setVideoUrl(updated.getVideoUrl());
         if (updated.getCountry() != null) existing.setCountry(updated.getCountry());
         existing.setLastConfirmedAt(LocalDateTime.now());
+        recomputeVerification(existing);
         return propertyRepository.save(existing);
+    }
+
+    /** Admin marks a listing's photos as reviewed and genuine. */
+    public Property approvePhotos(Long id) {
+        Property property = getPropertyById(id);
+        property.setPhotoApproved(true);
+        recomputeVerification(property);
+        return propertyRepository.save(property);
+    }
+
+    /** Listings awaiting photo review -- have GPS + a confirmed phone
+     *  already, just missing the admin sign-off. */
+    public List<Property> getPendingPhotoReview() {
+        return propertyRepository.findByPhotoApprovedFalse();
     }
 
     public Property getPropertyById(Long id) {
