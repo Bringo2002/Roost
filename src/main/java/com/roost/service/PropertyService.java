@@ -97,22 +97,6 @@ public class PropertyService {
         return populateRatings(propertyRepository.findByOwner(owner));
     }
 
-    public List<Property> getByLocation(String location) {
-        return populateRatings(propertyRepository.findByLocationContainingIgnoreCase(location));
-    }
-
-    public List<Property> getAvailableProperties() {
-        return populateRatings(propertyRepository.findByAvailableTrue());
-    }
-
-    public List<Property> getByType(String type) {
-        return populateRatings(propertyRepository.findByType(type));
-    }
-
-    public List<Property> getByPriceRange(double minPrice, double maxPrice) {
-        return populateRatings(propertyRepository.findByPriceBetween(minPrice, maxPrice));
-    }
-
     public List<Property> getNearby(double lat, double lng, double radiusKm) {
         return populateRatings(propertyRepository.findNearby(lat, lng, radiusKm));
     }

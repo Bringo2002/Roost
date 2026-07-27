@@ -182,28 +182,6 @@ public class PropertyController {
         return "Roost API is LIVE";
     }
 
-    @GetMapping("/location/{location}")
-    public List<Property> getByLocation(@PathVariable String location) {
-        return propertyService.getByLocation(location);
-    }
-
-    @GetMapping("/available")
-    public List<Property> getAvailable() {
-        return propertyService.getAvailableProperties();
-    }
-
-    @GetMapping("/type/{type}")
-    public List<Property> getByType(@PathVariable String type) {
-        return propertyService.getByType(type);
-    }
-
-    @GetMapping("/price")
-    public List<Property> getByPriceRange(
-            @RequestParam double min,
-            @RequestParam double max) {
-        return propertyService.getByPriceRange(min, max);
-    }
-
     @DeleteMapping("/{id}")
     public ResponseEntity<?> deleteProperty(@PathVariable Long id, @AuthenticationPrincipal User user) {
         if (user == null) {
