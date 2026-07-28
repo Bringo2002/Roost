@@ -1,6 +1,7 @@
 package com.roost.service;
 
 import com.roost.dto.AuthResponse;
+import com.roost.dto.GoogleAuthRequest;
 import com.roost.dto.SignupRequest;
 import com.roost.dto.UserProfileResponse;
 import com.roost.exception.ApiException;
@@ -26,15 +27,18 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final AuthenticationManager authenticationManager;
+    private final GoogleAuthService googleAuthService;
 
     public AuthService(UserRepository userRepository,
                         PasswordEncoder passwordEncoder,
                         JwtService jwtService,
-                        AuthenticationManager authenticationManager) {
+                        AuthenticationManager authenticationManager,
+                        GoogleAuthService googleAuthService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
         this.authenticationManager = authenticationManager;
+        this.googleAuthService = googleAuthService;
     }
 
     public AuthResponse signup(SignupRequest request) {
@@ -62,6 +66,43 @@ public class AuthService {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> ApiException.badRequest("User not found"));
         return AuthResponse.builder().token(jwtService.generateToken(user)).build();
+    }
+
+    /**
+     * Handles both Google sign-up and Google sign-in through one endpoint,
+     * matched by email (Google/Firebase already verified that email
+     * belongs to whoever is signing in, so it's safe to treat "email
+     * already registered" as "log this person into that account" rather
+     * than rejecting it -- same account, another way in).
+     *
+     * A brand-new account gets password set to a bcrypt hash of a random
+     * UUID: there's no password this user knows or will ever be asked
+     * for, it just satisfies the column's NOT NULL constraint and can
+     * never coincidentally match anything a real login attempt would send.
+     */
+    public AuthResponse loginWithGoogle(GoogleAuthRequest request) {
+        GoogleAuthService.GoogleIdentity identity = googleAuthService.verifyGoogleToken(request.getIdToken());
+        if (identity == null) {
+            throw ApiException.badRequest("Google sign-in could not be verified. Please try again.");
+        }
+
+        return userRepository.findByEmail(identity.email())
+                .map(existing -> AuthResponse.builder()
+                        .token(jwtService.generateToken(existing))
+                        .isNewUser(false)
+                        .build())
+                .orElseGet(() -> {
+                    User user = new User();
+                    user.setName(identity.name());
+                    user.setEmail(identity.email());
+                    user.setPassword(passwordEncoder.encode(java.util.UUID.randomUUID().toString()));
+                    user.setRole(request.getRole() != null ? request.getRole() : Role.TENANT);
+                    userRepository.save(user);
+                    return AuthResponse.builder()
+                            .token(jwtService.generateToken(user))
+                            .isNewUser(true)
+                            .build();
+                });
     }
 
     public UserProfileResponse getProfile(User user) {

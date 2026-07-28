@@ -33,6 +33,11 @@ public class AuthController {
         return ResponseEntity.ok(authService.login(request.getEmail(), request.getPassword()));
     }
 
+    @PostMapping("/google")
+    public ResponseEntity<AuthResponse> google(@RequestBody com.roost.dto.GoogleAuthRequest request) {
+        return ResponseEntity.ok(authService.loginWithGoogle(request));
+    }
+
     @GetMapping("/me")
     public ResponseEntity<UserProfileResponse> getCurrentUser(@AuthenticationPrincipal User user) {
         if (user == null) return ResponseEntity.status(401).build();
