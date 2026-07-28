@@ -23,8 +23,11 @@ public class UserService {
 
     /**
      * Public-facing view of another user's profile. Deliberately omits
-     * publicKey -- that's only exposed via the dedicated
-     * GET /{id}/public-key endpoint.
+     * email and phone -- those are contact details, not public profile
+     * info, and this endpoint is reachable for any authenticated user by
+     * ID. (It also omits publicKey, which is only exposed via the
+     * dedicated GET /{id}/public-key endpoint.) phoneVerified is kept
+     * since it's just the "Verified" badge signal, not the number itself.
      */
     public UserProfileResponse getUserProfile(Long id) {
         User target = userRepository.findById(id)
@@ -32,8 +35,6 @@ public class UserService {
         return UserProfileResponse.builder()
                 .id(target.getId())
                 .name(target.getName())
-                .email(target.getEmail())
-                .phone(target.getPhone())
                 .phoneVerified(target.isPhoneVerified())
                 .role(target.getRole())
                 .lastActiveAt(target.getLastActiveAt())

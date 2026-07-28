@@ -17,7 +17,12 @@ import java.util.function.Function;
 @Service
 public class JwtService {
 
-    @Value("${jwt.secret:404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}")
+    // No hardcoded fallback here on purpose -- a default checked into a
+    // public repo stops being a secret. jwt.secret must come from
+    // application.properties (local dev only) or the JWT_SECRET env var
+    // (production); if neither is set, Spring fails to start rather than
+    // silently signing tokens with a well-known key.
+    @Value("${jwt.secret}")
     private String secretKey;
 
     public String extractUsername(String token) {
