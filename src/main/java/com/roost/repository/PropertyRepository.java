@@ -42,7 +42,7 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
 
     @Query("SELECT p FROM Property p WHERE " +
            "p.available = true AND " +
-           "(:houseType IS NULL OR LOWER(p.houseType) = LOWER(:houseType)) AND " +
+           "(:houseType IS NULL OR p.houseType = :houseType) AND " +
            "(:minPrice IS NULL OR p.price >= :minPrice) AND " +
            "(:maxPrice IS NULL OR p.price <= :maxPrice) AND " +
            "(:bedrooms IS NULL OR p.bedrooms >= :bedrooms) AND " +
