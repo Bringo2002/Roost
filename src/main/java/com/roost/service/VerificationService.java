@@ -5,12 +5,13 @@ import com.roost.model.VerificationRecord;
 import com.roost.repository.PropertyRepository;
 import com.roost.repository.VerificationRepository;
 import com.roost.model.User;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -57,5 +58,35 @@ public class VerificationService {
 
     public List<VerificationRecord> getPropertyVerifications(Long propertyId) {
         return verificationRepository.findByPropertyId(propertyId);
+    }
+
+    /**
+     * Aggregates a landlord's dashboard stats: total listings, how many
+     * have a holding fee secured, and total revenue collected across all
+     * of them. Moved here from VerificationController, which had this
+     * loop directly in the controller. Uses PropertyRepository directly
+     * (already a dependency of this class) rather than adding a new
+     * cross-service dependency on PropertyService for a single lookup.
+     */
+    public Map<String, Object> getLandlordStats(User landlord) {
+        List<Property> properties = propertyRepository.findByOwner(landlord);
+        int totalListings = properties.size();
+        int totalSecured = 0;
+        double totalRevenue = 0;
+
+        for (Property p : properties) {
+            if (p.isHoldingFeePaid()) {
+                totalSecured++;
+                for (VerificationRecord r : getPropertyVerifications(p.getId())) {
+                    totalRevenue += r.getAmountPaid();
+                }
+            }
+        }
+
+        Map<String, Object> stats = new HashMap<>();
+        stats.put("totalListings", totalListings);
+        stats.put("totalSecured", totalSecured);
+        stats.put("totalRevenue", totalRevenue);
+        return stats;
     }
 }
