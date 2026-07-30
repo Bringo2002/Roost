@@ -102,6 +102,22 @@ public class ChatController {
         return ResponseEntity.ok().build();
     }
 
+    @PostMapping("/{partnerId}/clear")
+    public ResponseEntity<Map<String, Boolean>> clearChat(@AuthenticationPrincipal User user,
+                                                            @PathVariable Long partnerId) {
+        if (user == null) return ResponseEntity.status(401).build();
+        chatService.clearChat(user, partnerId);
+        return ResponseEntity.ok(Map.of("cleared", true));
+    }
+
+    @PostMapping("/{partnerId}/delete-chat")
+    public ResponseEntity<Map<String, Boolean>> deleteChat(@AuthenticationPrincipal User user,
+                                                             @PathVariable Long partnerId) {
+        if (user == null) return ResponseEntity.status(401).build();
+        chatService.deleteChat(user, partnerId);
+        return ResponseEntity.ok(Map.of("deleted", true));
+    }
+
     @GetMapping("/typing-status/{partnerId}")
     public ResponseEntity<Map<String, Boolean>> getTypingStatus(@AuthenticationPrincipal User user,
                                                                   @PathVariable Long partnerId) {

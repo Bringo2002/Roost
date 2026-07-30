@@ -16,17 +16,24 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
     @Query("SELECT m FROM Message m WHERE (m.sender = :user1 AND m.recipient = :user2) OR (m.sender = :user2 AND m.recipient = :user1) ORDER BY m.timestamp ASC")
     List<Message> findChatHistory(@Param("user1") User user1, @Param("user2") User user2);
 
-    /** Most recent page of the conversation, newest first -- caller reverses for display. */
-    @Query("SELECT m FROM Message m WHERE (m.sender = :user1 AND m.recipient = :user2) OR (m.sender = :user2 AND m.recipient = :user1) ORDER BY m.timestamp DESC")
-    List<Message> findChatHistoryLatestDesc(@Param("user1") User user1, @Param("user2") User user2, Pageable pageable);
+    /** Most recent page of the conversation, newest first -- caller reverses for display.
+     *  clearedBeforeId excludes messages at or before a user's "clear chat" cutoff (null = no cutoff). */
+    @Query("SELECT m FROM Message m WHERE ((m.sender = :user1 AND m.recipient = :user2) OR (m.sender = :user2 AND m.recipient = :user1)) " +
+           "AND (:clearedBeforeId IS NULL OR m.id > :clearedBeforeId) ORDER BY m.timestamp DESC")
+    List<Message> findChatHistoryLatestDesc(@Param("user1") User user1, @Param("user2") User user2,
+                                             @Param("clearedBeforeId") Long clearedBeforeId, Pageable pageable);
 
     /** A page of messages older than [beforeId], newest first -- caller reverses for display. */
-    @Query("SELECT m FROM Message m WHERE ((m.sender = :user1 AND m.recipient = :user2) OR (m.sender = :user2 AND m.recipient = :user1)) AND m.id < :beforeId ORDER BY m.timestamp DESC")
-    List<Message> findChatHistoryBeforeDesc(@Param("user1") User user1, @Param("user2") User user2, @Param("beforeId") Long beforeId, Pageable pageable);
+    @Query("SELECT m FROM Message m WHERE ((m.sender = :user1 AND m.recipient = :user2) OR (m.sender = :user2 AND m.recipient = :user1)) AND m.id < :beforeId " +
+           "AND (:clearedBeforeId IS NULL OR m.id > :clearedBeforeId) ORDER BY m.timestamp DESC")
+    List<Message> findChatHistoryBeforeDesc(@Param("user1") User user1, @Param("user2") User user2, @Param("beforeId") Long beforeId,
+                                             @Param("clearedBeforeId") Long clearedBeforeId, Pageable pageable);
 
     /** All messages newer than [afterId], oldest first -- used by the client's polling loop so it only fetches what's new instead of the whole conversation. */
-    @Query("SELECT m FROM Message m WHERE ((m.sender = :user1 AND m.recipient = :user2) OR (m.sender = :user2 AND m.recipient = :user1)) AND m.id > :afterId ORDER BY m.timestamp ASC")
-    List<Message> findChatHistoryAfter(@Param("user1") User user1, @Param("user2") User user2, @Param("afterId") Long afterId);
+    @Query("SELECT m FROM Message m WHERE ((m.sender = :user1 AND m.recipient = :user2) OR (m.sender = :user2 AND m.recipient = :user1)) AND m.id > :afterId " +
+           "AND (:clearedBeforeId IS NULL OR m.id > :clearedBeforeId) ORDER BY m.timestamp ASC")
+    List<Message> findChatHistoryAfter(@Param("user1") User user1, @Param("user2") User user2, @Param("afterId") Long afterId,
+                                        @Param("clearedBeforeId") Long clearedBeforeId);
 
     @Query("SELECT DISTINCT u FROM User u WHERE u IN (SELECT m.sender FROM Message m WHERE m.recipient = :user) OR u IN (SELECT m.recipient FROM Message m WHERE m.sender = :user)")
     List<User> findActiveChatPartners(@Param("user") User user);

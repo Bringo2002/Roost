@@ -2,9 +2,11 @@ package com.roost.service;
 
 import com.roost.dto.ConversationSummaryDto;
 import com.roost.exception.ApiException;
+import com.roost.model.ChatVisibility;
 import com.roost.model.Message;
 import com.roost.model.MessageReaction;
 import com.roost.model.User;
+import com.roost.repository.ChatVisibilityRepository;
 import com.roost.repository.MessageReactionRepository;
 import com.roost.repository.MessageRepository;
 import com.roost.repository.UserRepository;
@@ -32,6 +34,7 @@ public class ChatService {
     private final MessageRepository messageRepository;
     private final UserRepository userRepository;
     private final MessageReactionRepository reactionRepository;
+    private final ChatVisibilityRepository chatVisibilityRepository;
     private final R2StorageService r2StorageService;
     private final FirebasePushService firebasePushService;
 
@@ -41,11 +44,13 @@ public class ChatService {
     public ChatService(MessageRepository messageRepository,
                         UserRepository userRepository,
                         MessageReactionRepository reactionRepository,
+                        ChatVisibilityRepository chatVisibilityRepository,
                         R2StorageService r2StorageService,
                         FirebasePushService firebasePushService) {
         this.messageRepository = messageRepository;
         this.userRepository = userRepository;
         this.reactionRepository = reactionRepository;
+        this.chatVisibilityRepository = chatVisibilityRepository;
         this.r2StorageService = r2StorageService;
         this.firebasePushService = firebasePushService;
     }
@@ -144,15 +149,18 @@ public class ChatService {
                 .orElseThrow(() -> ApiException.badRequest("User not found"));
 
         int pageSize = (limit != null && limit > 0) ? Math.min(limit, MAX_HISTORY_PAGE_SIZE) : DEFAULT_HISTORY_PAGE_SIZE;
+        Long clearedBeforeId = chatVisibilityRepository.findByUserAndPartner(user, otherUser)
+                .map(ChatVisibility::getClearedBeforeMessageId)
+                .orElse(null);
 
         List<Message> history;
         if (afterId != null) {
-            history = messageRepository.findChatHistoryAfter(user, otherUser, afterId);
+            history = messageRepository.findChatHistoryAfter(user, otherUser, afterId, clearedBeforeId);
         } else if (beforeId != null) {
-            history = messageRepository.findChatHistoryBeforeDesc(user, otherUser, beforeId, PageRequest.of(0, pageSize));
+            history = messageRepository.findChatHistoryBeforeDesc(user, otherUser, beforeId, clearedBeforeId, PageRequest.of(0, pageSize));
             Collections.reverse(history);
         } else {
-            history = messageRepository.findChatHistoryLatestDesc(user, otherUser, PageRequest.of(0, pageSize));
+            history = messageRepository.findChatHistoryLatestDesc(user, otherUser, clearedBeforeId, PageRequest.of(0, pageSize));
             Collections.reverse(history);
         }
 
@@ -175,8 +183,73 @@ public class ChatService {
         }
     }
 
+    /**
+     * "Clear chat": hides every message currently in this conversation
+     * from [user]'s view only -- [partner] keeps their full history.
+     * Implemented as a cutoff (the latest message id at this moment)
+     * rather than deleting rows, since the messages table is shared
+     * between both participants.
+     */
+    public void clearChat(User user, Long partnerId) {
+        User partner = userRepository.findById(partnerId)
+                .orElseThrow(() -> ApiException.badRequest("User not found"));
+
+        Message lastMsg = messageRepository.findLastMessage(user, partner);
+        if (lastMsg == null) return; // nothing to clear
+
+        ChatVisibility visibility = getOrCreateVisibility(user, partner);
+        visibility.setClearedBeforeMessageId(lastMsg.getId());
+        chatVisibilityRepository.save(visibility);
+    }
+
+    /**
+     * "Delete chat": hides this conversation from [user]'s conversation
+     * list only. Automatically reappears the moment [partner] sends a
+     * new message -- there's no separate "undelete" action, matching
+     * WhatsApp/Telegram. Existing messages aren't cleared; if the
+     * conversation reappears, the previous history is still there.
+     */
+    public void deleteChat(User user, Long partnerId) {
+        User partner = userRepository.findById(partnerId)
+                .orElseThrow(() -> ApiException.badRequest("User not found"));
+
+        Message lastMsg = messageRepository.findLastMessage(user, partner);
+        long hiddenSince = lastMsg != null ? lastMsg.getId() : 0L;
+
+        ChatVisibility visibility = getOrCreateVisibility(user, partner);
+        visibility.setHiddenSinceMessageId(hiddenSince);
+        chatVisibilityRepository.save(visibility);
+    }
+
+    private ChatVisibility getOrCreateVisibility(User user, User partner) {
+        return chatVisibilityRepository.findByUserAndPartner(user, partner)
+                .orElseGet(() -> {
+                    ChatVisibility v = new ChatVisibility();
+                    v.setUser(user);
+                    v.setPartner(partner);
+                    return v;
+                });
+    }
+
+    /** True if this conversation is currently hidden from [user]'s list
+     *  (i.e. deleteChat was called and no newer message has arrived since). */
+    private boolean isHidden(User user, User partner, Message lastMsg) {
+        return chatVisibilityRepository.findByUserAndPartner(user, partner)
+                .map(ChatVisibility::getHiddenSinceMessageId)
+                .map(hiddenSince -> lastMsg == null || lastMsg.getId() <= hiddenSince)
+                .orElse(false);
+    }
+
     public List<User> getActiveChats(User user) {
-        return messageRepository.findActiveChatPartners(user);
+        List<User> partners = messageRepository.findActiveChatPartners(user);
+        List<User> visible = new ArrayList<>();
+        for (User partner : partners) {
+            Message lastMsg = messageRepository.findLastMessage(user, partner);
+            if (!isHidden(user, partner, lastMsg)) {
+                visible.add(partner);
+            }
+        }
+        return visible;
     }
 
     public long getUnreadCount(User user) {
@@ -230,6 +303,9 @@ public class ChatService {
         List<ConversationSummaryDto> summaries = new ArrayList<>();
         for (User partner : partners) {
             Message lastMsg = messageRepository.findLastMessage(user, partner);
+            if (isHidden(user, partner, lastMsg)) {
+                continue;
+            }
             Long unread = messageRepository.countUnreadFromUser(partner, user);
 
             ConversationSummaryDto dto = new ConversationSummaryDto();
