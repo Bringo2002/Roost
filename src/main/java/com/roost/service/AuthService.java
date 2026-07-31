@@ -51,7 +51,7 @@ public class AuthService {
         user.setEmail(request.getEmail());
         user.setPhone(request.getPhone());
         user.setPassword(passwordEncoder.encode(request.getPassword()));
-        user.setRole(request.getRole() != null ? request.getRole() : Role.TENANT);
+        user.setRole(Role.TENANT);
         userRepository.save(user);
 
         return AuthResponse.builder().token(jwtService.generateToken(user)).build();
@@ -96,7 +96,7 @@ public class AuthService {
                     user.setName(identity.name());
                     user.setEmail(identity.email());
                     user.setPassword(passwordEncoder.encode(java.util.UUID.randomUUID().toString()));
-                    user.setRole(request.getRole() != null ? request.getRole() : Role.TENANT);
+                    user.setRole(Role.TENANT);
                     userRepository.save(user);
                     return AuthResponse.builder()
                             .token(jwtService.generateToken(user))
@@ -119,6 +119,40 @@ public class AuthService {
     public void verifyPhone(User user) {
         user.setPhoneVerified(true);
         userRepository.save(user);
+    }
+
+    /**
+     * Upgrades a plain (TENANT) account to LANDLORD. This is the only
+     * path that ever sets a user's role after signup -- role is never
+     * chosen at registration, only granted here when someone explicitly
+     * asks to list a property. Idempotent: calling it again on an
+     * existing landlord is a no-op rather than an error, since the
+     * client can't easily know in advance whether it already ran.
+     */
+    public UserProfileResponse becomeLandlord(User user) {
+        if (user.getRole() != Role.LANDLORD) {
+            user.setRole(Role.LANDLORD);
+            userRepository.save(user);
+        }
+        return toProfileResponse(user);
+    }
+
+    /**
+     * Reverts a LANDLORD back to a plain browsing (TENANT) account.
+     * Existing listings are left as-is -- this only affects what the
+     * account can do going forward, not past data. Refuses to touch
+     * ADMIN accounts; that role isn't something this self-service
+     * endpoint should ever be able to change.
+     */
+    public UserProfileResponse revertToTenant(User user) {
+        if (user.getRole() == Role.ADMIN) {
+            throw ApiException.badRequest("Admin accounts cannot be changed through this endpoint.");
+        }
+        if (user.getRole() != Role.TENANT) {
+            user.setRole(Role.TENANT);
+            userRepository.save(user);
+        }
+        return toProfileResponse(user);
     }
 
     public void changePassword(User user, String currentPassword, String newPassword) {

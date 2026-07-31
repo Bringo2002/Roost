@@ -1,22 +1,18 @@
 package com.roost.dto;
 
-import com.roost.model.Role;
-
 public class SignupRequest {
     private String name;
     private String email;
     private String phone;
     private String password;
-    private Role role;
 
     public SignupRequest() {}
 
-    public SignupRequest(String name, String email, String phone, String password, Role role) {
+    public SignupRequest(String name, String email, String phone, String password) {
         this.name = name;
         this.email = email;
         this.phone = phone;
         this.password = password;
-        this.role = role;
     }
 
     public String getName() {
@@ -51,14 +47,6 @@ public class SignupRequest {
         this.password = password;
     }
 
-    public Role getRole() {
-        return role;
-    }
-
-    public void setRole(Role role) {
-        this.role = role;
-    }
-
     public static Builder builder() {
         return new Builder();
     }
@@ -68,7 +56,6 @@ public class SignupRequest {
         private String email;
         private String phone;
         private String password;
-        private Role role;
 
         public Builder name(String name) {
             this.name = name;
@@ -90,13 +77,8 @@ public class SignupRequest {
             return this;
         }
 
-        public Builder role(Role role) {
-            this.role = role;
-            return this;
-        }
-
         public SignupRequest build() {
-            return new SignupRequest(name, email, phone, password, role);
+            return new SignupRequest(name, email, phone, password);
         }
     }
 }

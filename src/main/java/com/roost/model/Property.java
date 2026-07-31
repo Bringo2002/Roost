@@ -39,8 +39,6 @@ public class Property {
      *  One of the three signals composing [verified]. */
     private boolean photoApproved = false;
 
-    private boolean holdingFeePaid = false;
-
     private Double latitude;
 
     private Double longitude;
@@ -198,14 +196,6 @@ public class Property {
 
     public void setPhotoApproved(boolean photoApproved) {
         this.photoApproved = photoApproved;
-    }
-
-    public boolean isHoldingFeePaid() {
-        return holdingFeePaid;
-    }
-
-    public void setHoldingFeePaid(boolean holdingFeePaid) {
-        this.holdingFeePaid = holdingFeePaid;
     }
 
     public Double getLatitude() {

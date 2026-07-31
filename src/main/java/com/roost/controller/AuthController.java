@@ -59,6 +59,27 @@ public class AuthController {
         return ResponseEntity.ok(Map.of("message", "Phone verified successfully"));
     }
 
+    /**
+     * Upgrades the current account to LANDLORD. This is the only route
+     * that ever sets role after signup -- see AuthService.becomeLandlord
+     * for why role isn't chosen at registration.
+     */
+    @PostMapping("/lister-profile")
+    public ResponseEntity<UserProfileResponse> becomeLandlord(@AuthenticationPrincipal User user) {
+        if (user == null) return ResponseEntity.status(401).build();
+        return ResponseEntity.ok(authService.becomeLandlord(user));
+    }
+
+    /**
+     * Reverts the current account to a plain browsing (TENANT) account.
+     * Does not touch or delete existing listings.
+     */
+    @DeleteMapping("/lister-profile")
+    public ResponseEntity<UserProfileResponse> revertToTenant(@AuthenticationPrincipal User user) {
+        if (user == null) return ResponseEntity.status(401).build();
+        return ResponseEntity.ok(authService.revertToTenant(user));
+    }
+
     @PostMapping("/change-password")
     public ResponseEntity<Map<String, String>> changePassword(@AuthenticationPrincipal User user,
                                                                  @RequestBody Map<String, String> payload) {
