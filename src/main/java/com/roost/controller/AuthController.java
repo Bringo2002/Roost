@@ -51,14 +51,6 @@ public class AuthController {
         return ResponseEntity.ok(authService.updateProfile(user, body));
     }
 
-    @PostMapping("/verify-phone")
-    public ResponseEntity<Map<String, String>> verifyPhone(@AuthenticationPrincipal User user,
-                                                              @RequestBody(required = false) Map<String, String> body) {
-        if (user == null) return ResponseEntity.status(401).build();
-        authService.verifyPhone(user);
-        return ResponseEntity.ok(Map.of("message", "Phone verified successfully"));
-    }
-
     /**
      * Upgrades the current account to LANDLORD. This is the only route
      * that ever sets role after signup -- see AuthService.becomeLandlord

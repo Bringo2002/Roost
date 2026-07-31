@@ -116,11 +116,6 @@ public class AuthService {
         return toProfileResponse(user);
     }
 
-    public void verifyPhone(User user) {
-        user.setPhoneVerified(true);
-        userRepository.save(user);
-    }
-
     /**
      * Upgrades a plain (TENANT) account to LANDLORD. This is the only
      * path that ever sets a user's role after signup -- role is never
