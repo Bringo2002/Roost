@@ -235,7 +235,30 @@ public class PropertyController {
     }
 
     @GetMapping("/{id}")
-    public Property getPropertyById(@PathVariable Long id) {
-        return propertyService.getPropertyDetail(id);
+    public Property getPropertyById(@PathVariable Long id, @AuthenticationPrincipal User user) {
+        Property property = propertyService.getPropertyDetail(id);
+        boolean isOwner = user != null && property.getOwner() != null && property.getOwner().getId().equals(user.getId());
+        if ("DRAFT".equals(property.getStatus()) && !isOwner) {
+            throw com.roost.exception.ApiException.notFound("Property not found");
+        }
+        return property;
+    }
+
+    /**
+     * One-tap publish for a draft from the dashboard, without reopening
+     * the full listing wizard. Still enforced server-side by
+     * PropertyService.publishDraft -- the phone-verification check
+     * can't be skipped just because this is a shortcut.
+     */
+    @PatchMapping("/{id}/publish")
+    public ResponseEntity<?> publishDraft(@PathVariable Long id, @AuthenticationPrincipal User user) {
+        if (user == null) {
+            return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
+        }
+        Property existing = propertyService.getPropertyById(id);
+        if (user.getRole() != Role.LANDLORD || existing.getOwner() == null || !existing.getOwner().getId().equals(user.getId())) {
+            return ResponseEntity.status(403).body(Map.of("error", "Unauthorized"));
+        }
+        return ResponseEntity.ok(propertyService.publishDraft(id));
     }
 }

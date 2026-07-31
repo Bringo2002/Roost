@@ -39,6 +39,13 @@ public class Property {
      *  One of the three signals composing [verified]. */
     private boolean photoApproved = false;
 
+    /** DRAFT or PUBLISHED. Drafts are never returned by public feed/
+     *  search/nearby/filter queries and are only visible to their owner
+     *  via GET /{id} -- see PropertyRepository and PropertyController.
+     *  Defaults to PUBLISHED so every pre-existing row (created before
+     *  this field existed) behaves exactly as it did before. */
+    private String status = "PUBLISHED";
+
     private Double latitude;
 
     private Double longitude;
@@ -196,6 +203,14 @@ public class Property {
 
     public void setPhotoApproved(boolean photoApproved) {
         this.photoApproved = photoApproved;
+    }
+
+    public String getStatus() {
+        return status;
+    }
+
+    public void setStatus(String status) {
+        this.status = status;
     }
 
     public Double getLatitude() {

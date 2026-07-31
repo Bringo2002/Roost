@@ -1,5 +1,6 @@
 package com.roost.service;
 
+import com.roost.exception.ApiException;
 import com.roost.model.Property;
 import com.roost.model.User;
 import com.roost.repository.PropertyRepository;
@@ -56,10 +57,16 @@ public class PropertyService {
     }
 
     public List<Property> getAllProperties() {
-        return populateRatings(propertyRepository.findAll());
+        return populateRatings(propertyRepository.findByStatus("PUBLISHED"));
     }
 
     public Property addProperty(Property property) {
+        if (property.getStatus() == null || property.getStatus().isBlank()) {
+            property.setStatus("PUBLISHED");
+        }
+        if ("PUBLISHED".equals(property.getStatus())) {
+            assertCanPublish(property.getOwner());
+        }
         if (property.getListedAt() == null) {
             property.setListedAt(LocalDateTime.now());
         }
@@ -68,6 +75,20 @@ public class PropertyService {
         }
         recomputeVerification(property);
         return populateRatings(propertyRepository.save(property));
+    }
+
+    /**
+     * Server-side enforcement that a listing can only go live once its
+     * owner has a verified phone -- mirrors the client-side gate in the
+     * Flutter wizard (add_property_page.dart), but doesn't rely on it.
+     * Same reasoning as removing `role` from signup requests earlier:
+     * a client-side check alone can always be bypassed by calling the
+     * API directly, so the rule has to also live here.
+     */
+    private void assertCanPublish(User owner) {
+        if (owner == null || !owner.isPhoneVerified()) {
+            throw ApiException.badRequest("Verify your phone number before publishing a listing.");
+        }
     }
 
     /**
@@ -196,6 +217,32 @@ public class PropertyService {
         existing.setImageUrls(updated.getImageUrls());
         existing.setVideoUrl(updated.getVideoUrl());
         if (updated.getCountry() != null) existing.setCountry(updated.getCountry());
+        if (updated.getStatus() != null && !updated.getStatus().equals(existing.getStatus())
+                && "PUBLISHED".equals(updated.getStatus())) {
+            assertCanPublish(existing.getOwner());
+        }
+        if (updated.getStatus() != null) {
+            existing.setStatus(updated.getStatus());
+        }
+        existing.setLastConfirmedAt(LocalDateTime.now());
+        recomputeVerification(existing);
+        return populateRatings(propertyRepository.save(existing));
+    }
+
+    /**
+     * Dedicated one-tap publish action for a draft, used by the
+     * landlord dashboard's quick-publish button so flipping a draft
+     * live doesn't require reopening the whole listing wizard. Still
+     * runs the same phone-verification check as every other path to
+     * PUBLISHED.
+     */
+    public Property publishDraft(Long id) {
+        Property existing = getPropertyById(id);
+        assertCanPublish(existing.getOwner());
+        existing.setStatus("PUBLISHED");
+        if (existing.getListedAt() == null) {
+            existing.setListedAt(LocalDateTime.now());
+        }
         existing.setLastConfirmedAt(LocalDateTime.now());
         recomputeVerification(existing);
         return populateRatings(propertyRepository.save(existing));

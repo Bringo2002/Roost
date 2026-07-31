@@ -27,7 +27,10 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
 
     List<Property> findByPhotoApprovedFalse();
 
+    List<Property> findByStatus(String status);
+
     @Query("SELECT p FROM Property p WHERE " +
+           "p.status = 'PUBLISHED' AND " +
            "p.available = true AND " +
            "p.latitude IS NOT NULL AND p.longitude IS NOT NULL AND " +
            "(6371 * acos(cos(radians(:lat)) * cos(radians(p.latitude)) * " +
@@ -41,6 +44,7 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
                                @Param("radiusKm") double radiusKm);
 
     @Query("SELECT p FROM Property p WHERE " +
+           "p.status = 'PUBLISHED' AND " +
            "p.available = true AND " +
            "(:houseType IS NULL OR p.houseType = :houseType) AND " +
            "(:minPrice IS NULL OR p.price >= :minPrice) AND " +

@@ -47,6 +47,7 @@ public class DatabaseSchemaMigrator implements CommandLineRunner {
             jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS last_confirmed_at TIMESTAMP;");
             jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS view_count INT DEFAULT 0;");
             jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS save_count INT DEFAULT 0;");
+            jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS status VARCHAR(255) DEFAULT 'PUBLISHED';");
 
             log.info("Database schema migration completed successfully!");
         } catch (Exception e) {
