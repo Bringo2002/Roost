@@ -1,0 +1,316 @@
+diff --git a/src/main/java/com/roost/controller/ChatController.java b/src/main/java/com/roost/controller/ChatController.java
+index 73a1a52..97b2bd8 100644
+--- a/src/main/java/com/roost/controller/ChatController.java
++++ b/src/main/java/com/roost/controller/ChatController.java
+@@ -102,6 +102,22 @@ public class ChatController {
+         return ResponseEntity.ok().build();
+     }
+ 
++    @PostMapping("/{partnerId}/clear")
++    public ResponseEntity<Map<String, Boolean>> clearChat(@AuthenticationPrincipal User user,
++                                                            @PathVariable Long partnerId) {
++        if (user == null) return ResponseEntity.status(401).build();
++        chatService.clearChat(user, partnerId);
++        return ResponseEntity.ok(Map.of("cleared", true));
++    }
++
++    @PostMapping("/{partnerId}/delete-chat")
++    public ResponseEntity<Map<String, Boolean>> deleteChat(@AuthenticationPrincipal User user,
++                                                             @PathVariable Long partnerId) {
++        if (user == null) return ResponseEntity.status(401).build();
++        chatService.deleteChat(user, partnerId);
++        return ResponseEntity.ok(Map.of("deleted", true));
++    }
++
+     @GetMapping("/typing-status/{partnerId}")
+     public ResponseEntity<Map<String, Boolean>> getTypingStatus(@AuthenticationPrincipal User user,
+                                                                   @PathVariable Long partnerId) {
+diff --git a/src/main/java/com/roost/model/ChatVisibility.java b/src/main/java/com/roost/model/ChatVisibility.java
+new file mode 100644
+index 0000000..b40c34e
+--- /dev/null
++++ b/src/main/java/com/roost/model/ChatVisibility.java
+@@ -0,0 +1,83 @@
++package com.roost.model;
++
++import jakarta.persistence.*;
++
++/**
++ * Per-user visibility state for a conversation with a specific partner.
++ * Neither "clear chat" nor "delete chat" deletes anything from the
++ * messages table -- the other person still needs their full history --
++ * so both are expressed here as a cutoff from this user's point of view
++ * only. One row per (user, partner) pair.
++ */
++@Entity
++@Table(name = "chat_visibility", uniqueConstraints = @UniqueConstraint(columnNames = {"user_id", "partner_id"}))
++public class ChatVisibility {
++
++    @Id
++    @GeneratedValue(strategy = GenerationType.IDENTITY)
++    private Long id;
++
++    @ManyToOne
++    @JoinColumn(name = "user_id", nullable = false)
++    private User user;
++
++    @ManyToOne
++    @JoinColumn(name = "partner_id", nullable = false)
++    private User partner;
++
++    /**
++     * "Clear chat": messages with id <= this are hidden from [user]'s
++     * view of this conversation. Null means nothing has been cleared.
++     * Set to the latest message id at the moment of clearing, so
++     * messages that already existed disappear but new ones still show.
++     */
++    @Column(name = "cleared_before_message_id")
++    private Long clearedBeforeMessageId;
++
++    /**
++     * "Delete chat": this conversation is hidden from [user]'s
++     * conversation list as long as no message newer than this id
++     * exists. The moment [partner] sends a new message, the
++     * conversation reappears automatically -- there's no separate
++     * "unhide" action, matching how WhatsApp/Telegram behave. Null
++     * means the conversation isn't hidden.
++     */
++    @Column(name = "hidden_since_message_id")
++    private Long hiddenSinceMessageId;
++
++    public Long getId() {
++        return id;
++    }
++
++    public User getUser() {
++        return user;
++    }
++
++    public void setUser(User user) {
++        this.user = user;
++    }
++
++    public User getPartner() {
++        return partner;
++    }
++
++    public void setPartner(User partner) {
++        this.partner = partner;
++    }
++
++    public Long getClearedBeforeMessageId() {
++        return clearedBeforeMessageId;
++    }
++
++    public void setClearedBeforeMessageId(Long clearedBeforeMessageId) {
++        this.clearedBeforeMessageId = clearedBeforeMessageId;
++    }
++
++    public Long getHiddenSinceMessageId() {
++        return hiddenSinceMessageId;
++    }
++
++    public void setHiddenSinceMessageId(Long hiddenSinceMessageId) {
++        this.hiddenSinceMessageId = hiddenSinceMessageId;
++    }
++}
+diff --git a/src/main/java/com/roost/repository/ChatVisibilityRepository.java b/src/main/java/com/roost/repository/ChatVisibilityRepository.java
+new file mode 100644
+index 0000000..7b86c61
+--- /dev/null
++++ b/src/main/java/com/roost/repository/ChatVisibilityRepository.java
+@@ -0,0 +1,13 @@
++package com.roost.repository;
++
++import com.roost.model.ChatVisibility;
++import com.roost.model.User;
++import org.springframework.data.jpa.repository.JpaRepository;
++import org.springframework.stereotype.Repository;
++
++import java.util.Optional;
++
++@Repository
++public interface ChatVisibilityRepository extends JpaRepository<ChatVisibility, Long> {
++    Optional<ChatVisibility> findByUserAndPartner(User user, User partner);
++}
+diff --git a/src/main/java/com/roost/repository/MessageRepository.java b/src/main/java/com/roost/repository/MessageRepository.java
+index 09aa472..5b1cdfc 100644
+--- a/src/main/java/com/roost/repository/MessageRepository.java
++++ b/src/main/java/com/roost/repository/MessageRepository.java
+@@ -16,17 +16,24 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
+     @Query("SELECT m FROM Message m WHERE (m.sender = :user1 AND m.recipient = :user2) OR (m.sender = :user2 AND m.recipient = :user1) ORDER BY m.timestamp ASC")
+     List<Message> findChatHistory(@Param("user1") User user1, @Param("user2") User user2);
+ 
+-    /** Most recent page of the conversation, newest first -- caller reverses for display. */
+-    @Query("SELECT m FROM Message m WHERE (m.sender = :user1 AND m.recipient = :user2) OR (m.sender = :user2 AND m.recipient = :user1) ORDER BY m.timestamp DESC")
+-    List<Message> findChatHistoryLatestDesc(@Param("user1") User user1, @Param("user2") User user2, Pageable pageable);
++    /** Most recent page of the conversation, newest first -- caller reverses for display.
++     *  clearedBeforeId excludes messages at or before a user's "clear chat" cutoff (null = no cutoff). */
++    @Query("SELECT m FROM Message m WHERE ((m.sender = :user1 AND m.recipient = :user2) OR (m.sender = :user2 AND m.recipient = :user1)) " +
++           "AND (:clearedBeforeId IS NULL OR m.id > :clearedBeforeId) ORDER BY m.timestamp DESC")
++    List<Message> findChatHistoryLatestDesc(@Param("user1") User user1, @Param("user2") User user2,
++                                             @Param("clearedBeforeId") Long clearedBeforeId, Pageable pageable);
+ 
+     /** A page of messages older than [beforeId], newest first -- caller reverses for display. */
+-    @Query("SELECT m FROM Message m WHERE ((m.sender = :user1 AND m.recipient = :user2) OR (m.sender = :user2 AND m.recipient = :user1)) AND m.id < :beforeId ORDER BY m.timestamp DESC")
+-    List<Message> findChatHistoryBeforeDesc(@Param("user1") User user1, @Param("user2") User user2, @Param("beforeId") Long beforeId, Pageable pageable);
++    @Query("SELECT m FROM Message m WHERE ((m.sender = :user1 AND m.recipient = :user2) OR (m.sender = :user2 AND m.recipient = :user1)) AND m.id < :beforeId " +
++           "AND (:clearedBeforeId IS NULL OR m.id > :clearedBeforeId) ORDER BY m.timestamp DESC")
++    List<Message> findChatHistoryBeforeDesc(@Param("user1") User user1, @Param("user2") User user2, @Param("beforeId") Long beforeId,
++                                             @Param("clearedBeforeId") Long clearedBeforeId, Pageable pageable);
+ 
+     /** All messages newer than [afterId], oldest first -- used by the client's polling loop so it only fetches what's new instead of the whole conversation. */
+-    @Query("SELECT m FROM Message m WHERE ((m.sender = :user1 AND m.recipient = :user2) OR (m.sender = :user2 AND m.recipient = :user1)) AND m.id > :afterId ORDER BY m.timestamp ASC")
+-    List<Message> findChatHistoryAfter(@Param("user1") User user1, @Param("user2") User user2, @Param("afterId") Long afterId);
++    @Query("SELECT m FROM Message m WHERE ((m.sender = :user1 AND m.recipient = :user2) OR (m.sender = :user2 AND m.recipient = :user1)) AND m.id > :afterId " +
++           "AND (:clearedBeforeId IS NULL OR m.id > :clearedBeforeId) ORDER BY m.timestamp ASC")
++    List<Message> findChatHistoryAfter(@Param("user1") User user1, @Param("user2") User user2, @Param("afterId") Long afterId,
++                                        @Param("clearedBeforeId") Long clearedBeforeId);
+ 
+     @Query("SELECT DISTINCT u FROM User u WHERE u IN (SELECT m.sender FROM Message m WHERE m.recipient = :user) OR u IN (SELECT m.recipient FROM Message m WHERE m.sender = :user)")
+     List<User> findActiveChatPartners(@Param("user") User user);
+diff --git a/src/main/java/com/roost/service/ChatService.java b/src/main/java/com/roost/service/ChatService.java
+index d1c2af4..0fa1b5b 100644
+--- a/src/main/java/com/roost/service/ChatService.java
++++ b/src/main/java/com/roost/service/ChatService.java
+@@ -2,9 +2,11 @@ package com.roost.service;
+ 
+ import com.roost.dto.ConversationSummaryDto;
+ import com.roost.exception.ApiException;
++import com.roost.model.ChatVisibility;
+ import com.roost.model.Message;
+ import com.roost.model.MessageReaction;
+ import com.roost.model.User;
++import com.roost.repository.ChatVisibilityRepository;
+ import com.roost.repository.MessageReactionRepository;
+ import com.roost.repository.MessageRepository;
+ import com.roost.repository.UserRepository;
+@@ -32,6 +34,7 @@ public class ChatService {
+     private final MessageRepository messageRepository;
+     private final UserRepository userRepository;
+     private final MessageReactionRepository reactionRepository;
++    private final ChatVisibilityRepository chatVisibilityRepository;
+     private final R2StorageService r2StorageService;
+     private final FirebasePushService firebasePushService;
+ 
+@@ -41,11 +44,13 @@ public class ChatService {
+     public ChatService(MessageRepository messageRepository,
+                         UserRepository userRepository,
+                         MessageReactionRepository reactionRepository,
++                        ChatVisibilityRepository chatVisibilityRepository,
+                         R2StorageService r2StorageService,
+                         FirebasePushService firebasePushService) {
+         this.messageRepository = messageRepository;
+         this.userRepository = userRepository;
+         this.reactionRepository = reactionRepository;
++        this.chatVisibilityRepository = chatVisibilityRepository;
+         this.r2StorageService = r2StorageService;
+         this.firebasePushService = firebasePushService;
+     }
+@@ -144,15 +149,18 @@ public class ChatService {
+                 .orElseThrow(() -> ApiException.badRequest("User not found"));
+ 
+         int pageSize = (limit != null && limit > 0) ? Math.min(limit, MAX_HISTORY_PAGE_SIZE) : DEFAULT_HISTORY_PAGE_SIZE;
++        Long clearedBeforeId = chatVisibilityRepository.findByUserAndPartner(user, otherUser)
++                .map(ChatVisibility::getClearedBeforeMessageId)
++                .orElse(null);
+ 
+         List<Message> history;
+         if (afterId != null) {
+-            history = messageRepository.findChatHistoryAfter(user, otherUser, afterId);
++            history = messageRepository.findChatHistoryAfter(user, otherUser, afterId, clearedBeforeId);
+         } else if (beforeId != null) {
+-            history = messageRepository.findChatHistoryBeforeDesc(user, otherUser, beforeId, PageRequest.of(0, pageSize));
++            history = messageRepository.findChatHistoryBeforeDesc(user, otherUser, beforeId, clearedBeforeId, PageRequest.of(0, pageSize));
+             Collections.reverse(history);
+         } else {
+-            history = messageRepository.findChatHistoryLatestDesc(user, otherUser, PageRequest.of(0, pageSize));
++            history = messageRepository.findChatHistoryLatestDesc(user, otherUser, clearedBeforeId, PageRequest.of(0, pageSize));
+             Collections.reverse(history);
+         }
+ 
+@@ -175,8 +183,73 @@ public class ChatService {
+         }
+     }
+ 
++    /**
++     * "Clear chat": hides every message currently in this conversation
++     * from [user]'s view only -- [partner] keeps their full history.
++     * Implemented as a cutoff (the latest message id at this moment)
++     * rather than deleting rows, since the messages table is shared
++     * between both participants.
++     */
++    public void clearChat(User user, Long partnerId) {
++        User partner = userRepository.findById(partnerId)
++                .orElseThrow(() -> ApiException.badRequest("User not found"));
++
++        Message lastMsg = messageRepository.findLastMessage(user, partner);
++        if (lastMsg == null) return; // nothing to clear
++
++        ChatVisibility visibility = getOrCreateVisibility(user, partner);
++        visibility.setClearedBeforeMessageId(lastMsg.getId());
++        chatVisibilityRepository.save(visibility);
++    }
++
++    /**
++     * "Delete chat": hides this conversation from [user]'s conversation
++     * list only. Automatically reappears the moment [partner] sends a
++     * new message -- there's no separate "undelete" action, matching
++     * WhatsApp/Telegram. Existing messages aren't cleared; if the
++     * conversation reappears, the previous history is still there.
++     */
++    public void deleteChat(User user, Long partnerId) {
++        User partner = userRepository.findById(partnerId)
++                .orElseThrow(() -> ApiException.badRequest("User not found"));
++
++        Message lastMsg = messageRepository.findLastMessage(user, partner);
++        long hiddenSince = lastMsg != null ? lastMsg.getId() : 0L;
++
++        ChatVisibility visibility = getOrCreateVisibility(user, partner);
++        visibility.setHiddenSinceMessageId(hiddenSince);
++        chatVisibilityRepository.save(visibility);
++    }
++
++    private ChatVisibility getOrCreateVisibility(User user, User partner) {
++        return chatVisibilityRepository.findByUserAndPartner(user, partner)
++                .orElseGet(() -> {
++                    ChatVisibility v = new ChatVisibility();
++                    v.setUser(user);
++                    v.setPartner(partner);
++                    return v;
++                });
++    }
++
++    /** True if this conversation is currently hidden from [user]'s list
++     *  (i.e. deleteChat was called and no newer message has arrived since). */
++    private boolean isHidden(User user, User partner, Message lastMsg) {
++        return chatVisibilityRepository.findByUserAndPartner(user, partner)
++                .map(ChatVisibility::getHiddenSinceMessageId)
++                .map(hiddenSince -> lastMsg == null || lastMsg.getId() <= hiddenSince)
++                .orElse(false);
++    }
++
+     public List<User> getActiveChats(User user) {
+-        return messageRepository.findActiveChatPartners(user);
++        List<User> partners = messageRepository.findActiveChatPartners(user);
++        List<User> visible = new ArrayList<>();
++        for (User partner : partners) {
++            Message lastMsg = messageRepository.findLastMessage(user, partner);
++            if (!isHidden(user, partner, lastMsg)) {
++                visible.add(partner);
++            }
++        }
++        return visible;
+     }
+ 
+     public long getUnreadCount(User user) {
+@@ -230,6 +303,9 @@ public class ChatService {
+         List<ConversationSummaryDto> summaries = new ArrayList<>();
+         for (User partner : partners) {
+             Message lastMsg = messageRepository.findLastMessage(user, partner);
++            if (isHidden(user, partner, lastMsg)) {
++                continue;
++            }
+             Long unread = messageRepository.countUnreadFromUser(partner, user);
+ 
+             ConversationSummaryDto dto = new ConversationSummaryDto();
