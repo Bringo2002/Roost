@@ -54,6 +54,21 @@ public class DatabaseSchemaMigrator implements CommandLineRunner {
             log.warn("Database schema migration notice: " + e.getMessage());
         }
 
+        // This constraint predates ADMIN being added to the Role enum and
+        // was only ever fixed by hand directly on the live database, which
+        // meant it would silently reappear in its old, stricter form on any
+        // fresh environment built from schema alone. Tracking it here makes
+        // it reproducible and self-healing instead of tribal knowledge.
+        // Isolated in its own try/catch, same reasoning as enforceNotNull
+        // below -- one constraint failing to update shouldn't block the
+        // rest of startup.
+        try {
+            jdbcTemplate.execute("ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;");
+            jdbcTemplate.execute("ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('TENANT', 'LANDLORD', 'ADMIN'));");
+        } catch (Exception e) {
+            log.warn("Could not update users_role_check constraint: " + e.getMessage());
+        }
+
         // The entity fields for these columns are primitives (boolean/int),
         // so Hibernate's own ddl-auto=update tries to mark them NOT NULL on
         // every boot. That silently fails on any row still holding a null
