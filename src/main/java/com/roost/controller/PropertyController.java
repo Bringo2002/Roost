@@ -82,8 +82,13 @@ public class PropertyController {
 
     @PostMapping("/{id}/report")
     public ResponseEntity<?> reportProperty(@PathVariable Long id, @RequestBody(required = false) Map<String, String> body, @AuthenticationPrincipal User user) {
+        if (user == null) {
+            return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
+        }
         String reason = body != null && body.containsKey("reason") ? body.get("reason") : "Unspecified issue";
-        return ResponseEntity.ok(Map.of("message", "Report received for property " + id + ". Reason: " + reason));
+        String details = body != null ? body.get("details") : null;
+        propertyService.reportProperty(id, user, reason, details);
+        return ResponseEntity.ok(Map.of("message", "Report received. Our team will review this listing."));
     }
 
     @PostMapping("/{id}/save")
@@ -238,7 +243,11 @@ public class PropertyController {
     public Property getPropertyById(@PathVariable Long id, @AuthenticationPrincipal User user) {
         Property property = propertyService.getPropertyDetail(id);
         boolean isOwner = user != null && property.getOwner() != null && property.getOwner().getId().equals(user.getId());
-        if ("DRAFT".equals(property.getStatus()) && !isOwner) {
+        // Any non-PUBLISHED status (DRAFT, or UNDER_REVIEW after crossing
+        // the report threshold) is only visible to its owner -- a
+        // flagged listing shouldn't still be reachable by direct link
+        // just because it's hidden from search rather than deleted.
+        if (!"PUBLISHED".equals(property.getStatus()) && !isOwner) {
             throw com.roost.exception.ApiException.notFound("Property not found");
         }
         return property;

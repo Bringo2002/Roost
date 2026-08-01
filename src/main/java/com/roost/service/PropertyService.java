@@ -2,8 +2,10 @@ package com.roost.service;
 
 import com.roost.exception.ApiException;
 import com.roost.model.Property;
+import com.roost.model.PropertyReport;
 import com.roost.model.User;
 import com.roost.repository.PropertyRepository;
+import com.roost.repository.PropertyReportRepository;
 import com.roost.repository.ReviewRepository;
 import com.roost.repository.UserRepository;
 import org.springframework.stereotype.Service;
@@ -20,12 +22,19 @@ public class PropertyService {
     private final PropertyRepository propertyRepository;
     private final UserRepository userRepository;
     private final ReviewRepository reviewRepository;
+    private final PropertyReportRepository propertyReportRepository;
+
+    /** Three distinct people flagging the same listing is enough to pull
+     *  it from public view pending an admin look, rather than waiting on
+     *  someone to notice a report queue manually. */
+    private static final int REPORT_THRESHOLD = 3;
 
     public PropertyService(PropertyRepository propertyRepository, UserRepository userRepository,
-                            ReviewRepository reviewRepository) {
+                            ReviewRepository reviewRepository, PropertyReportRepository propertyReportRepository) {
         this.propertyRepository = propertyRepository;
         this.userRepository = userRepository;
         this.reviewRepository = reviewRepository;
+        this.propertyReportRepository = propertyReportRepository;
     }
 
     /**
@@ -260,6 +269,66 @@ public class PropertyService {
      *  already, just missing the admin sign-off. */
     public List<Property> getPendingPhotoReview() {
         return propertyRepository.findByPhotoApprovedFalse();
+    }
+
+    /**
+     * Records a report against a listing. One report per user per
+     * listing -- repeat reports from the same person don't count twice
+     * toward the auto-hide threshold, since that would let one person
+     * hide a listing alone by spamming the button. Once REPORT_THRESHOLD
+     * distinct users have reported it, the listing flips to UNDER_REVIEW
+     * and disappears from public feed/search/detail immediately -- the
+     * same status field and query filters built for drafts, reused here
+     * rather than adding a second hidden-listing mechanism.
+     */
+    public PropertyReport reportProperty(Long propertyId, User reporter, String reason, String details) {
+        Property property = getPropertyById(propertyId);
+
+        if (propertyReportRepository.existsByPropertyAndReportedBy(property, reporter)) {
+            throw ApiException.badRequest("You've already reported this listing.");
+        }
+
+        PropertyReport report = new PropertyReport();
+        report.setProperty(property);
+        report.setReportedBy(reporter);
+        report.setReason(reason);
+        report.setDetails(details);
+        propertyReportRepository.save(report);
+
+        long totalReports = propertyReportRepository.countByProperty(property);
+        if (totalReports >= REPORT_THRESHOLD && "PUBLISHED".equals(property.getStatus())) {
+            property.setStatus("UNDER_REVIEW");
+            propertyRepository.save(property);
+        }
+
+        return report;
+    }
+
+    /** Listings currently hidden pending admin review after crossing the
+     *  report threshold. */
+    public List<Property> getFlaggedForReview() {
+        return propertyRepository.findByStatus("UNDER_REVIEW");
+    }
+
+    public List<PropertyReport> getReportsForProperty(Long propertyId) {
+        Property property = getPropertyById(propertyId);
+        return propertyReportRepository.findByPropertyOrderByCreatedAtDesc(property);
+    }
+
+    /**
+     * Admin decision after reviewing a flagged listing: either restore
+     * it to public view (reports were unfounded) or leave it hidden.
+     * Doesn't delete anything either way -- a genuinely bad listing
+     * still gets removed through the existing delete endpoint, which
+     * is a separate, more deliberate action than a review decision.
+     */
+    public Property resolveReportedListing(Long propertyId, boolean restore) {
+        Property property = getPropertyById(propertyId);
+        if (restore) {
+            property.setStatus("PUBLISHED");
+            return propertyRepository.save(property);
+        }
+        return property;
     }
 
     /**
