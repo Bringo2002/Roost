@@ -77,26 +77,40 @@ public class R2StorageService {
      *  key (not a URL) -- for private content fetched via the
      *  authenticated download proxy, e.g. encrypted chat attachments. */
     public String upload(byte[] data) {
-        return upload(data, "attachments/");
+        return upload(data, "attachments/", null, "");
     }
 
     /** Uploads bytes under "properties/" intended for public, direct
      *  access and returns the full public URL. Requires
      *  R2_PUBLIC_BASE_URL -- without it, callers get a clear error
-     *  rather than a URL that won't actually load anything. */
+     *  rather than a URL that won't actually load anything. Defaults to
+     *  image/jpeg for the existing photo-upload call site; use the
+     *  contentType/extension overload for anything else (e.g. video). */
     public String uploadPublic(byte[] data) {
+        return uploadPublic(data, "image/jpeg", ".jpg");
+    }
+
+    /**
+     * Same as {@link #uploadPublic(byte[])} but with an explicit
+     * content type and file extension -- video needs both: a correct
+     * Content-Type header for players that check it, and a real
+     * extension in the URL for players/CDNs that infer format from the
+     * path rather than sniffing bytes.
+     */
+    public String uploadPublic(byte[] data, String contentType, String extension) {
         requirePublicConfigured();
-        String key = upload(data, "properties/");
+        String key = upload(data, "properties/", contentType, extension);
         return publicBaseUrl + "/" + key;
     }
 
-    private String upload(byte[] data, String keyPrefix) {
+    private String upload(byte[] data, String keyPrefix, String contentType, String extension) {
         requireConfigured();
-        String key = keyPrefix + UUID.randomUUID();
-        s3Client.putObject(
-                PutObjectRequest.builder().bucket(bucket).key(key).build(),
-                RequestBody.fromBytes(data)
-        );
+        String key = keyPrefix + UUID.randomUUID() + (extension == null ? "" : extension);
+        PutObjectRequest.Builder requestBuilder = PutObjectRequest.builder().bucket(bucket).key(key);
+        if (contentType != null && !contentType.isBlank()) {
+            requestBuilder = requestBuilder.contentType(contentType);
+        }
+        s3Client.putObject(requestBuilder.build(), RequestBody.fromBytes(data));
         return key;
     }
 

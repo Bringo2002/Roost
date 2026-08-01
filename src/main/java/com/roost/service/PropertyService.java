@@ -1,9 +1,12 @@
 package com.roost.service;
 
 import com.roost.exception.ApiException;
+import com.roost.model.CommunityCheck;
 import com.roost.model.Property;
 import com.roost.model.PropertyReport;
 import com.roost.model.User;
+import com.roost.repository.ApplicationRepository;
+import com.roost.repository.CommunityCheckRepository;
 import com.roost.repository.PropertyRepository;
 import com.roost.repository.PropertyReportRepository;
 import com.roost.repository.ReviewRepository;
@@ -23,16 +26,25 @@ public class PropertyService {
     private final UserRepository userRepository;
     private final ReviewRepository reviewRepository;
     private final PropertyReportRepository propertyReportRepository;
+    private final CommunityCheckRepository communityCheckRepository;
+    private final ApplicationRepository applicationRepository;
 
     /** Three distinct people flagging the same listing is enough to pull
      *  it from public view pending an admin look, rather than waiting on
      *  someone to notice a report queue manually. */
     private static final int REPORT_THRESHOLD = 3;
 
+    /** Distinct tenants confirming a listing was fully accurate before
+     *  it earns the Community Verified badge. */
+    private static final int COMMUNITY_VERIFIED_THRESHOLD = 3;
+
     public PropertyService(PropertyRepository propertyRepository, UserRepository userRepository,
-                            ReviewRepository reviewRepository, PropertyReportRepository propertyReportRepository) {
+                            ReviewRepository reviewRepository, PropertyReportRepository propertyReportRepository,
+                            CommunityCheckRepository communityCheckRepository, ApplicationRepository applicationRepository) {
         this.propertyRepository = propertyRepository;
         this.userRepository = userRepository;
+        this.communityCheckRepository = communityCheckRepository;
+        this.applicationRepository = applicationRepository;
         this.reviewRepository = reviewRepository;
         this.propertyReportRepository = propertyReportRepository;
     }
@@ -102,14 +114,60 @@ public class PropertyService {
 
     /**
      * Recomputes the "Verified" badge from the three v1 signals: owner's
-     * phone verified, GPS location confirmed, photos admin-approved.
+     * phone verified, GPS location genuinely confirmed on-site
+     * (gpsVerified -- see verifyGpsLocation), photos admin-approved.
      * Called whenever any underlying signal could have changed -- never
      * set verified directly from client input.
      */
     private void recomputeVerification(Property property) {
         boolean phoneVerified = property.getOwner() != null && property.getOwner().isPhoneVerified();
-        boolean gpsConfirmed = property.getLatitude() != null && property.getLongitude() != null;
-        property.setVerified(phoneVerified && gpsConfirmed && property.isPhotoApproved());
+        property.setVerified(phoneVerified && property.isGpsVerified() && property.isPhotoApproved());
+    }
+
+    /** Meters of tolerance for GPS verification -- generous enough to
+     *  absorb ordinary phone GPS drift and multipath error in dense
+     *  urban buildings, tight enough that verifying from across town
+     *  isn't possible. */
+    private static final double GPS_VERIFICATION_TOLERANCE_METERS = 200.0;
+
+    /**
+     * Confirms the owner is (or very recently was) physically at the
+     * property by comparing their device's live position against the
+     * listing's pinned coordinates. Replaces the old placeholder check
+     * that only tested whether latitude/longitude were non-null, which
+     * anyone could satisfy by dropping a map pin from anywhere -- this
+     * one actually requires standing there.
+     */
+    public Property verifyGpsLocation(Long propertyId, double deviceLat, double deviceLng) {
+        Property property = getPropertyById(propertyId);
+        if (property.getLatitude() == null || property.getLongitude() == null) {
+            throw ApiException.badRequest("This listing doesn't have a pinned location yet.");
+        }
+
+        double distanceMeters = haversineMeters(
+                property.getLatitude(), property.getLongitude(), deviceLat, deviceLng);
+
+        if (distanceMeters > GPS_VERIFICATION_TOLERANCE_METERS) {
+            throw ApiException.badRequest(String.format(
+                    "You're about %.0fm from the listed location. Move closer and try again.", distanceMeters));
+        }
+
+        property.setGpsVerified(true);
+        property.setGpsVerifiedAt(LocalDateTime.now());
+        recomputeVerification(property);
+        return populateRatings(propertyRepository.save(property));
+    }
+
+    /** Great-circle distance between two coordinates, in meters. */
+    private double haversineMeters(double lat1, double lon1, double lat2, double lon2) {
+        final double earthRadiusMeters = 6_371_000;
+        double dLat = Math.toRadians(lat2 - lat1);
+        double dLon = Math.toRadians(lon2 - lon1);
+        double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
+                + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
+                * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return earthRadiusMeters * c;
     }
 
     /** Re-checks verification for every listing owned by [owner] -- called
@@ -329,6 +387,67 @@ public class PropertyService {
             return propertyRepository.save(property);
         }
         return property;
+    }
+
+    /**
+     * Whether this user is currently eligible to submit a community
+     * accuracy check for this listing -- gated on having applied to it,
+     * the closest concrete signal of genuine engagement Roost has today
+     * (no scheduled-viewing tracking exists yet). Exposed separately
+     * from submitCommunityCheck so the app can decide whether to show
+     * the prompt at all before the user tries to submit one.
+     */
+    public boolean canSubmitCommunityCheck(Long propertyId, User respondent) {
+        Property property = getPropertyById(propertyId);
+        boolean hasApplied = applicationRepository.existsByPropertyAndApplicant(property, respondent);
+        boolean alreadySubmitted = communityCheckRepository.existsByPropertyAndRespondent(property, respondent);
+        return hasApplied && !alreadySubmitted;
+    }
+
+    /**
+     * Records a tenant's post-application accuracy confirmation. One
+     * per tenant per listing -- repeat submissions don't inflate the
+     * Community Verified count. Once COMMUNITY_VERIFIED_THRESHOLD
+     * distinct tenants confirm the listing was fully accurate (visited,
+     * photos/location/price all matched), the badge flips on. It never
+     * flips back off from a single later negative response -- that's a
+     * deliberate choice for now: a badge that flickers on and off as
+     * responses trickle in would be a confusing signal, and reversing
+     * community trust earned over multiple confirmations based on one
+     * dissenting report is closer to what the report/threshold system
+     * already exists to handle.
+     */
+    public CommunityCheck submitCommunityCheck(Long propertyId, User respondent, boolean visited,
+                                                boolean photosAccurate, boolean locationAccurate,
+                                                boolean priceAccurate, boolean wouldRecommend) {
+        Property property = getPropertyById(propertyId);
+
+        if (!applicationRepository.existsByPropertyAndApplicant(property, respondent)) {
+            throw ApiException.badRequest("Only tenants who applied to this listing can confirm its accuracy.");
+        }
+        if (communityCheckRepository.existsByPropertyAndRespondent(property, respondent)) {
+            throw ApiException.badRequest("You've already submitted a confirmation for this listing.");
+        }
+
+        CommunityCheck check = new CommunityCheck();
+        check.setProperty(property);
+        check.setRespondent(respondent);
+        check.setVisited(visited);
+        check.setPhotosAccurate(photosAccurate);
+        check.setLocationAccurate(locationAccurate);
+        check.setPriceAccurate(priceAccurate);
+        check.setWouldRecommend(wouldRecommend);
+        communityCheckRepository.save(check);
+
+        if (!property.isCommunityVerified()) {
+            long accurateCount = communityCheckRepository.countFullyAccurateConfirmations(property);
+            if (accurateCount >= COMMUNITY_VERIFIED_THRESHOLD) {
+                property.setCommunityVerified(true);
+                propertyRepository.save(property);
+            }
+        }
+
+        return check;
     }
 
     /**

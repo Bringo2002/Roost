@@ -31,6 +31,12 @@ public class PropertyController {
      *  upload should never get near this. */
     private static final int MAX_PHOTO_BYTES = 8 * 1024 * 1024; // 8MB
 
+    /** A short vertical walkthrough clip, not a feature film -- generous
+     *  enough for a genuine 30-60s walkthrough at reasonable mobile
+     *  bitrates, capped well short of anything that would strain R2
+     *  storage costs or a landlord's mobile data uploading it. */
+    private static final int MAX_VIDEO_BYTES = 60 * 1024 * 1024; // 60MB
+
     public PropertyController(PropertyService propertyService) {
         this.propertyService = propertyService;
     }
@@ -80,6 +86,32 @@ public class PropertyController {
         return ResponseEntity.ok(propertyService.confirmAvailability(id));
     }
 
+    /**
+     * Called when the owner is physically at the property and taps
+     * "Verify Location" -- takes the device's current GPS reading and
+     * compares it against the listing's pinned coordinates server-side
+     * (PropertyService.verifyGpsLocation), rather than trusting a
+     * client-reported "yes I'm here."
+     */
+    @PostMapping("/{id}/verify-gps")
+    public ResponseEntity<?> verifyGpsLocation(@PathVariable Long id,
+                                                 @RequestBody Map<String, Double> body,
+                                                 @AuthenticationPrincipal User user) {
+        if (user == null) {
+            return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
+        }
+        Property property = propertyService.getPropertyById(id);
+        if (user.getRole() != Role.LANDLORD || property.getOwner() == null || !property.getOwner().getId().equals(user.getId())) {
+            return ResponseEntity.status(403).body(Map.of("error", "Only property owner can verify this location."));
+        }
+        Double lat = body.get("latitude");
+        Double lng = body.get("longitude");
+        if (lat == null || lng == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "latitude and longitude are required"));
+        }
+        return ResponseEntity.ok(propertyService.verifyGpsLocation(id, lat, lng));
+    }
+
     @PostMapping("/{id}/report")
     public ResponseEntity<?> reportProperty(@PathVariable Long id, @RequestBody(required = false) Map<String, String> body, @AuthenticationPrincipal User user) {
         if (user == null) {
@@ -89,6 +121,39 @@ public class PropertyController {
         String details = body != null ? body.get("details") : null;
         propertyService.reportProperty(id, user, reason, details);
         return ResponseEntity.ok(Map.of("message", "Report received. Our team will review this listing."));
+    }
+
+    /** Lets the app decide whether to show the "confirm accuracy" prompt
+     *  at all, before the user tries to submit one. */
+    @GetMapping("/{id}/community-check/eligible")
+    public ResponseEntity<?> canSubmitCommunityCheck(@PathVariable Long id, @AuthenticationPrincipal User user) {
+        if (user == null) {
+            return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
+        }
+        boolean eligible = propertyService.canSubmitCommunityCheck(id, user);
+        return ResponseEntity.ok(Map.of("eligible", eligible));
+    }
+
+    /**
+     * A tenant's post-application confirmation of whether this listing
+     * matched what was advertised -- gated server-side on having
+     * actually applied to it (PropertyService.submitCommunityCheck),
+     * not just on the client claiming eligibility.
+     */
+    @PostMapping("/{id}/community-check")
+    public ResponseEntity<?> submitCommunityCheck(@PathVariable Long id,
+                                                    @RequestBody Map<String, Boolean> body,
+                                                    @AuthenticationPrincipal User user) {
+        if (user == null) {
+            return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
+        }
+        boolean visited = Boolean.TRUE.equals(body.get("visited"));
+        boolean photosAccurate = Boolean.TRUE.equals(body.get("photosAccurate"));
+        boolean locationAccurate = Boolean.TRUE.equals(body.get("locationAccurate"));
+        boolean priceAccurate = Boolean.TRUE.equals(body.get("priceAccurate"));
+        boolean wouldRecommend = Boolean.TRUE.equals(body.get("wouldRecommend"));
+        propertyService.submitCommunityCheck(id, user, visited, photosAccurate, locationAccurate, priceAccurate, wouldRecommend);
+        return ResponseEntity.ok(Map.of("message", "Thanks for helping keep Roost accurate."));
     }
 
     @PostMapping("/{id}/save")
@@ -167,6 +232,47 @@ public class PropertyController {
             log.warning("Property photo upload failed: " + e.getMessage());
             return ResponseEntity.status(503).body(Map.of(
                     "error", "Photo uploads aren't available right now. Please try again shortly."
+            ));
+        }
+    }
+
+    /**
+     * A single optional walkthrough video per listing, uploaded the same
+     * way photos are (base64 JSON body) for consistency with the
+     * existing upload flow, but through its own endpoint with a much
+     * larger size cap and a real video content-type/extension so
+     * players can rely on both instead of guessing from raw bytes.
+     */
+    @PostMapping("/upload-video")
+    public ResponseEntity<?> uploadVideo(@RequestBody Map<String, String> payload, @AuthenticationPrincipal User user) {
+        if (user == null) {
+            return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
+        }
+        if (user.getRole() != Role.LANDLORD) {
+            return ResponseEntity.status(403).body(Map.of("error", "Only landlords can upload property videos."));
+        }
+        String data = payload.get("data");
+        if (data == null || data.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "data is required"));
+        }
+
+        byte[] bytes;
+        try {
+            bytes = Base64.getDecoder().decode(data);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Video data is not valid base64"));
+        }
+        if (bytes.length > MAX_VIDEO_BYTES) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Video is too large (max 60MB)"));
+        }
+
+        try {
+            String url = r2StorageService.uploadPublic(bytes, "video/mp4", ".mp4");
+            return ResponseEntity.ok(Map.of("url", url));
+        } catch (IllegalStateException e) {
+            log.warning("Property video upload failed: " + e.getMessage());
+            return ResponseEntity.status(503).body(Map.of(
+                    "error", "Video uploads aren't available right now. Please try again shortly."
             ));
         }
     }

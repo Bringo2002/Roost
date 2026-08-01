@@ -13,6 +13,13 @@ public class Property {
     private Long id;
 
     private String title;
+
+    /** Optional -- the apartment/building/compound's own name (e.g.
+     *  "Sunrise Apartments"), distinct from the listing title. Many
+     *  properties genuinely don't have one (standalone houses, unnamed
+     *  compounds), so this is never required. */
+    private String buildingName;
+
     private String location;
     private double price;
     private int bedrooms;
@@ -31,13 +38,35 @@ public class Property {
      * The "Verified" badge shown throughout the app. Computed, not set
      * directly by clients -- see PropertyService.recomputeVerification.
      * True only when all three v1 verification signals are met: owner's
-     * phone verified, GPS location confirmed, and photos admin-approved.
+     * phone verified, GPS location genuinely confirmed on-site
+     * (gpsVerified, not just lat/lng being present), and photos
+     * admin-approved.
      */
     private boolean verified = false;
 
     /** Admin sign-off that photos are real (not stock/screenshots).
      *  One of the three signals composing [verified]. */
     private boolean photoApproved = false;
+
+    /**
+     * True only after the owner physically stood at the property and
+     * had their live device GPS position checked against the listing's
+     * pinned coordinates (see PropertyService.verifyGpsLocation) --
+     * replaces the old placeholder check that just tested whether
+     * latitude/longitude were non-null, which anyone could satisfy by
+     * dropping a map pin from anywhere.
+     */
+    private boolean gpsVerified = false;
+
+    private LocalDateTime gpsVerifiedAt;
+
+    /**
+     * True once enough distinct tenants who genuinely engaged with this
+     * listing (applied to it) have confirmed it matched what was
+     * advertised. A separate trust signal from [verified] -- this one
+     * reflects renter experience, not landlord-provided proof.
+     */
+    private boolean communityVerified = false;
 
     /** DRAFT or PUBLISHED. Drafts are never returned by public feed/
      *  search/nearby/filter queries and are only visible to their owner
@@ -107,6 +136,14 @@ public class Property {
 
     public void setTitle(String title) {
         this.title = title;
+    }
+
+    public String getBuildingName() {
+        return buildingName;
+    }
+
+    public void setBuildingName(String buildingName) {
+        this.buildingName = buildingName;
     }
 
     public String getLocation() {
@@ -203,6 +240,30 @@ public class Property {
 
     public void setPhotoApproved(boolean photoApproved) {
         this.photoApproved = photoApproved;
+    }
+
+    public boolean isGpsVerified() {
+        return gpsVerified;
+    }
+
+    public void setGpsVerified(boolean gpsVerified) {
+        this.gpsVerified = gpsVerified;
+    }
+
+    public LocalDateTime getGpsVerifiedAt() {
+        return gpsVerifiedAt;
+    }
+
+    public void setGpsVerifiedAt(LocalDateTime gpsVerifiedAt) {
+        this.gpsVerifiedAt = gpsVerifiedAt;
+    }
+
+    public boolean isCommunityVerified() {
+        return communityVerified;
+    }
+
+    public void setCommunityVerified(boolean communityVerified) {
+        this.communityVerified = communityVerified;
     }
 
     public String getStatus() {

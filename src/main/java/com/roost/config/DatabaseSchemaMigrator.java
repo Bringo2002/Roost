@@ -48,6 +48,11 @@ public class DatabaseSchemaMigrator implements CommandLineRunner {
             jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS view_count INT DEFAULT 0;");
             jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS save_count INT DEFAULT 0;");
             jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS status VARCHAR(255) DEFAULT 'PUBLISHED';");
+            jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS photo_approved BOOLEAN DEFAULT FALSE;");
+            jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS building_name VARCHAR(255);");
+            jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS gps_verified BOOLEAN DEFAULT FALSE;");
+            jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS gps_verified_at TIMESTAMP;");
+            jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS community_verified BOOLEAN DEFAULT FALSE;");
 
             log.info("Database schema migration completed successfully!");
         } catch (Exception e) {
@@ -84,6 +89,9 @@ public class DatabaseSchemaMigrator implements CommandLineRunner {
         enforceNotNull("properties", "security", "TRUE");
         enforceNotNull("properties", "pet_friendly", "FALSE");
         enforceNotNull("properties", "balcony", "FALSE");
+        enforceNotNull("properties", "photo_approved", "FALSE");
+        enforceNotNull("properties", "gps_verified", "FALSE");
+        enforceNotNull("properties", "community_verified", "FALSE");
         enforceNotNull("properties", "view_count", "0");
         enforceNotNull("properties", "save_count", "0");
         enforceNotNull("users", "phone_verified", "FALSE");
