@@ -21,7 +21,11 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 @Service
 @Transactional
@@ -30,6 +34,22 @@ public class ChatService {
     /** Base64 attachment payload cap (~5MB raw file after base64 overhead). */
     private static final int MAX_ATTACHMENT_BASE64_CHARS = 7_000_000;
     private static final int TYPING_INDICATOR_TTL_SECONDS = 4;
+
+    /**
+     * Chat history used to download every message's attachment from R2
+     * one at a time, sequentially, all within the same request -- a
+     * conversation with several photos/voice notes could easily push
+     * total latency past the client's 10s timeout waiting on that loop
+     * alone. Downloads now run concurrently on this pool instead, and
+     * decryptAttachments caps the overall wait so one slow file can't
+     * hold up the whole response (see decryptAttachments). Daemon
+     * threads so this pool never blocks JVM shutdown.
+     */
+    private static final ExecutorService attachmentDownloadExecutor = Executors.newFixedThreadPool(8, runnable -> {
+        Thread thread = new Thread(runnable, "attachment-download");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     private final MessageRepository messageRepository;
     private final UserRepository userRepository;
@@ -168,18 +188,44 @@ public class ChatService {
         return history;
     }
 
+    /**
+     * Downloads every message's attachment from R2 concurrently instead
+     * of one at a time -- for a conversation with several photos or
+     * voice notes, sequential downloads could take long enough to blow
+     * past the client's request timeout entirely, failing the whole
+     * history load over attachments that individually would have been
+     * fine. Caps the overall wait at 7s (comfortably under the client's
+     * 10s timeout, leaving room for the rest of the request/response
+     * cycle) -- any download still in flight when that expires is left
+     * null, same graceful degradation as an individual download
+     * failure: the client shows "couldn't load attachment" for that
+     * one message rather than failing the entire load.
+     */
     private void decryptAttachments(List<Message> history) {
-        for (Message message : history) {
-            if (message.hasAttachment()) {
-                try {
-                    byte[] bytes = r2StorageService.download(message.getAttachmentStorageKey());
-                    message.setAttachmentData(Base64.getEncoder().encodeToString(bytes));
-                } catch (Exception e) {
-                    // Leave attachmentData null -- the client shows a
-                    // "couldn't load attachment" state rather than the
-                    // whole history request failing over one bad file.
-                }
-            }
+        List<CompletableFuture<Void>> downloads = history.stream()
+                .filter(Message::hasAttachment)
+                .map(message -> CompletableFuture.runAsync(() -> {
+                    try {
+                        byte[] bytes = r2StorageService.download(message.getAttachmentStorageKey());
+                        message.setAttachmentData(Base64.getEncoder().encodeToString(bytes));
+                    } catch (Exception e) {
+                        // Leave attachmentData null -- the client shows a
+                        // "couldn't load attachment" state rather than the
+                        // whole history request failing over one bad file.
+                    }
+                }, attachmentDownloadExecutor))
+                .toList();
+
+        if (downloads.isEmpty()) return;
+
+        try {
+            CompletableFuture.allOf(downloads.toArray(new CompletableFuture[0]))
+                    .get(7, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            // Timed out or one of the futures failed unexpectedly --
+            // whatever downloads did finish already wrote their bytes
+            // onto their message directly, so we still return those;
+            // the rest are simply left null.
         }
     }
 
