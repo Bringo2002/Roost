@@ -95,6 +95,15 @@ public class DatabaseSchemaMigrator implements CommandLineRunner {
         enforceNotNull("properties", "view_count", "0");
         enforceNotNull("properties", "save_count", "0");
         enforceNotNull("users", "phone_verified", "FALSE");
+        // Unlike the primitive boolean/int columns above, `status` is a
+        // String field in the entity, so Hibernate never tried (and
+        // failed) to enforce NOT NULL on it -- which is exactly why this
+        // one got missed. The ADD COLUMN ... DEFAULT above is a no-op
+        // here since the column already existed without a default before
+        // this migrator was written, so any row created before status
+        // existed is still sitting on NULL and invisible to every query
+        // that filters on status = 'PUBLISHED' (i.e. all of them).
+        enforceNotNull("properties", "status", "'PUBLISHED'");
     }
 
     /**
