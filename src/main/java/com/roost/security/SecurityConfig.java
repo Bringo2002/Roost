@@ -1,5 +1,6 @@
 package com.roost.security;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationProvider;
@@ -12,6 +13,7 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import java.util.Arrays;
 import java.util.List;
 
 @Configuration
@@ -20,6 +22,16 @@ public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthFilter;
     private final AuthenticationProvider authenticationProvider;
+
+    // Comma-separated allowlist, e.g. "https://harrington.co.ke,https://admin.roost.app".
+    // Local dev defaults to "*" for convenience -- the native Flutter app
+    // never sends an Origin header at all, so this setting only ever
+    // matters for browser-based callers. Production has no wildcard
+    // fallback (see application-production.properties): until a real web
+    // surface exists, this stays empty and no cross-origin browser
+    // caller is trusted.
+    @Value("${app.cors.allowed-origins:*}")
+    private String allowedOriginsProperty;
 
     public SecurityConfig(JwtAuthenticationFilter jwtAuthFilter, AuthenticationProvider authenticationProvider) {
         this.jwtAuthFilter = jwtAuthFilter;
@@ -51,7 +63,11 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOriginPatterns(List.of("*"));
+        List<String> origins = Arrays.stream(allowedOriginsProperty.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .toList();
+        configuration.setAllowedOriginPatterns(origins);
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
         configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "Cache-Control", "Accept"));
         configuration.setAllowCredentials(true);
