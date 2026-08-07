@@ -123,8 +123,14 @@ public class AuthService {
      * asks to list a property. Idempotent: calling it again on an
      * existing landlord is a no-op rather than an error, since the
      * client can't easily know in advance whether it already ran.
+     * Refuses to touch ADMIN accounts, same as revertToTenant below --
+     * self-service role changes should never be able to demote an
+     * admin, even by accident.
      */
     public UserProfileResponse becomeLandlord(User user) {
+        if (user.getRole() == Role.ADMIN) {
+            throw ApiException.badRequest("Admin accounts cannot be changed through this endpoint.");
+        }
         if (user.getRole() != Role.LANDLORD) {
             user.setRole(Role.LANDLORD);
             userRepository.save(user);
