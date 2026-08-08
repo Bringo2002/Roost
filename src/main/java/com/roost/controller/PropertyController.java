@@ -299,7 +299,10 @@ public class PropertyController {
             return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
         }
         Property property = propertyService.getPropertyById(id);
-        if (user.getRole() != Role.LANDLORD || property.getOwner() == null || !property.getOwner().getId().equals(user.getId())) {
+        boolean isOwner = property.getOwner() != null && property.getOwner().getId().equals(user.getId())
+                && user.getRole() == Role.LANDLORD;
+        boolean isAdmin = user.getRole() == Role.ADMIN;
+        if (!isOwner && !isAdmin) {
             return ResponseEntity.status(403).body(Map.of("error", "Unauthorized"));
         }
         propertyService.deleteProperty(id);

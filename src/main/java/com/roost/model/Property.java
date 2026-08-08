@@ -49,6 +49,16 @@ public class Property {
     private boolean photoApproved = false;
 
     /**
+     * Set whenever an admin takes a moderation action on this listing's
+     * reports (dismiss, hide, or restore). Reports created after this
+     * timestamp -- or all reports, if this is null -- are what the
+     * flagged-listings queue surfaces; this lets a single fresh report
+     * reappear in the queue even after an earlier batch was reviewed,
+     * without ever losing report history.
+     */
+    private java.time.LocalDateTime reportsReviewedAt;
+
+    /**
      * True only after the owner physically stood at the property and
      * had their live device GPS position checked against the listing's
      * pinned coordinates (see PropertyService.verifyGpsLocation) --
@@ -119,6 +129,12 @@ public class Property {
 
     @Transient
     private Long reviewCount;
+
+    /** Not persisted -- populated only when returning a property to the
+     *  admin flagged-listings queue (see PropertyService.getFlaggedForReview).
+     *  Total report count, regardless of review state. */
+    @Transient
+    private Long reportCount;
 
     public Property() {}
 
@@ -240,6 +256,14 @@ public class Property {
 
     public void setPhotoApproved(boolean photoApproved) {
         this.photoApproved = photoApproved;
+    }
+
+    public java.time.LocalDateTime getReportsReviewedAt() {
+        return reportsReviewedAt;
+    }
+
+    public void setReportsReviewedAt(java.time.LocalDateTime reportsReviewedAt) {
+        this.reportsReviewedAt = reportsReviewedAt;
     }
 
     public boolean isGpsVerified() {
@@ -468,5 +492,13 @@ public class Property {
 
     public void setReviewCount(Long reviewCount) {
         this.reviewCount = reviewCount;
+    }
+
+    public Long getReportCount() {
+        return reportCount;
+    }
+
+    public void setReportCount(Long reportCount) {
+        this.reportCount = reportCount;
     }
 }

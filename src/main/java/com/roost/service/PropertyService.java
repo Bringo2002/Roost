@@ -17,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 @Service
 @Transactional
@@ -28,10 +29,13 @@ public class PropertyService {
     private final PropertyReportRepository propertyReportRepository;
     private final CommunityCheckRepository communityCheckRepository;
     private final ApplicationRepository applicationRepository;
+    private final FirebasePushService firebasePushService;
 
     /** Three distinct people flagging the same listing is enough to pull
      *  it from public view pending an admin look, rather than waiting on
-     *  someone to notice a report queue manually. */
+     *  someone to notice a report queue manually. Note this only governs
+     *  auto-hide -- a single report already surfaces in the admin
+     *  flagged queue for manual judgment, see findPropertiesWithUnreviewedReports. */
     private static final int REPORT_THRESHOLD = 3;
 
     /** Distinct tenants confirming a listing was fully accurate before
@@ -40,13 +44,15 @@ public class PropertyService {
 
     public PropertyService(PropertyRepository propertyRepository, UserRepository userRepository,
                             ReviewRepository reviewRepository, PropertyReportRepository propertyReportRepository,
-                            CommunityCheckRepository communityCheckRepository, ApplicationRepository applicationRepository) {
+                            CommunityCheckRepository communityCheckRepository, ApplicationRepository applicationRepository,
+                            FirebasePushService firebasePushService) {
         this.propertyRepository = propertyRepository;
         this.userRepository = userRepository;
         this.communityCheckRepository = communityCheckRepository;
         this.applicationRepository = applicationRepository;
         this.reviewRepository = reviewRepository;
         this.propertyReportRepository = propertyReportRepository;
+        this.firebasePushService = firebasePushService;
     }
 
     /**
@@ -320,7 +326,16 @@ public class PropertyService {
         Property property = getPropertyById(id);
         property.setPhotoApproved(true);
         recomputeVerification(property);
-        return propertyRepository.save(property);
+        Property saved = propertyRepository.save(property);
+        if (saved.getOwner() != null) {
+            firebasePushService.sendToUser(
+                    saved.getOwner(),
+                    "Photos approved",
+                    saved.getTitle() + " -- your photos are verified and live",
+                    Map.of("type", "photo_approved", "propertyId", String.valueOf(saved.getId()))
+            );
+        }
+        return saved;
     }
 
     /** Listings awaiting photo review -- have GPS + a confirmed phone
@@ -357,15 +372,38 @@ public class PropertyService {
         if (totalReports >= REPORT_THRESHOLD && "PUBLISHED".equals(property.getStatus())) {
             property.setStatus("UNDER_REVIEW");
             propertyRepository.save(property);
+            if (property.getOwner() != null) {
+                // Deliberately doesn't name the reporter or reason here --
+                // that detail is for the admin review queue, not the
+                // landlord, both to protect reporter anonymity and because
+                // the reports haven't been judged yet.
+                firebasePushService.sendToUser(
+                        property.getOwner(),
+                        "Listing under review",
+                        property.getTitle() + " has been temporarily hidden pending a quick review",
+                        Map.of("type", "listing_under_review", "propertyId", String.valueOf(property.getId()))
+                );
+            }
         }
 
         return report;
     }
 
-    /** Listings currently hidden pending admin review after crossing the
-     *  report threshold. */
+    /**
+     * Listings with report activity an admin hasn't reviewed yet --
+     * deliberately every property with at least one unreviewed report,
+     * not just ones that crossed REPORT_THRESHOLD and got auto-hidden.
+     * A single report is real signal worth a human look even if it's
+     * not enough on its own to pull the listing from public view.
+     * Sorted by report count so the most-flagged listings surface first.
+     */
     public List<Property> getFlaggedForReview() {
-        return propertyRepository.findByStatus("UNDER_REVIEW");
+        List<Property> flagged = propertyReportRepository.findPropertiesWithUnreviewedReports();
+        for (Property property : flagged) {
+            property.setReportCount(propertyReportRepository.countByProperty(property));
+        }
+        flagged.sort((a, b) -> Long.compare(b.getReportCount(), a.getReportCount()));
+        return flagged;
     }
 
     public List<PropertyReport> getReportsForProperty(Long propertyId) {
@@ -374,19 +412,67 @@ public class PropertyService {
     }
 
     /**
+     * Admin manually pulls a listing from public view over reports that
+     * haven't crossed REPORT_THRESHOLD -- for cases where even one or two
+     * reports are clearly legitimate and don't need three people to
+     * notice before acting. Marks the reports reviewed in the same
+     * action, since hiding the listing IS the review decision.
+     */
+    public Property hideListing(Long propertyId) {
+        Property property = getPropertyById(propertyId);
+        property.setStatus("UNDER_REVIEW");
+        property.setReportsReviewedAt(LocalDateTime.now());
+        Property saved = propertyRepository.save(property);
+        if (saved.getOwner() != null) {
+            firebasePushService.sendToUser(
+                    saved.getOwner(),
+                    "Listing under review",
+                    saved.getTitle() + " has been temporarily hidden pending a quick review",
+                    Map.of("type", "listing_under_review", "propertyId", String.valueOf(saved.getId()))
+            );
+        }
+        return saved;
+    }
+
+    /**
+     * Admin looked at the reports and decided no action is needed --
+     * the listing stays exactly as it is (published or otherwise), but
+     * the reports are marked reviewed so they stop showing up as
+     * unreviewed in the queue. A fresh report after this still
+     * reintroduces the listing to the queue.
+     */
+    public Property dismissReports(Long propertyId) {
+        Property property = getPropertyById(propertyId);
+        property.setReportsReviewedAt(LocalDateTime.now());
+        return propertyRepository.save(property);
+    }
+
+    /**
      * Admin decision after reviewing a flagged listing: either restore
      * it to public view (reports were unfounded) or leave it hidden.
      * Doesn't delete anything either way -- a genuinely bad listing
      * still gets removed through the existing delete endpoint, which
      * is a separate, more deliberate action than a review decision.
+     * Either branch marks the reports reviewed, since this is itself
+     * the review decision.
      */
     public Property resolveReportedListing(Long propertyId, boolean restore) {
         Property property = getPropertyById(propertyId);
+        property.setReportsReviewedAt(LocalDateTime.now());
         if (restore) {
             property.setStatus("PUBLISHED");
-            return propertyRepository.save(property);
+            Property saved = propertyRepository.save(property);
+            if (saved.getOwner() != null) {
+                firebasePushService.sendToUser(
+                        saved.getOwner(),
+                        "Listing restored",
+                        saved.getTitle() + " is back live -- the reports against it were reviewed and dismissed",
+                        Map.of("type", "listing_restored", "propertyId", String.valueOf(saved.getId()))
+                );
+            }
+            return saved;
         }
-        return property;
+        return propertyRepository.save(property);
     }
 
     /**

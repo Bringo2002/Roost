@@ -53,6 +53,7 @@ public class DatabaseSchemaMigrator implements CommandLineRunner {
             jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS gps_verified BOOLEAN DEFAULT FALSE;");
             jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS gps_verified_at TIMESTAMP;");
             jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS community_verified BOOLEAN DEFAULT FALSE;");
+            jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS reports_reviewed_at TIMESTAMP;");
 
             log.info("Database schema migration completed successfully!");
         } catch (Exception e) {

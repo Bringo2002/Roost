@@ -59,6 +59,25 @@ public class AdminController {
         return ResponseEntity.ok(propertyService.getReportsForProperty(id));
     }
 
+    /** Admin manually hides a listing over reports that haven't hit the
+     *  auto-hide threshold -- see PropertyService.hideListing. */
+    @PostMapping("/properties/{id}/hide")
+    public ResponseEntity<?> hideListing(@PathVariable Long id, @AuthenticationPrincipal User user) {
+        if (user == null) return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
+        if (user.getRole() != Role.ADMIN) return ResponseEntity.status(403).body(Map.of("error", "Admin access required"));
+        return ResponseEntity.ok(propertyService.hideListing(id));
+    }
+
+    /** Admin reviewed the reports and decided no action is needed --
+     *  clears the listing from the flagged queue without changing its
+     *  status. See PropertyService.dismissReports. */
+    @PostMapping("/properties/{id}/dismiss-reports")
+    public ResponseEntity<?> dismissReports(@PathVariable Long id, @AuthenticationPrincipal User user) {
+        if (user == null) return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
+        if (user.getRole() != Role.ADMIN) return ResponseEntity.status(403).body(Map.of("error", "Admin access required"));
+        return ResponseEntity.ok(propertyService.dismissReports(id));
+    }
+
     /** Admin decision on a flagged listing: restore=true republishes it
      *  (reports were unfounded), restore=false leaves it hidden pending
      *  further action -- a genuinely bad listing still gets removed
