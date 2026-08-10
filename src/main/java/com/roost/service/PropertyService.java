@@ -274,6 +274,17 @@ public class PropertyService {
         existing.setLandlordName(updated.getLandlordName());
         existing.setDescription(updated.getDescription());
         existing.setImageUrl(updated.getImageUrl());
+        // GPS verification proves the owner was physically at a specific
+        // pinned coordinate -- if that coordinate moves meaningfully,
+        // the old verification no longer says anything true about the
+        // new one, so it must be cleared and re-earned. Checked against
+        // the *existing* lat/lng before they're overwritten below.
+        if (locationChangedSignificantly(
+                existing.getLatitude(), existing.getLongitude(),
+                updated.getLatitude(), updated.getLongitude())) {
+            existing.setGpsVerified(false);
+            existing.setGpsVerifiedAt(null);
+        }
         existing.setLatitude(updated.getLatitude());
         existing.setLongitude(updated.getLongitude());
         existing.setHouseType(updated.getHouseType());
@@ -300,6 +311,23 @@ public class PropertyService {
         existing.setLastConfirmedAt(LocalDateTime.now());
         recomputeVerification(existing);
         return populateRatings(propertyRepository.save(existing));
+    }
+
+    /**
+     * True if [newLat]/[newLng] represents a meaningfully different
+     * location from [oldLat]/[oldLng] -- either one side is missing
+     * where the other isn't (conservatively treated as a change, since
+     * there's nothing to compare), or the two points are further apart
+     * than GPS verification's own tolerance. Reuses that same tolerance
+     * so "verified" consistently means "within this distance of the
+     * currently pinned location," not just "was within it once."
+     */
+    private boolean locationChangedSignificantly(Double oldLat, Double oldLng, Double newLat, Double newLng) {
+        boolean hadOld = oldLat != null && oldLng != null;
+        boolean hasNew = newLat != null && newLng != null;
+        if (hadOld != hasNew) return true;
+        if (!hadOld) return false; // neither had coordinates -- nothing changed
+        return haversineMeters(oldLat, oldLng, newLat, newLng) > GPS_VERIFICATION_TOLERANCE_METERS;
     }
 
     /**
