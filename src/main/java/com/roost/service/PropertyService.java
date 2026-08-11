@@ -191,8 +191,22 @@ public class PropertyService {
         return populateRatings(propertyRepository.findByOwner(owner));
     }
 
+    /** 1 degree of latitude is ~111.32km everywhere; 1 degree of
+     *  longitude shrinks toward the poles by a factor of cos(latitude).
+     *  Used only to build a cheap bounding box for findNearby -- see the
+     *  comment on that query for why. */
+    private static final double KM_PER_DEGREE_LATITUDE = 111.32;
+
     public List<Property> getNearby(double lat, double lng, double radiusKm) {
-        return populateRatings(propertyRepository.findNearby(lat, lng, radiusKm));
+        double latDeltaDeg = radiusKm / KM_PER_DEGREE_LATITUDE;
+        // Clamp so a search near the poles (or a lat of exactly +-90)
+        // can't divide by ~0 and blow the longitude bound out to infinity.
+        double cosLat = Math.max(Math.cos(Math.toRadians(lat)), 0.01);
+        double lngDeltaDeg = radiusKm / (KM_PER_DEGREE_LATITUDE * cosLat);
+        return populateRatings(propertyRepository.findNearby(
+                lat, lng, radiusKm,
+                lat - latDeltaDeg, lat + latDeltaDeg,
+                lng - lngDeltaDeg, lng + lngDeltaDeg));
     }
 
     public List<Property> filter(String houseType, Double minPrice, Double maxPrice, Integer bedrooms,

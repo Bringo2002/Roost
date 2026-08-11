@@ -29,10 +29,25 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
 
     List<Property> findByStatus(String status);
 
+    /**
+     * The lat/lng BETWEEN bounds are a cheap square-shaped pre-filter
+     * (computed in PropertyService.getNearby, always a superset of the
+     * true circle) applied before the expensive trig distance calc, so
+     * rows well outside the search radius never reach acos/cos/sin at
+     * all. The trig expression itself still runs twice per remaining
+     * row (WHERE + ORDER BY) -- JPQL can't alias it for reuse without
+     * switching this off entities onto a DTO/tuple projection -- but
+     * that's now happening over a small candidate set instead of every
+     * published listing in the database. Results are identical to the
+     * previous query; this only changes how many rows pay for the trig
+     * math to get there.
+     */
     @Query("SELECT p FROM Property p WHERE " +
            "p.status = 'PUBLISHED' AND " +
            "p.available = true AND " +
            "p.latitude IS NOT NULL AND p.longitude IS NOT NULL AND " +
+           "p.latitude BETWEEN :minLat AND :maxLat AND " +
+           "p.longitude BETWEEN :minLng AND :maxLng AND " +
            "(6371 * acos(cos(radians(:lat)) * cos(radians(p.latitude)) * " +
            "cos(radians(p.longitude) - radians(:lng)) + " +
            "sin(radians(:lat)) * sin(radians(p.latitude)))) < :radiusKm " +
@@ -41,7 +56,11 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
            "sin(radians(:lat)) * sin(radians(p.latitude)))) ASC")
     List<Property> findNearby(@Param("lat") double lat,
                                @Param("lng") double lng,
-                               @Param("radiusKm") double radiusKm);
+                               @Param("radiusKm") double radiusKm,
+                               @Param("minLat") double minLat,
+                               @Param("maxLat") double maxLat,
+                               @Param("minLng") double minLng,
+                               @Param("maxLng") double maxLng);
 
     @Query("SELECT p FROM Property p WHERE " +
            "p.status = 'PUBLISHED' AND " +
