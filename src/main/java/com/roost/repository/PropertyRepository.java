@@ -2,6 +2,7 @@ package com.roost.repository;
 
 import com.roost.model.Property;
 import com.roost.model.User;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -86,4 +87,81 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
             @Param("water") Boolean water,
             @Param("security") Boolean security,
             @Param("verified") Boolean verified);
+
+    /**
+     * Paginated variant of filterProperties, used once a client asks for
+     * a specific page (search_page.dart's infinite scroll) instead of
+     * the full unbounded result set. Same WHERE clause as above, just
+     * with an explicit ORDER BY (required for stable paging -- without
+     * one, which rows land on which page isn't guaranteed to stay
+     * consistent as the table changes between requests) and a Pageable
+     * for LIMIT/OFFSET. Newest-first, since that's the useful default
+     * for a listings feed and there's no location to sort by here.
+     */
+    @Query("SELECT p FROM Property p WHERE " +
+           "p.status = 'PUBLISHED' AND " +
+           "p.available = true AND " +
+           "(:houseType IS NULL OR p.houseType = :houseType) AND " +
+           "(:minPrice IS NULL OR p.price >= :minPrice) AND " +
+           "(:maxPrice IS NULL OR p.price <= :maxPrice) AND " +
+           "(:bedrooms IS NULL OR p.bedrooms >= :bedrooms) AND " +
+           "(:furnished IS NULL OR p.furnished = :furnished) AND " +
+           "(:parking IS NULL OR p.parking = :parking) AND " +
+           "(:wifi IS NULL OR p.wifi = :wifi) AND " +
+           "(:water IS NULL OR p.water = :water) AND " +
+           "(:security IS NULL OR p.security = :security) AND " +
+           "(:verified IS NULL OR p.verified = :verified) " +
+           "ORDER BY p.id DESC")
+    List<Property> filterProperties(
+            @Param("houseType") String houseType,
+            @Param("minPrice") Double minPrice,
+            @Param("maxPrice") Double maxPrice,
+            @Param("bedrooms") Integer bedrooms,
+            @Param("furnished") Boolean furnished,
+            @Param("parking") Boolean parking,
+            @Param("wifi") Boolean wifi,
+            @Param("water") Boolean water,
+            @Param("security") Boolean security,
+            @Param("verified") Boolean verified,
+            Pageable pageable);
+
+    /**
+     * Same filters again, but sorted by distance from (lat, lng) instead
+     * of newest-first, and paginated -- used when the client has a
+     * device location. No bounding-box pre-filter here unlike findNearby,
+     * because this has no search radius to bound against; it's paging
+     * through every matching listing sorted by distance, not "listings
+     * within Xkm".
+     */
+    @Query("SELECT p FROM Property p WHERE " +
+           "p.status = 'PUBLISHED' AND " +
+           "p.available = true AND " +
+           "(:houseType IS NULL OR p.houseType = :houseType) AND " +
+           "(:minPrice IS NULL OR p.price >= :minPrice) AND " +
+           "(:maxPrice IS NULL OR p.price <= :maxPrice) AND " +
+           "(:bedrooms IS NULL OR p.bedrooms >= :bedrooms) AND " +
+           "(:furnished IS NULL OR p.furnished = :furnished) AND " +
+           "(:parking IS NULL OR p.parking = :parking) AND " +
+           "(:wifi IS NULL OR p.wifi = :wifi) AND " +
+           "(:water IS NULL OR p.water = :water) AND " +
+           "(:security IS NULL OR p.security = :security) AND " +
+           "(:verified IS NULL OR p.verified = :verified) AND " +
+           "p.latitude IS NOT NULL AND p.longitude IS NOT NULL " +
+           "ORDER BY (6371 * acos(cos(radians(:lat)) * cos(radians(p.latitude)) * " +
+           "cos(radians(p.longitude) - radians(:lng)) + " +
+           "sin(radians(:lat)) * sin(radians(p.latitude)))) ASC")
+    List<Property> filterPropertiesSortedByDistance(
+            @Param("houseType") String houseType,
+            @Param("minPrice") Double minPrice,
+            @Param("maxPrice") Double maxPrice,
+            @Param("bedrooms") Integer bedrooms,
+            @Param("furnished") Boolean furnished,
+            @Param("parking") Boolean parking,
+            @Param("wifi") Boolean wifi,
+            @Param("water") Boolean water,
+            @Param("security") Boolean security,
+            @Param("verified") Boolean verified,
+            @Param("lat") double lat,
+            @Param("lng") double lng,
+            Pageable pageable);
 }

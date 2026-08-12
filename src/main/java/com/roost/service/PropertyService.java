@@ -11,6 +11,7 @@ import com.roost.repository.PropertyRepository;
 import com.roost.repository.PropertyReportRepository;
 import com.roost.repository.ReviewRepository;
 import com.roost.repository.UserRepository;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -214,6 +215,23 @@ public class PropertyService {
                                  Boolean security, Boolean verified) {
         return populateRatings(propertyRepository.filterProperties(houseType, minPrice, maxPrice, bedrooms,
                 furnished, parking, wifi, water, security, verified));
+    }
+
+    /**
+     * Paginated + optionally distance-sorted variant, used once a client
+     * asks for a specific page (search_page.dart's infinite scroll).
+     * Sorts by distance from (lat, lng) when both are provided, otherwise
+     * newest-first -- see the two repository queries this dispatches to.
+     */
+    public List<Property> filter(String houseType, Double minPrice, Double maxPrice, Integer bedrooms,
+                                 Boolean furnished, Boolean parking, Boolean wifi, Boolean water,
+                                 Boolean security, Boolean verified, Double lat, Double lng, Pageable pageable) {
+        List<Property> results = (lat != null && lng != null)
+                ? propertyRepository.filterPropertiesSortedByDistance(houseType, minPrice, maxPrice, bedrooms,
+                        furnished, parking, wifi, water, security, verified, lat, lng, pageable)
+                : propertyRepository.filterProperties(houseType, minPrice, maxPrice, bedrooms,
+                        furnished, parking, wifi, water, security, verified, pageable);
+        return populateRatings(results);
     }
 
     public Property incrementViewCount(Long id) {

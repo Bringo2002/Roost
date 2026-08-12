@@ -6,6 +6,8 @@ import com.roost.model.User;
 import com.roost.model.Role;
 import com.roost.service.PropertyService;
 import com.roost.service.R2StorageService;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
@@ -66,8 +68,21 @@ public class PropertyController {
             @RequestParam(required = false) Boolean wifi,
             @RequestParam(required = false) Boolean water,
             @RequestParam(required = false) Boolean security,
-            @RequestParam(required = false) Boolean verified) {
-        return PropertyResponseDto.from(propertyService.filter(type, minPrice, maxPrice, bedrooms, furnished, parking, wifi, water, security, verified));
+            @RequestParam(required = false) Boolean verified,
+            @RequestParam(required = false) Double lat,
+            @RequestParam(required = false) Double lng,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size) {
+        // Pagination is opt-in: omitting page/size preserves the exact
+        // previous behaviour (return everything matching, unbounded) so
+        // existing/older clients aren't silently truncated to one page.
+        if (size == null) {
+            return PropertyResponseDto.from(propertyService.filter(type, minPrice, maxPrice, bedrooms, furnished, parking, wifi, water, security, verified));
+        }
+        int cappedSize = Math.min(Math.max(size, 1), 50);
+        int safePage = page != null ? Math.max(page, 0) : 0;
+        Pageable pageable = PageRequest.of(safePage, cappedSize);
+        return PropertyResponseDto.from(propertyService.filter(type, minPrice, maxPrice, bedrooms, furnished, parking, wifi, water, security, verified, lat, lng, pageable));
     }
 
     @GetMapping("/{id}/view")
