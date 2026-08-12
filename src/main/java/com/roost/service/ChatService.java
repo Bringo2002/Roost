@@ -1,5 +1,6 @@
 package com.roost.service;
 
+import com.roost.dto.ChatUserDto;
 import com.roost.dto.ConversationSummaryDto;
 import com.roost.exception.ApiException;
 import com.roost.model.ChatVisibility;
@@ -355,7 +356,7 @@ public class ChatService {
             Long unread = messageRepository.countUnreadFromUser(partner, user);
 
             ConversationSummaryDto dto = new ConversationSummaryDto();
-            dto.setPartner(partner);
+            dto.setPartner(ChatUserDto.from(partner));
             dto.setUnreadCount(unread != null ? unread : 0);
             if (lastMsg != null) {
                 dto.setLastMessageContent(lastMsg.getContent());

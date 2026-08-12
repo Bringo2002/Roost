@@ -1,6 +1,6 @@
 package com.roost.controller;
 
-import com.roost.model.Application;
+import com.roost.dto.ApplicationResponseDto;
 import com.roost.model.User;
 import com.roost.service.ApplicationService;
 import org.springframework.http.ResponseEntity;
@@ -22,30 +22,30 @@ public class ApplicationController {
     }
 
     @PostMapping
-    public ResponseEntity<Application> submitApplication(@AuthenticationPrincipal User user,
+    public ResponseEntity<ApplicationResponseDto> submitApplication(@AuthenticationPrincipal User user,
                                                             @RequestBody Map<String, Object> payload) {
         if (user == null) return ResponseEntity.status(401).build();
-        return ResponseEntity.ok(applicationService.submitApplication(user, payload));
+        return ResponseEntity.ok(ApplicationResponseDto.from(applicationService.submitApplication(user, payload)));
     }
 
     @GetMapping("/property/{propertyId}")
-    public ResponseEntity<List<Application>> getPropertyApplications(@PathVariable Long propertyId,
+    public ResponseEntity<List<ApplicationResponseDto>> getPropertyApplications(@PathVariable Long propertyId,
                                                                         @AuthenticationPrincipal User user) {
         if (user == null) return ResponseEntity.status(401).build();
-        return ResponseEntity.ok(applicationService.getPropertyApplications(user, propertyId));
+        return ResponseEntity.ok(ApplicationResponseDto.from(applicationService.getPropertyApplications(user, propertyId)));
     }
 
     @GetMapping("/my")
-    public ResponseEntity<List<Application>> getMyApplications(@AuthenticationPrincipal User user) {
+    public ResponseEntity<List<ApplicationResponseDto>> getMyApplications(@AuthenticationPrincipal User user) {
         if (user == null) return ResponseEntity.status(401).build();
-        return ResponseEntity.ok(applicationService.getMyApplications(user));
+        return ResponseEntity.ok(ApplicationResponseDto.from(applicationService.getMyApplications(user)));
     }
 
     @PutMapping("/{id}/status")
-    public ResponseEntity<Application> updateStatus(@PathVariable Long id,
+    public ResponseEntity<ApplicationResponseDto> updateStatus(@PathVariable Long id,
                                                        @RequestBody Map<String, String> payload,
                                                        @AuthenticationPrincipal User user) {
         if (user == null) return ResponseEntity.status(401).build();
-        return ResponseEntity.ok(applicationService.updateStatus(user, id, payload.get("status")));
+        return ResponseEntity.ok(ApplicationResponseDto.from(applicationService.updateStatus(user, id, payload.get("status"))));
     }
 }

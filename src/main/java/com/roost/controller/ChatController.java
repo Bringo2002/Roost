@@ -1,7 +1,8 @@
 package com.roost.controller;
 
 import com.roost.dto.ConversationSummaryDto;
-import com.roost.model.Message;
+import com.roost.dto.ChatUserDto;
+import com.roost.dto.MessageResponseDto;
 import com.roost.model.User;
 import com.roost.service.ChatService;
 import org.springframework.http.ResponseEntity;
@@ -23,26 +24,26 @@ public class ChatController {
     }
 
     @PostMapping
-    public ResponseEntity<Message> sendMessage(@AuthenticationPrincipal User sender,
+    public ResponseEntity<MessageResponseDto> sendMessage(@AuthenticationPrincipal User sender,
                                                 @RequestBody Map<String, Object> payload) {
         if (sender == null) return ResponseEntity.status(401).build();
-        return ResponseEntity.ok(chatService.sendMessage(sender, payload));
+        return ResponseEntity.ok(MessageResponseDto.from(chatService.sendMessage(sender, payload)));
     }
 
     @GetMapping("/history/{userId}")
-    public ResponseEntity<List<Message>> getChatHistory(@AuthenticationPrincipal User user,
+    public ResponseEntity<List<MessageResponseDto>> getChatHistory(@AuthenticationPrincipal User user,
                                                           @PathVariable Long userId,
                                                           @RequestParam(required = false) Long beforeId,
                                                           @RequestParam(required = false) Long afterId,
                                                           @RequestParam(required = false) Integer limit) {
         if (user == null) return ResponseEntity.status(401).build();
-        return ResponseEntity.ok(chatService.getChatHistory(user, userId, beforeId, afterId, limit));
+        return ResponseEntity.ok(MessageResponseDto.from(chatService.getChatHistory(user, userId, beforeId, afterId, limit)));
     }
 
     @GetMapping("/active")
-    public ResponseEntity<List<User>> getActiveChats(@AuthenticationPrincipal User user) {
+    public ResponseEntity<List<ChatUserDto>> getActiveChats(@AuthenticationPrincipal User user) {
         if (user == null) return ResponseEntity.status(401).build();
-        return ResponseEntity.ok(chatService.getActiveChats(user));
+        return ResponseEntity.ok(chatService.getActiveChats(user).stream().map(ChatUserDto::from).toList());
     }
 
     @GetMapping("/unread-count")
@@ -59,16 +60,16 @@ public class ChatController {
     }
 
     @PutMapping("/{messageId}")
-    public ResponseEntity<Message> editMessage(@AuthenticationPrincipal User user,
+    public ResponseEntity<MessageResponseDto> editMessage(@AuthenticationPrincipal User user,
                                                 @PathVariable Long messageId,
                                                 @RequestBody Map<String, Object> payload) {
         if (user == null) return ResponseEntity.status(401).build();
         Object content = payload.get("content");
         Object nonce = payload.get("nonce");
-        return ResponseEntity.ok(chatService.editMessage(
+        return ResponseEntity.ok(MessageResponseDto.from(chatService.editMessage(
                 user, messageId,
                 content != null ? content.toString() : null,
-                nonce != null ? nonce.toString() : null));
+                nonce != null ? nonce.toString() : null)));
     }
 
     @DeleteMapping("/{messageId}")

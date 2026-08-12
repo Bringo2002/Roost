@@ -1,10 +1,9 @@
 package com.roost.dto;
 
-import com.roost.model.User;
 import java.time.LocalDateTime;
 
 public class ConversationSummaryDto {
-    private User partner;
+    private ChatUserDto partner;
     private String lastMessageContent;
     private String lastMessageNonce;
     private LocalDateTime lastMessageTimestamp;
@@ -16,9 +15,9 @@ public class ConversationSummaryDto {
 
     public ConversationSummaryDto() {}
 
-    public ConversationSummaryDto(User partner, String lastMessageContent, String lastMessageNonce, 
-                                  LocalDateTime lastMessageTimestamp, Long lastMessageSenderId, 
-                                  long unreadCount, String lastMessageAttachmentMeta, 
+    public ConversationSummaryDto(ChatUserDto partner, String lastMessageContent, String lastMessageNonce,
+                                  LocalDateTime lastMessageTimestamp, Long lastMessageSenderId,
+                                  long unreadCount, String lastMessageAttachmentMeta,
                                   String lastMessageAttachmentMetaNonce, boolean hasAttachment) {
         this.partner = partner;
         this.lastMessageContent = lastMessageContent;
@@ -31,11 +30,11 @@ public class ConversationSummaryDto {
         this.hasAttachment = hasAttachment;
     }
 
-    public User getPartner() {
+    public ChatUserDto getPartner() {
         return partner;
     }
 
-    public void setPartner(User partner) {
+    public void setPartner(ChatUserDto partner) {
         this.partner = partner;
     }
 
