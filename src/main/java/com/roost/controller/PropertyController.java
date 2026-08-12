@@ -19,7 +19,6 @@ import java.util.logging.Logger;
 
 @RestController
 @RequestMapping("/api/properties")
-@CrossOrigin(origins = "*")
 public class PropertyController {
 
     private static final Logger log = Logger.getLogger(PropertyController.class.getName());
