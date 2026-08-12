@@ -1,5 +1,7 @@
 package com.roost.controller;
 
+import com.roost.dto.PropertyReportResponseDto;
+import com.roost.dto.PropertyResponseDto;
 import com.roost.model.Property;
 import com.roost.model.Role;
 import com.roost.model.User;
@@ -34,7 +36,7 @@ public class AdminController {
     public ResponseEntity<?> getPendingVerifications(@AuthenticationPrincipal User user) {
         if (user == null) return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
         if (user.getRole() != Role.ADMIN) return ResponseEntity.status(403).body(Map.of("error", "Admin access required"));
-        return ResponseEntity.ok(propertyService.getPendingPhotoReview());
+        return ResponseEntity.ok(PropertyResponseDto.from(propertyService.getPendingPhotoReview()));
     }
 
     @PostMapping("/properties/{id}/approve-photos")
@@ -42,21 +44,21 @@ public class AdminController {
         if (user == null) return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
         if (user.getRole() != Role.ADMIN) return ResponseEntity.status(403).body(Map.of("error", "Admin access required"));
         Property updated = propertyService.approvePhotos(id);
-        return ResponseEntity.ok(updated);
+        return ResponseEntity.ok(PropertyResponseDto.from(updated));
     }
 
     @GetMapping("/flagged-listings")
     public ResponseEntity<?> getFlaggedListings(@AuthenticationPrincipal User user) {
         if (user == null) return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
         if (user.getRole() != Role.ADMIN) return ResponseEntity.status(403).body(Map.of("error", "Admin access required"));
-        return ResponseEntity.ok(propertyService.getFlaggedForReview());
+        return ResponseEntity.ok(PropertyResponseDto.from(propertyService.getFlaggedForReview()));
     }
 
     @GetMapping("/properties/{id}/reports")
     public ResponseEntity<?> getReportsForProperty(@PathVariable Long id, @AuthenticationPrincipal User user) {
         if (user == null) return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
         if (user.getRole() != Role.ADMIN) return ResponseEntity.status(403).body(Map.of("error", "Admin access required"));
-        return ResponseEntity.ok(propertyService.getReportsForProperty(id));
+        return ResponseEntity.ok(PropertyReportResponseDto.from(propertyService.getReportsForProperty(id)));
     }
 
     /** Admin manually hides a listing over reports that haven't hit the
@@ -65,7 +67,7 @@ public class AdminController {
     public ResponseEntity<?> hideListing(@PathVariable Long id, @AuthenticationPrincipal User user) {
         if (user == null) return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
         if (user.getRole() != Role.ADMIN) return ResponseEntity.status(403).body(Map.of("error", "Admin access required"));
-        return ResponseEntity.ok(propertyService.hideListing(id));
+        return ResponseEntity.ok(PropertyResponseDto.from(propertyService.hideListing(id)));
     }
 
     /** Admin reviewed the reports and decided no action is needed --
@@ -75,7 +77,7 @@ public class AdminController {
     public ResponseEntity<?> dismissReports(@PathVariable Long id, @AuthenticationPrincipal User user) {
         if (user == null) return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
         if (user.getRole() != Role.ADMIN) return ResponseEntity.status(403).body(Map.of("error", "Admin access required"));
-        return ResponseEntity.ok(propertyService.dismissReports(id));
+        return ResponseEntity.ok(PropertyResponseDto.from(propertyService.dismissReports(id)));
     }
 
     /** Admin decision on a flagged listing: restore=true republishes it
@@ -90,6 +92,6 @@ public class AdminController {
         if (user.getRole() != Role.ADMIN) return ResponseEntity.status(403).body(Map.of("error", "Admin access required"));
         boolean restore = Boolean.TRUE.equals(body.get("restore"));
         Property updated = propertyService.resolveReportedListing(id, restore);
-        return ResponseEntity.ok(updated);
+        return ResponseEntity.ok(PropertyResponseDto.from(updated));
     }
 }
