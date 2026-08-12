@@ -19,6 +19,7 @@ import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 @Transactional
@@ -76,10 +77,17 @@ public class PropertyService {
     }
 
     private List<Property> populateRatings(List<Property> properties) {
-        if (properties != null) {
-            for (Property p : properties) {
-                populateRatings(p);
-            }
+        if (properties == null || properties.isEmpty()) {
+            return properties;
+        }
+        List<Long> ids = properties.stream().map(Property::getId).toList();
+        Map<Long, ReviewRepository.PropertyRatingSummary> summaries = reviewRepository
+                .findRatingSummariesByPropertyIds(ids).stream()
+                .collect(Collectors.toMap(ReviewRepository.PropertyRatingSummary::getPropertyId, s -> s));
+        for (Property p : properties) {
+            ReviewRepository.PropertyRatingSummary s = summaries.get(p.getId());
+            p.setAverageRating(s != null ? s.getAvgRating() : 0.0);
+            p.setReviewCount(s != null ? s.getReviewCount() : 0L);
         }
         return properties;
     }
