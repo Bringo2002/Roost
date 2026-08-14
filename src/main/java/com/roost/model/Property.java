@@ -501,4 +501,27 @@ public class Property {
     public void setReportCount(Long reportCount) {
         this.reportCount = reportCount;
     }
+
+    /**
+     * Cached JSON array of nearby points of interest -- closest mall,
+     * hospital, and major road -- with their distance from this listing,
+     * e.g. [{"name":"TRM Mall","category":"mall","distanceMeters":600}].
+     * Computed once via NearbyFacilitiesService whenever GPS verification
+     * succeeds (see PropertyService.verifyGpsLocation), not re-queried
+     * live per pageview -- coordinates don't move, so there's no reason
+     * to re-fetch from Overpass every time a renter opens the listing.
+     * Stored as raw JSON text rather than a structured column; the
+     * frontend decodes it directly rather than this being a nested
+     * object in the API response.
+     */
+    @Column(columnDefinition = "TEXT")
+    private String nearbyFacilities;
+
+    public String getNearbyFacilities() {
+        return nearbyFacilities;
+    }
+
+    public void setNearbyFacilities(String nearbyFacilities) {
+        this.nearbyFacilities = nearbyFacilities;
+    }
 }

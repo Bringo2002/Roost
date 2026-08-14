@@ -11,6 +11,8 @@ import com.roost.repository.PropertyRepository;
 import com.roost.repository.PropertyReportRepository;
 import com.roost.repository.ReviewRepository;
 import com.roost.repository.UserRepository;
+import com.roost.util.GeoUtils;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,6 +34,8 @@ public class PropertyService {
     private final CommunityCheckRepository communityCheckRepository;
     private final ApplicationRepository applicationRepository;
     private final FirebasePushService firebasePushService;
+    private final NearbyFacilitiesService nearbyFacilitiesService;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     /** Three distinct people flagging the same listing is enough to pull
      *  it from public view pending an admin look, rather than waiting on
@@ -47,7 +51,7 @@ public class PropertyService {
     public PropertyService(PropertyRepository propertyRepository, UserRepository userRepository,
                             ReviewRepository reviewRepository, PropertyReportRepository propertyReportRepository,
                             CommunityCheckRepository communityCheckRepository, ApplicationRepository applicationRepository,
-                            FirebasePushService firebasePushService) {
+                            FirebasePushService firebasePushService, NearbyFacilitiesService nearbyFacilitiesService) {
         this.propertyRepository = propertyRepository;
         this.userRepository = userRepository;
         this.communityCheckRepository = communityCheckRepository;
@@ -55,6 +59,7 @@ public class PropertyService {
         this.reviewRepository = reviewRepository;
         this.propertyReportRepository = propertyReportRepository;
         this.firebasePushService = firebasePushService;
+        this.nearbyFacilitiesService = nearbyFacilitiesService;
     }
 
     /**
@@ -159,7 +164,7 @@ public class PropertyService {
             throw ApiException.badRequest("This listing doesn't have a pinned location yet.");
         }
 
-        double distanceMeters = haversineMeters(
+        double distanceMeters = GeoUtils.haversineMeters(
                 property.getLatitude(), property.getLongitude(), deviceLat, deviceLng);
 
         if (distanceMeters > GPS_VERIFICATION_TOLERANCE_METERS) {
@@ -170,20 +175,25 @@ public class PropertyService {
         property.setGpsVerified(true);
         property.setGpsVerifiedAt(LocalDateTime.now());
         recomputeVerification(property);
+
+        // Best-effort: nearby facilities are a nice-to-have shown on the
+        // listing, not something that should block a successful GPS
+        // verification if the free Overpass service is slow or down.
+        try {
+            List<NearbyFacilitiesService.Facility> facilities =
+                    nearbyFacilitiesService.findNearby(property.getLatitude(), property.getLongitude());
+            property.setNearbyFacilities(objectMapper.writeValueAsString(facilities));
+        } catch (Exception e) {
+            // Leave nearbyFacilities as whatever it was before (likely
+            // null on first verification) -- the badge/verification
+            // itself still succeeds either way.
+        }
+
         return populateRatings(propertyRepository.save(property));
     }
 
     /** Great-circle distance between two coordinates, in meters. */
-    private double haversineMeters(double lat1, double lon1, double lat2, double lon2) {
-        final double earthRadiusMeters = 6_371_000;
-        double dLat = Math.toRadians(lat2 - lat1);
-        double dLon = Math.toRadians(lon2 - lon1);
-        double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
-                + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
-                * Math.sin(dLon / 2) * Math.sin(dLon / 2);
-        double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        return earthRadiusMeters * c;
-    }
+    // Distance math now lives in GeoUtils (shared with NearbyFacilitiesService).
 
     /** Re-checks verification for every listing owned by [owner] -- called
      *  when their phone verification status changes, since that's a
@@ -367,7 +377,7 @@ public class PropertyService {
         boolean hasNew = newLat != null && newLng != null;
         if (hadOld != hasNew) return true;
         if (!hadOld) return false; // neither had coordinates -- nothing changed
-        return haversineMeters(oldLat, oldLng, newLat, newLng) > GPS_VERIFICATION_TOLERANCE_METERS;
+        return GeoUtils.haversineMeters(oldLat, oldLng, newLat, newLng) > GPS_VERIFICATION_TOLERANCE_METERS;
     }
 
     /**
