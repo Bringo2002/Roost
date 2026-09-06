@@ -37,7 +37,7 @@ public class User implements UserDetails {
 
     private LocalDateTime lastActiveAt;
 
-    private boolean phoneVerified = false;
+    private Boolean phoneVerified = false;
 
     /** FCM device registration token for push notifications. Null until
      *  the app registers one; overwritten on refresh/re-login. Never
@@ -129,10 +129,10 @@ public class User implements UserDetails {
     }
 
     public boolean isPhoneVerified() {
-        return phoneVerified;
+        return phoneVerified != null && phoneVerified;
     }
 
-    public void setPhoneVerified(boolean phoneVerified) {
+    public void setPhoneVerified(Boolean phoneVerified) {
         this.phoneVerified = phoneVerified;
     }
 

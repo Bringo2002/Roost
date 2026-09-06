@@ -24,7 +24,7 @@ public class Property {
     private double price;
     private int bedrooms;
     private String type; // rental, sale, airbnb
-    private boolean available = true;
+    private Boolean available = true;
     private String landlordPhone;
     private String landlordName;
     private String landlordId;
@@ -42,11 +42,11 @@ public class Property {
      * (gpsVerified, not just lat/lng being present), and photos
      * admin-approved.
      */
-    private boolean verified = false;
+    private Boolean verified = false;
 
     /** Admin sign-off that photos are real (not stock/screenshots).
      *  One of the three signals composing [verified]. */
-    private boolean photoApproved = false;
+    private Boolean photoApproved = false;
 
     /**
      * Set whenever an admin takes a moderation action on this listing's
@@ -66,7 +66,7 @@ public class Property {
      * latitude/longitude were non-null, which anyone could satisfy by
      * dropping a map pin from anywhere.
      */
-    private boolean gpsVerified = false;
+    private Boolean gpsVerified = false;
 
     private LocalDateTime gpsVerifiedAt;
 
@@ -76,7 +76,7 @@ public class Property {
      * advertised. A separate trust signal from [verified] -- this one
      * reflects renter experience, not landlord-provided proof.
      */
-    private boolean communityVerified = false;
+    private Boolean communityVerified = false;
 
     /** DRAFT or PUBLISHED. Drafts are never returned by public feed/
      *  search/nearby/filter queries and are only visible to their owner
@@ -93,13 +93,13 @@ public class Property {
 
     private String houseType; // BEDSITTER, STUDIO, 1BR, 2BR, 3BR
     private int bathrooms;
-    private boolean furnished;
-    private boolean parking;
-    private boolean water;
-    private boolean wifi;
-    private boolean security;
-    private boolean petFriendly;
-    private boolean balcony;
+    private Boolean furnished = false;
+    private Boolean parking = false;
+    private Boolean water = false;
+    private Boolean wifi = false;
+    private Boolean security = false;
+    private Boolean petFriendly = false;
+    private Boolean balcony = false;
     private String deposit;
     private String moveInDate;
     private String country = "KE";
@@ -195,10 +195,10 @@ public class Property {
     }
 
     public boolean isAvailable() {
-        return available;
+        return available != null && available;
     }
 
-    public void setAvailable(boolean available) {
+    public void setAvailable(Boolean available) {
         this.available = available;
     }
 
@@ -243,18 +243,18 @@ public class Property {
     }
 
     public boolean isVerified() {
-        return verified;
+        return verified != null && verified;
     }
 
-    public void setVerified(boolean verified) {
+    public void setVerified(Boolean verified) {
         this.verified = verified;
     }
 
     public boolean isPhotoApproved() {
-        return photoApproved;
+        return photoApproved != null && photoApproved;
     }
 
-    public void setPhotoApproved(boolean photoApproved) {
+    public void setPhotoApproved(Boolean photoApproved) {
         this.photoApproved = photoApproved;
     }
 
@@ -267,10 +267,10 @@ public class Property {
     }
 
     public boolean isGpsVerified() {
-        return gpsVerified;
+        return gpsVerified != null && gpsVerified;
     }
 
-    public void setGpsVerified(boolean gpsVerified) {
+    public void setGpsVerified(Boolean gpsVerified) {
         this.gpsVerified = gpsVerified;
     }
 
@@ -283,10 +283,10 @@ public class Property {
     }
 
     public boolean isCommunityVerified() {
-        return communityVerified;
+        return communityVerified != null && communityVerified;
     }
 
-    public void setCommunityVerified(boolean communityVerified) {
+    public void setCommunityVerified(Boolean communityVerified) {
         this.communityVerified = communityVerified;
     }
 
@@ -339,58 +339,58 @@ public class Property {
     }
 
     public boolean isFurnished() {
-        return furnished;
+        return furnished != null && furnished;
     }
 
-    public void setFurnished(boolean furnished) {
+    public void setFurnished(Boolean furnished) {
         this.furnished = furnished;
     }
 
     public boolean isParking() {
-        return parking;
+        return parking != null && parking;
     }
 
-    public void setParking(boolean parking) {
+    public void setParking(Boolean parking) {
         this.parking = parking;
     }
 
     public boolean isWater() {
-        return water;
+        return water != null && water;
     }
 
-    public void setWater(boolean water) {
+    public void setWater(Boolean water) {
         this.water = water;
     }
 
     public boolean isWifi() {
-        return wifi;
+        return wifi != null && wifi;
     }
 
-    public void setWifi(boolean wifi) {
+    public void setWifi(Boolean wifi) {
         this.wifi = wifi;
     }
 
     public boolean isSecurity() {
-        return security;
+        return security != null && security;
     }
 
-    public void setSecurity(boolean security) {
+    public void setSecurity(Boolean security) {
         this.security = security;
     }
 
     public boolean isPetFriendly() {
-        return petFriendly;
+        return petFriendly != null && petFriendly;
     }
 
-    public void setPetFriendly(boolean petFriendly) {
+    public void setPetFriendly(Boolean petFriendly) {
         this.petFriendly = petFriendly;
     }
 
     public boolean isBalcony() {
-        return balcony;
+        return balcony != null && balcony;
     }
 
-    public void setBalcony(boolean balcony) {
+    public void setBalcony(Boolean balcony) {
         this.balcony = balcony;
     }
 

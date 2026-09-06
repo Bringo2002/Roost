@@ -26,13 +26,11 @@ public class CommunityCheck {
     @JoinColumn(name = "respondent_id", nullable = false)
     private User respondent;
 
-    @Column(nullable = false)
-    private boolean visited;
-
-    private boolean photosAccurate;
-    private boolean locationAccurate;
-    private boolean priceAccurate;
-    private boolean wouldRecommend;
+    private Boolean visited = false;
+    private Boolean photosAccurate = false;
+    private Boolean locationAccurate = false;
+    private Boolean priceAccurate = false;
+    private Boolean wouldRecommend = false;
 
     @Column(nullable = false)
     private LocalDateTime createdAt;
@@ -64,42 +62,42 @@ public class CommunityCheck {
     }
 
     public boolean isVisited() {
-        return visited;
+        return visited != null && visited;
     }
 
-    public void setVisited(boolean visited) {
+    public void setVisited(Boolean visited) {
         this.visited = visited;
     }
 
     public boolean isPhotosAccurate() {
-        return photosAccurate;
+        return photosAccurate != null && photosAccurate;
     }
 
-    public void setPhotosAccurate(boolean photosAccurate) {
+    public void setPhotosAccurate(Boolean photosAccurate) {
         this.photosAccurate = photosAccurate;
     }
 
     public boolean isLocationAccurate() {
-        return locationAccurate;
+        return locationAccurate != null && locationAccurate;
     }
 
-    public void setLocationAccurate(boolean locationAccurate) {
+    public void setLocationAccurate(Boolean locationAccurate) {
         this.locationAccurate = locationAccurate;
     }
 
     public boolean isPriceAccurate() {
-        return priceAccurate;
+        return priceAccurate != null && priceAccurate;
     }
 
-    public void setPriceAccurate(boolean priceAccurate) {
+    public void setPriceAccurate(Boolean priceAccurate) {
         this.priceAccurate = priceAccurate;
     }
 
     public boolean isWouldRecommend() {
-        return wouldRecommend;
+        return wouldRecommend != null && wouldRecommend;
     }
 
-    public void setWouldRecommend(boolean wouldRecommend) {
+    public void setWouldRecommend(Boolean wouldRecommend) {
         this.wouldRecommend = wouldRecommend;
     }
 
