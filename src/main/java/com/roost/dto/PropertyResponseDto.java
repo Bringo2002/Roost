@@ -3,6 +3,7 @@ package com.roost.dto;
 import com.roost.model.Property;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -51,6 +52,26 @@ public class PropertyResponseDto {
     private final boolean security;
     private final boolean petFriendly;
     private final boolean balcony;
+    private final boolean ac;
+    private final boolean heating;
+    private final boolean laundry;
+    private final boolean dstv;
+    private final boolean fence;
+    private final boolean intercom;
+    private final boolean elevator;
+    private final boolean caretaker;
+    private final boolean rooftop;
+    private final boolean garden;
+    private final boolean storage;
+    private final boolean pool;
+    private final boolean gym;
+    private final boolean playArea;
+    private final boolean cleaning;
+    private final boolean garbage;
+    private final boolean wheelchair;
+    private final boolean solar;
+    private final boolean generator;
+    private final List<String> customAmenities;
     private final String deposit;
     private final String moveInDate;
     private final String country;
@@ -94,6 +115,26 @@ public class PropertyResponseDto {
         this.security = p.isSecurity();
         this.petFriendly = p.isPetFriendly();
         this.balcony = p.isBalcony();
+        this.ac = p.isAc();
+        this.heating = p.isHeating();
+        this.laundry = p.isLaundry();
+        this.dstv = p.isDstv();
+        this.fence = p.isFence();
+        this.intercom = p.isIntercom();
+        this.elevator = p.isElevator();
+        this.caretaker = p.isCaretaker();
+        this.rooftop = p.isRooftop();
+        this.garden = p.isGarden();
+        this.storage = p.isStorage();
+        this.pool = p.isPool();
+        this.gym = p.isGym();
+        this.playArea = p.isPlayArea();
+        this.cleaning = p.isCleaning();
+        this.garbage = p.isGarbage();
+        this.wheelchair = p.isWheelchair();
+        this.solar = p.isSolar();
+        this.generator = p.isGenerator();
+        this.customAmenities = p.getCustomAmenities() != null ? p.getCustomAmenities() : new ArrayList<>();
         this.deposit = p.getDeposit();
         this.moveInDate = p.getMoveInDate();
         this.country = p.getCountry();
@@ -145,6 +186,26 @@ public class PropertyResponseDto {
     public boolean isSecurity() { return security; }
     public boolean isPetFriendly() { return petFriendly; }
     public boolean isBalcony() { return balcony; }
+    public boolean isAc() { return ac; }
+    public boolean isHeating() { return heating; }
+    public boolean isLaundry() { return laundry; }
+    public boolean isDstv() { return dstv; }
+    public boolean isFence() { return fence; }
+    public boolean isIntercom() { return intercom; }
+    public boolean isElevator() { return elevator; }
+    public boolean isCaretaker() { return caretaker; }
+    public boolean isRooftop() { return rooftop; }
+    public boolean isGarden() { return garden; }
+    public boolean isStorage() { return storage; }
+    public boolean isPool() { return pool; }
+    public boolean isGym() { return gym; }
+    public boolean isPlayArea() { return playArea; }
+    public boolean isCleaning() { return cleaning; }
+    public boolean isGarbage() { return garbage; }
+    public boolean isWheelchair() { return wheelchair; }
+    public boolean isSolar() { return solar; }
+    public boolean isGenerator() { return generator; }
+    public List<String> getCustomAmenities() { return customAmenities; }
     public String getDeposit() { return deposit; }
     public String getMoveInDate() { return moveInDate; }
     public String getCountry() { return country; }

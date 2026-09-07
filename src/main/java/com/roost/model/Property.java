@@ -1,9 +1,15 @@
 package com.roost.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+
+/** Ignore any JSON keys the client sends that don't map to a field here --
+ *  this prevents deserialization from crashing whenever the Flutter app
+ *  is deployed ahead of the backend (or vice-versa). */
+@JsonIgnoreProperties(ignoreUnknown = true)
 @Entity
 @Table(name = "properties")
 public class Property {
@@ -100,6 +106,36 @@ public class Property {
     private Boolean security = false;
     private Boolean petFriendly = false;
     private Boolean balcony = false;
+
+    // ── Extended amenity fields ──────────────────────────────────────────
+    private Boolean ac = false;
+    private Boolean heating = false;
+    private Boolean laundry = false;
+    private Boolean dstv = false;
+    private Boolean fence = false;
+    private Boolean intercom = false;
+    private Boolean elevator = false;
+    private Boolean caretaker = false;
+    private Boolean rooftop = false;
+    private Boolean garden = false;
+    private Boolean storage = false;
+    private Boolean pool = false;
+    private Boolean gym = false;
+    private Boolean playArea = false;
+    private Boolean cleaning = false;
+    private Boolean garbage = false;
+    private Boolean wheelchair = false;
+    private Boolean solar = false;
+    private Boolean generator = false;
+
+    /** Free-text amenities the lister typed in that didn't appear in the
+     *  preset list. Stored as a separate element-collection table so
+     *  full-text search can be applied to them independently. */
+    @ElementCollection
+    @CollectionTable(name = "property_custom_amenities", joinColumns = @JoinColumn(name = "property_id"))
+    @Column(name = "amenity")
+    private List<String> customAmenities = new ArrayList<>();
+
     private String deposit;
     private String moveInDate;
     private String country = "KE";
@@ -392,6 +428,68 @@ public class Property {
 
     public void setBalcony(Boolean balcony) {
         this.balcony = balcony;
+    }
+
+    public boolean isAc() { return ac != null && ac; }
+    public void setAc(Boolean ac) { this.ac = ac; }
+
+    public boolean isHeating() { return heating != null && heating; }
+    public void setHeating(Boolean heating) { this.heating = heating; }
+
+    public boolean isLaundry() { return laundry != null && laundry; }
+    public void setLaundry(Boolean laundry) { this.laundry = laundry; }
+
+    public boolean isDstv() { return dstv != null && dstv; }
+    public void setDstv(Boolean dstv) { this.dstv = dstv; }
+
+    public boolean isFence() { return fence != null && fence; }
+    public void setFence(Boolean fence) { this.fence = fence; }
+
+    public boolean isIntercom() { return intercom != null && intercom; }
+    public void setIntercom(Boolean intercom) { this.intercom = intercom; }
+
+    public boolean isElevator() { return elevator != null && elevator; }
+    public void setElevator(Boolean elevator) { this.elevator = elevator; }
+
+    public boolean isCaretaker() { return caretaker != null && caretaker; }
+    public void setCaretaker(Boolean caretaker) { this.caretaker = caretaker; }
+
+    public boolean isRooftop() { return rooftop != null && rooftop; }
+    public void setRooftop(Boolean rooftop) { this.rooftop = rooftop; }
+
+    public boolean isGarden() { return garden != null && garden; }
+    public void setGarden(Boolean garden) { this.garden = garden; }
+
+    public boolean isStorage() { return storage != null && storage; }
+    public void setStorage(Boolean storage) { this.storage = storage; }
+
+    public boolean isPool() { return pool != null && pool; }
+    public void setPool(Boolean pool) { this.pool = pool; }
+
+    public boolean isGym() { return gym != null && gym; }
+    public void setGym(Boolean gym) { this.gym = gym; }
+
+    public boolean isPlayArea() { return playArea != null && playArea; }
+    public void setPlayArea(Boolean playArea) { this.playArea = playArea; }
+
+    public boolean isCleaning() { return cleaning != null && cleaning; }
+    public void setCleaning(Boolean cleaning) { this.cleaning = cleaning; }
+
+    public boolean isGarbage() { return garbage != null && garbage; }
+    public void setGarbage(Boolean garbage) { this.garbage = garbage; }
+
+    public boolean isWheelchair() { return wheelchair != null && wheelchair; }
+    public void setWheelchair(Boolean wheelchair) { this.wheelchair = wheelchair; }
+
+    public boolean isSolar() { return solar != null && solar; }
+    public void setSolar(Boolean solar) { this.solar = solar; }
+
+    public boolean isGenerator() { return generator != null && generator; }
+    public void setGenerator(Boolean generator) { this.generator = generator; }
+
+    public List<String> getCustomAmenities() { return customAmenities; }
+    public void setCustomAmenities(List<String> customAmenities) {
+        this.customAmenities = customAmenities != null ? customAmenities : new ArrayList<>();
     }
 
     public String getDeposit() {
