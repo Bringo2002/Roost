@@ -96,6 +96,12 @@ public class AuthController {
         return ResponseEntity.ok(authService.loginWithGoogle(request));
     }
 
+    @PostMapping("/refresh")
+    public ResponseEntity<AuthResponse> refresh(@AuthenticationPrincipal User user) {
+        if (user == null) return ResponseEntity.status(401).build();
+        return ResponseEntity.ok(authService.refreshToken(user));
+    }
+
     @GetMapping("/me")
     public ResponseEntity<UserProfileResponse> getCurrentUser(@AuthenticationPrincipal User user) {
         if (user == null) return ResponseEntity.status(401).build();

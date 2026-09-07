@@ -174,6 +174,11 @@ public class AuthService {
         userRepository.save(user);
     }
 
+    public AuthResponse refreshToken(User user) {
+        String token = jwtService.generateToken(user);
+        return new AuthResponse(token);
+    }
+
     private UserProfileResponse toProfileResponse(User user) {
         return UserProfileResponse.builder()
                 .id(user.getId())
