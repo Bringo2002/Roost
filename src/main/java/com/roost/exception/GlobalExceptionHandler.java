@@ -24,16 +24,27 @@ public class GlobalExceptionHandler {
         return new ResponseEntity<>(errorResponse, ex.getStatus());
     }
 
+    @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException.class)
+    public ResponseEntity<Map<String, String>> handleHttpMessageNotReadable(org.springframework.http.converter.HttpMessageNotReadableException ex) {
+        log.warn("HttpMessageNotReadableException: {}", ex.getMessage());
+        Map<String, String> errorResponse = new HashMap<>();
+        String msg = ex.getMostSpecificCause() != null ? ex.getMostSpecificCause().getMessage() : "Invalid JSON payload format";
+        errorResponse.put("error", msg);
+        return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
+    }
+
     @ExceptionHandler(RuntimeException.class)
     public ResponseEntity<Map<String, String>> handleRuntimeException(RuntimeException ex) {
-        // Unlike ApiException, these weren't written with a client-safe
-        // message in mind -- could be a raw Hibernate/SQL constraint
-        // message, a NullPointerException naming an internal field, etc.
-        // Log the real detail server-side; the client gets something
-        // generic instead of free reconnaissance about the backend.
         log.warn("Unhandled RuntimeException on {}", ex.getClass().getSimpleName(), ex);
         Map<String, String> errorResponse = new HashMap<>();
-        errorResponse.put("error", "Invalid request");
+        String msg = ex.getMessage();
+        if (msg == null || msg.isBlank()) {
+            Throwable cause = ex.getCause();
+            if (cause != null && cause.getMessage() != null && !cause.getMessage().isBlank()) {
+                msg = cause.getMessage();
+            }
+        }
+        errorResponse.put("error", (msg != null && !msg.isBlank()) ? msg : "Invalid request");
         return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
     }
 
@@ -41,7 +52,8 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Map<String, String>> handleGeneralException(Exception ex) {
         log.error("Unhandled exception", ex);
         Map<String, String> errorResponse = new HashMap<>();
-        errorResponse.put("error", "An unexpected error occurred. Please try again.");
+        String msg = ex.getMessage();
+        errorResponse.put("error", (msg != null && !msg.isBlank()) ? msg : "An unexpected error occurred. Please try again.");
         return new ResponseEntity<>(errorResponse, HttpStatus.INTERNAL_SERVER_ERROR);
     }
 }

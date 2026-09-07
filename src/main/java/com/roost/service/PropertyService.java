@@ -346,6 +346,26 @@ public class PropertyService {
         existing.setSecurity(updated.isSecurity());
         existing.setPetFriendly(updated.isPetFriendly());
         existing.setBalcony(updated.isBalcony());
+        existing.setAc(updated.isAc());
+        existing.setHeating(updated.isHeating());
+        existing.setLaundry(updated.isLaundry());
+        existing.setDstv(updated.isDstv());
+        existing.setFence(updated.isFence());
+        existing.setIntercom(updated.isIntercom());
+        existing.setElevator(updated.isElevator());
+        existing.setCaretaker(updated.isCaretaker());
+        existing.setRooftop(updated.isRooftop());
+        existing.setGarden(updated.isGarden());
+        existing.setStorage(updated.isStorage());
+        existing.setPool(updated.isPool());
+        existing.setGym(updated.isGym());
+        existing.setPlayArea(updated.isPlayArea());
+        existing.setCleaning(updated.isCleaning());
+        existing.setGarbage(updated.isGarbage());
+        existing.setWheelchair(updated.isWheelchair());
+        existing.setSolar(updated.isSolar());
+        existing.setGenerator(updated.isGenerator());
+        existing.setCustomAmenities(updated.getCustomAmenities());
         existing.setDeposit(updated.getDeposit());
         existing.setMoveInDate(updated.getMoveInDate());
         existing.setImageUrls(updated.getImageUrls());
@@ -624,7 +644,7 @@ public class PropertyService {
      */
     public Property getPropertyById(Long id) {
         return propertyRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Property not found with id: " + id));
+                .orElseThrow(() -> ApiException.notFound("Property not found with id: " + id));
     }
 
     /** Same lookup as {@link #getPropertyById}, but with ratings populated -- for the property detail view specifically. */
