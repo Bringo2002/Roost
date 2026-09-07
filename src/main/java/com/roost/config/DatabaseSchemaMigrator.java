@@ -77,16 +77,12 @@ public class DatabaseSchemaMigrator implements CommandLineRunner {
             jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS community_verified BOOLEAN DEFAULT FALSE;");
             jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS reports_reviewed_at TIMESTAMP;");
 
-            // Fix legacy holding_fee_paid column if present in PostgreSQL database
+            // Permanently drop obsolete holding_fee columns if present in properties table
             try {
-                jdbcTemplate.execute("ALTER TABLE properties ALTER COLUMN holding_fee_paid DROP NOT NULL;");
+                jdbcTemplate.execute("ALTER TABLE properties DROP COLUMN IF EXISTS holding_fee_paid;");
+                jdbcTemplate.execute("ALTER TABLE properties DROP COLUMN IF EXISTS holding_fee;");
             } catch (Exception e) {
-                log.info("holding_fee_paid column alter notice: " + e.getMessage());
-            }
-            try {
-                jdbcTemplate.execute("ALTER TABLE properties ALTER COLUMN holding_fee_paid SET DEFAULT FALSE;");
-            } catch (Exception e) {
-                log.info("holding_fee_paid column default notice: " + e.getMessage());
+                log.info("Legacy column drop notice: " + e.getMessage());
             }
 
             log.info("Database schema migration completed successfully!");
