@@ -41,6 +41,28 @@ public class DatabaseSchemaMigrator implements CommandLineRunner {
             jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS security BOOLEAN DEFAULT TRUE;");
             jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS pet_friendly BOOLEAN DEFAULT FALSE;");
             jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS balcony BOOLEAN DEFAULT FALSE;");
+
+            // Extended amenity columns
+            jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS ac BOOLEAN DEFAULT FALSE;");
+            jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS heating BOOLEAN DEFAULT FALSE;");
+            jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS laundry BOOLEAN DEFAULT FALSE;");
+            jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS dstv BOOLEAN DEFAULT FALSE;");
+            jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS fence BOOLEAN DEFAULT FALSE;");
+            jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS intercom BOOLEAN DEFAULT FALSE;");
+            jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS elevator BOOLEAN DEFAULT FALSE;");
+            jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS caretaker BOOLEAN DEFAULT FALSE;");
+            jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS rooftop BOOLEAN DEFAULT FALSE;");
+            jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS garden BOOLEAN DEFAULT FALSE;");
+            jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS storage BOOLEAN DEFAULT FALSE;");
+            jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS pool BOOLEAN DEFAULT FALSE;");
+            jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS gym BOOLEAN DEFAULT FALSE;");
+            jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS play_area BOOLEAN DEFAULT FALSE;");
+            jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS cleaning BOOLEAN DEFAULT FALSE;");
+            jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS garbage BOOLEAN DEFAULT FALSE;");
+            jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS wheelchair BOOLEAN DEFAULT FALSE;");
+            jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS solar BOOLEAN DEFAULT FALSE;");
+            jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS generator BOOLEAN DEFAULT FALSE;");
+
             jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS deposit VARCHAR(255);");
             jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS move_in_date VARCHAR(255);");
             jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS listed_at TIMESTAMP;");
@@ -54,6 +76,18 @@ public class DatabaseSchemaMigrator implements CommandLineRunner {
             jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS gps_verified_at TIMESTAMP;");
             jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS community_verified BOOLEAN DEFAULT FALSE;");
             jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS reports_reviewed_at TIMESTAMP;");
+
+            // Fix legacy holding_fee_paid column if present in PostgreSQL database
+            try {
+                jdbcTemplate.execute("ALTER TABLE properties ALTER COLUMN holding_fee_paid DROP NOT NULL;");
+            } catch (Exception e) {
+                log.info("holding_fee_paid column alter notice: " + e.getMessage());
+            }
+            try {
+                jdbcTemplate.execute("ALTER TABLE properties ALTER COLUMN holding_fee_paid SET DEFAULT FALSE;");
+            } catch (Exception e) {
+                log.info("holding_fee_paid column default notice: " + e.getMessage());
+            }
 
             log.info("Database schema migration completed successfully!");
         } catch (Exception e) {
