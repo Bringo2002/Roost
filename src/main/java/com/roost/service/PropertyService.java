@@ -101,6 +101,19 @@ public class PropertyService {
         return populateRatings(propertyRepository.findByStatus("PUBLISHED"));
     }
 
+    /**
+     * Paginated variant of getAllProperties -- same PUBLISHED-only scope,
+     * no availability or coordinate requirement (see the repository
+     * queries this dispatches to for why that matters). Sorts by
+     * distance when lat/lng are both given, otherwise newest-first.
+     */
+    public List<Property> getAllProperties(Double lat, Double lng, Pageable pageable) {
+        List<Property> results = (lat != null && lng != null)
+                ? propertyRepository.findByStatusPublishedPagedSortedByDistance(lat, lng, pageable)
+                : propertyRepository.findByStatusPublishedPaged(pageable);
+        return populateRatings(results);
+    }
+
     public Property addProperty(Property property) {
         if (property.getStatus() == null || property.getStatus().isBlank()) {
             property.setStatus("PUBLISHED");

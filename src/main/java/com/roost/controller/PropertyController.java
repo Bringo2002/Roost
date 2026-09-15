@@ -44,8 +44,22 @@ public class PropertyController {
     }
 
     @GetMapping
-    public List<PropertyResponseDto> getAllProperties() {
-        return PropertyResponseDto.from(propertyService.getAllProperties());
+    public List<PropertyResponseDto> getAllProperties(
+            @RequestParam(required = false) Double lat,
+            @RequestParam(required = false) Double lng,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size) {
+        // Pagination is opt-in here too, same as /filter: omitting
+        // page/size preserves the exact previous behaviour (return
+        // everything PUBLISHED, unbounded) so existing/older clients
+        // aren't silently truncated to one page.
+        if (size == null) {
+            return PropertyResponseDto.from(propertyService.getAllProperties());
+        }
+        int cappedSize = Math.min(Math.max(size, 1), 50);
+        int safePage = page != null ? Math.max(page, 0) : 0;
+        Pageable pageable = PageRequest.of(safePage, cappedSize);
+        return PropertyResponseDto.from(propertyService.getAllProperties(lat, lng, pageable));
     }
 
     @GetMapping("/nearby")

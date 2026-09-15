@@ -31,6 +31,36 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
     List<Property> findByStatus(String status);
 
     /**
+     * Paginated version of findByStatus("PUBLISHED") -- same scope as the
+     * unpaginated feed (no availability or coordinate requirement; an
+     * unavailable listing still shows with a "Taken" badge client-side,
+     * and a listing without pinned coordinates still shows, just without
+     * a distance label). Newest-first, matching the /filter endpoint's
+     * own newest-first default when no location is given.
+     */
+    @Query("SELECT p FROM Property p WHERE p.status = 'PUBLISHED' ORDER BY p.id DESC")
+    List<Property> findByStatusPublishedPaged(Pageable pageable);
+
+    /**
+     * Same as findByStatusPublishedPaged, but ordered by distance from
+     * (lat, lng) when the client has a device location. Deliberately
+     * does NOT require p.latitude/p.longitude to be non-null the way
+     * filterPropertiesSortedByDistance does -- this is the general
+     * browse feed, not a location search, so a listing missing
+     * coordinates still needs to appear (just sorted to the end, via the
+     * CASE fallback below, rather than silently dropped).
+     */
+    @Query("SELECT p FROM Property p WHERE p.status = 'PUBLISHED' " +
+           "ORDER BY (CASE WHEN p.latitude IS NULL OR p.longitude IS NULL THEN 999999 ELSE " +
+           "(6371 * acos(cos(radians(:lat)) * cos(radians(p.latitude)) * " +
+           "cos(radians(p.longitude) - radians(:lng)) + " +
+           "sin(radians(:lat)) * sin(radians(p.latitude)))) END) ASC")
+    List<Property> findByStatusPublishedPagedSortedByDistance(
+            @Param("lat") double lat,
+            @Param("lng") double lng,
+            Pageable pageable);
+
+    /**
      * The lat/lng BETWEEN bounds are a cheap square-shaped pre-filter
      * (computed in PropertyService.getNearby, always a superset of the
      * true circle) applied before the expensive trig distance calc, so
