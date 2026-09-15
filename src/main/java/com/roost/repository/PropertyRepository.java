@@ -31,6 +31,27 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
     List<Property> findByStatus(String status);
 
     /**
+     * Average price among published listings with the same house type,
+     * bedroom count, and location string -- the comparable set used to
+     * decide whether a given listing's price is a "too good to be true"
+     * outlier (see PropertyRiskService). Uses plain AVG rather than a
+     * true median (which JPQL doesn't support portably) -- a reasonable
+     * v1 tradeoff; the location match is exact-string, so it only finds
+     * comparables when listings share identical location text, which is
+     * a known limitation worth revisiting if location data turns out to
+     * be too inconsistent for this to fire in practice. Returns null
+     * when there are no comparables, not zero.
+     */
+    @Query("SELECT AVG(p.price) FROM Property p WHERE p.status = 'PUBLISHED' " +
+           "AND p.houseType = :houseType AND p.bedrooms = :bedrooms " +
+           "AND p.location = :location AND p.id <> :excludeId")
+    Double findAverageComparablePrice(
+            @Param("houseType") String houseType,
+            @Param("bedrooms") int bedrooms,
+            @Param("location") String location,
+            @Param("excludeId") Long excludeId);
+
+    /**
      * Paginated version of findByStatus("PUBLISHED") -- same scope as the
      * unpaginated feed (no availability or coordinate requirement; an
      * unavailable listing still shows with a "Taken" badge client-side,

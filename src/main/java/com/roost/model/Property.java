@@ -84,6 +84,25 @@ public class Property {
      */
     private Boolean communityVerified = false;
 
+    /**
+     * Rules-based caution signals computed for tenants -- e.g.
+     * "REPORTED", "PRICE_BELOW_MARKET", "COMMUNITY_INACCURATE" --
+     * recomputed whenever something that feeds them changes (a report,
+     * a community check, a listing edit). Deliberately NOT the same
+     * mechanism as the report-threshold auto-hide above: that removes a
+     * listing from public view entirely at REPORT_THRESHOLD reports,
+     * while this exists specifically for the window below that
+     * threshold, where a listing is still visible but a tenant deserves
+     * a heads-up. Empty list means nothing currently flagged -- see
+     * PropertyRiskService for how these get computed. Every flag here
+     * is a plain aggregation query, no AI involved -- keeping it that
+     * way means it's free to recompute and fully auditable.
+     */
+    @ElementCollection
+    @CollectionTable(name = "property_risk_flags", joinColumns = @JoinColumn(name = "property_id"))
+    @Column(name = "flag")
+    private List<String> riskFlags = new ArrayList<>();
+
     /** DRAFT or PUBLISHED. Drafts are never returned by public feed/
      *  search/nearby/filter queries and are only visible to their owner
      *  via GET /{id} -- see PropertyRepository and PropertyController.
@@ -324,6 +343,11 @@ public class Property {
 
     public void setCommunityVerified(Boolean communityVerified) {
         this.communityVerified = communityVerified;
+    }
+
+    public List<String> getRiskFlags() { return riskFlags; }
+    public void setRiskFlags(List<String> riskFlags) {
+        this.riskFlags = riskFlags != null ? riskFlags : new ArrayList<>();
     }
 
     public String getStatus() {

@@ -35,6 +35,7 @@ public class PropertyService {
     private final ApplicationRepository applicationRepository;
     private final FirebasePushService firebasePushService;
     private final NearbyFacilitiesService nearbyFacilitiesService;
+    private final PropertyRiskService propertyRiskService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     /** Three distinct people flagging the same listing is enough to pull
@@ -51,7 +52,8 @@ public class PropertyService {
     public PropertyService(PropertyRepository propertyRepository, UserRepository userRepository,
                             ReviewRepository reviewRepository, PropertyReportRepository propertyReportRepository,
                             CommunityCheckRepository communityCheckRepository, ApplicationRepository applicationRepository,
-                            FirebasePushService firebasePushService, NearbyFacilitiesService nearbyFacilitiesService) {
+                            FirebasePushService firebasePushService, NearbyFacilitiesService nearbyFacilitiesService,
+                            PropertyRiskService propertyRiskService) {
         this.propertyRepository = propertyRepository;
         this.userRepository = userRepository;
         this.communityCheckRepository = communityCheckRepository;
@@ -60,6 +62,7 @@ public class PropertyService {
         this.propertyReportRepository = propertyReportRepository;
         this.firebasePushService = firebasePushService;
         this.nearbyFacilitiesService = nearbyFacilitiesService;
+        this.propertyRiskService = propertyRiskService;
     }
 
     /**
@@ -128,7 +131,18 @@ public class PropertyService {
             property.setLastConfirmedAt(LocalDateTime.now());
         }
         recomputeVerification(property);
-        return populateRatings(propertyRepository.save(property));
+        // Risk flags need a real id for the report/community-check
+        // lookups below (they compare by entity reference, which a
+        // not-yet-persisted property can't satisfy) -- save first to
+        // get one assigned, then recompute and save again. Report and
+        // community-check counts will trivially be zero for a listing
+        // that was just created, but the price-outlier check still
+        // needs to run immediately: a suspiciously-cheap new listing is
+        // exactly the case this exists to catch, not something that
+        // should wait for a later edit or the first report.
+        Property saved = propertyRepository.save(property);
+        propertyRiskService.recompute(saved);
+        return populateRatings(propertyRepository.save(saved));
     }
 
     /**
@@ -393,6 +407,7 @@ public class PropertyService {
         }
         existing.setLastConfirmedAt(LocalDateTime.now());
         recomputeVerification(existing);
+        propertyRiskService.recompute(existing);
         return populateRatings(propertyRepository.save(existing));
     }
 
@@ -480,9 +495,15 @@ public class PropertyService {
         propertyReportRepository.save(report);
 
         long totalReports = propertyReportRepository.countByProperty(property);
-        if (totalReports >= REPORT_THRESHOLD && "PUBLISHED".equals(property.getStatus())) {
+        propertyRiskService.recompute(property);
+
+        boolean crossedThreshold = totalReports >= REPORT_THRESHOLD && "PUBLISHED".equals(property.getStatus());
+        if (crossedThreshold) {
             property.setStatus("UNDER_REVIEW");
-            propertyRepository.save(property);
+        }
+        propertyRepository.save(property);
+
+        if (crossedThreshold) {
             if (property.getOwner() != null) {
                 // Deliberately doesn't name the reporter or reason here --
                 // that detail is for the admin review queue, not the
@@ -636,13 +657,15 @@ public class PropertyService {
         check.setWouldRecommend(wouldRecommend);
         communityCheckRepository.save(check);
 
+        propertyRiskService.recompute(property);
+
         if (!property.isCommunityVerified()) {
             long accurateCount = communityCheckRepository.countFullyAccurateConfirmations(property);
             if (accurateCount >= COMMUNITY_VERIFIED_THRESHOLD) {
                 property.setCommunityVerified(true);
-                propertyRepository.save(property);
             }
         }
+        propertyRepository.save(property);
 
         return check;
     }

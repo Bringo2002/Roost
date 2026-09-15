@@ -72,6 +72,7 @@ public class PropertyResponseDto {
     private final boolean solar;
     private final boolean generator;
     private final List<String> customAmenities;
+    private final List<String> riskFlags;
     private final String deposit;
     private final String moveInDate;
     private final String country;
@@ -135,6 +136,7 @@ public class PropertyResponseDto {
         this.solar = p.isSolar();
         this.generator = p.isGenerator();
         this.customAmenities = p.getCustomAmenities() != null ? p.getCustomAmenities() : new ArrayList<>();
+        this.riskFlags = p.getRiskFlags() != null ? p.getRiskFlags() : new ArrayList<>();
         this.deposit = p.getDeposit();
         this.moveInDate = p.getMoveInDate();
         this.country = p.getCountry();
@@ -206,6 +208,7 @@ public class PropertyResponseDto {
     public boolean isSolar() { return solar; }
     public boolean isGenerator() { return generator; }
     public List<String> getCustomAmenities() { return customAmenities; }
+    public List<String> getRiskFlags() { return riskFlags; }
     public String getDeposit() { return deposit; }
     public String getMoveInDate() { return moveInDate; }
     public String getCountry() { return country; }
