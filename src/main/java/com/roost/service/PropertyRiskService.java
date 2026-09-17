@@ -4,6 +4,7 @@ import com.roost.model.Property;
 import com.roost.repository.CommunityCheckRepository;
 import com.roost.repository.PropertyRepository;
 import com.roost.repository.PropertyReportRepository;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -22,25 +23,20 @@ import java.util.List;
  * in PropertyService, which every call site already calls right before
  * its own single save. Called from PropertyService.addProperty,
  * updateProperty, reportProperty, and submitCommunityCheck.
+ *
+ * Thresholds are @Value-injected from application.properties (risk.*)
+ * rather than hardcoded constants, so they can be tuned via a Railway
+ * env var once real usage data suggests they need it, without a code
+ * change or redeploy.
  */
 @Service
 public class PropertyRiskService {
 
-    /** Below this fraction of the comparable-listings average price, a
-     *  listing gets flagged -- calibrated to catch "too good to be
-     *  true" pricing specifically, not just below-average pricing (a
-     *  below-average but honest listing shouldn't get cautioned). */
-    private static final double PRICE_OUTLIER_RATIO = 0.55;
-
-    /** Below REPORT_THRESHOLD in PropertyService (which auto-hides the
-     *  listing entirely), even a single report is still worth a tenant
-     *  knowing about while they decide whether to pursue it. */
-    private static final int MIN_REPORTS_TO_FLAG = 1;
-
-    /** Needs a few visited responses before a negative ratio means
-     *  anything -- one dissatisfied visitor isn't yet a pattern. */
-    private static final int MIN_VISITED_RESPONSES_FOR_RATIO = 3;
-    private static final double NEGATIVE_RATIO_THRESHOLD = 0.5;
+    private final double priceOutlierRatio;
+    private final int minReportsToFlag;
+    private final int minVisitedResponsesForRatio;
+    private final double negativeRatioThreshold;
+    private final double comparableRadiusKm;
 
     private final PropertyReportRepository propertyReportRepository;
     private final CommunityCheckRepository communityCheckRepository;
@@ -48,10 +44,20 @@ public class PropertyRiskService {
 
     public PropertyRiskService(PropertyReportRepository propertyReportRepository,
                                 CommunityCheckRepository communityCheckRepository,
-                                PropertyRepository propertyRepository) {
+                                PropertyRepository propertyRepository,
+                                @Value("${risk.price-outlier-ratio:0.55}") double priceOutlierRatio,
+                                @Value("${risk.min-reports-to-flag:1}") int minReportsToFlag,
+                                @Value("${risk.min-visited-responses-for-ratio:3}") int minVisitedResponsesForRatio,
+                                @Value("${risk.negative-ratio-threshold:0.5}") double negativeRatioThreshold,
+                                @Value("${risk.comparable-radius-km:2.0}") double comparableRadiusKm) {
         this.propertyReportRepository = propertyReportRepository;
         this.communityCheckRepository = communityCheckRepository;
         this.propertyRepository = propertyRepository;
+        this.priceOutlierRatio = priceOutlierRatio;
+        this.minReportsToFlag = minReportsToFlag;
+        this.minVisitedResponsesForRatio = minVisitedResponsesForRatio;
+        this.negativeRatioThreshold = negativeRatioThreshold;
+        this.comparableRadiusKm = comparableRadiusKm;
     }
 
     /**
@@ -65,30 +71,21 @@ public class PropertyRiskService {
         List<String> flags = new ArrayList<>();
 
         long reportCount = propertyReportRepository.countByProperty(property);
-        if (reportCount >= MIN_REPORTS_TO_FLAG) {
+        if (reportCount >= minReportsToFlag) {
             flags.add("REPORTED");
         }
 
         long visited = communityCheckRepository.countVisitedResponses(property);
-        if (visited >= MIN_VISITED_RESPONSES_FOR_RATIO) {
+        if (visited >= minVisitedResponsesForRatio) {
             long inaccurate = communityCheckRepository.countInaccurateVisitedResponses(property);
-            if ((double) inaccurate / visited >= NEGATIVE_RATIO_THRESHOLD) {
+            if ((double) inaccurate / visited >= negativeRatioThreshold) {
                 flags.add("COMMUNITY_INACCURATE");
             }
         }
 
-        // Brand-new properties (from addProperty, before their first
-        // save) have a null id -- a real null passed into "p.id <>
-        // :excludeId" would make that comparison evaluate to UNKNOWN
-        // for every row in JPQL, silently excluding all comparables
-        // rather than just the property itself. -1 can never match a
-        // real generated id, so it's a safe sentinel for "nothing to
-        // exclude yet."
-        long excludeId = property.getId() != null ? property.getId() : -1L;
-        Double avgComparablePrice = propertyRepository.findAverageComparablePrice(
-                property.getHouseType(), property.getBedrooms(), property.getLocation(), excludeId);
-        if (avgComparablePrice != null && avgComparablePrice > 0
-                && property.getPrice() < avgComparablePrice * PRICE_OUTLIER_RATIO) {
+        ComparableStats comparable = findComparableStats(property);
+        if (comparable != null && comparable.average() > 0
+                && property.getPrice() < comparable.average() * priceOutlierRatio) {
             flags.add("PRICE_BELOW_MARKET");
         }
 
@@ -97,25 +94,63 @@ public class PropertyRiskService {
 
     /**
      * Plain price-comparison data for the "is this a fair price?"
-     * detail-page feature. Reuses the exact same comparable-listings
-     * match (house type + bedroom count + location) the
-     * PRICE_BELOW_MARKET flag above uses -- same limitation noted on
-     * findAverageComparablePrice applies here too (exact-string location
-     * match). Returns null when there's nothing to compare against,
-     * rather than a comparison with a sample size of zero.
+     * detail-page feature. Shares the same comparable-listings match
+     * the PRICE_BELOW_MARKET flag above uses (see findComparableStats).
+     * Returns null when there's nothing to compare against, rather than
+     * a comparison with a sample size of zero.
      */
     public record PriceComparison(double averagePrice, int sampleSize, double percentDifference) {}
 
     public PriceComparison getPriceComparison(Property property) {
-        long excludeId = property.getId() != null ? property.getId() : -1L;
-        Double avg = propertyRepository.findAverageComparablePrice(
-                property.getHouseType(), property.getBedrooms(), property.getLocation(), excludeId);
-        if (avg == null || avg <= 0) {
+        ComparableStats comparable = findComparableStats(property);
+        if (comparable == null || comparable.average() <= 0) {
             return null;
         }
-        int sampleSize = propertyRepository.countComparableProperties(
+        double percentDifference = ((property.getPrice() - comparable.average()) / comparable.average()) * 100;
+        return new PriceComparison(comparable.average(), comparable.sampleSize(), percentDifference);
+    }
+
+    private record ComparableStats(double average, int sampleSize) {}
+
+    /**
+     * Finds comparable listings by GPS distance when [property] has
+     * coordinates pinned, falling back to an exact-string location
+     * match when it doesn't (or when nothing turns up within
+     * comparableRadiusKm -- a listing in a sparsely-covered area
+     * shouldn't come back with zero comparables just because its
+     * immediate neighbors haven't been GPS-verified yet). The
+     * string-match fallback carries its own known limitation: it only
+     * finds comparables when listings share identical location text.
+     */
+    private ComparableStats findComparableStats(Property property) {
+        // Brand-new properties (from addProperty, before their first
+        // save) have a null id -- a real null passed into "p.id <>
+        // :excludeId" would make that comparison evaluate to UNKNOWN
+        // for every row in JPQL, silently excluding all comparables
+        // rather than just the property itself. -1 can never match a
+        // real generated id, so it's a safe sentinel for "nothing to
+        // exclude yet."
+        long excludeId = property.getId() != null ? property.getId() : -1L;
+
+        Double lat = property.getLatitude();
+        Double lng = property.getLongitude();
+        if (lat != null && lng != null) {
+            Double avg = propertyRepository.findAverageComparablePriceByDistance(
+                    property.getHouseType(), property.getBedrooms(), lat, lng, comparableRadiusKm, excludeId);
+            if (avg != null) {
+                int count = propertyRepository.countComparablePropertiesByDistance(
+                        property.getHouseType(), property.getBedrooms(), lat, lng, comparableRadiusKm, excludeId);
+                return new ComparableStats(avg, count);
+            }
+        }
+
+        Double avg = propertyRepository.findAverageComparablePrice(
                 property.getHouseType(), property.getBedrooms(), property.getLocation(), excludeId);
-        double percentDifference = ((property.getPrice() - avg) / avg) * 100;
-        return new PriceComparison(avg, sampleSize, percentDifference);
+        if (avg == null) {
+            return null;
+        }
+        int count = propertyRepository.countComparableProperties(
+                property.getHouseType(), property.getBedrooms(), property.getLocation(), excludeId);
+        return new ComparableStats(avg, count);
     }
 }

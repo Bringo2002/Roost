@@ -64,6 +64,47 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
             @Param("excludeId") Long excludeId);
 
     /**
+     * GPS-distance version of findAverageComparablePrice -- fixes the
+     * exact-string location matching limitation noted above by finding
+     * comparables within [radiusKm] of (lat, lng) instead. Used
+     * whenever the subject property has coordinates pinned; the
+     * string-match version above remains the fallback for the many
+     * properties that don't yet (see PropertyRiskService, which tries
+     * this first and falls back). Only matches other properties that
+     * themselves have coordinates, same reasoning as
+     * findByStatusPublishedPagedSortedByDistance.
+     */
+    @Query("SELECT AVG(p.price) FROM Property p WHERE p.status = 'PUBLISHED' " +
+           "AND p.houseType = :houseType AND p.bedrooms = :bedrooms " +
+           "AND p.id <> :excludeId AND p.latitude IS NOT NULL AND p.longitude IS NOT NULL " +
+           "AND (6371 * acos(cos(radians(:lat)) * cos(radians(p.latitude)) * " +
+           "cos(radians(p.longitude) - radians(:lng)) + " +
+           "sin(radians(:lat)) * sin(radians(p.latitude)))) <= :radiusKm")
+    Double findAverageComparablePriceByDistance(
+            @Param("houseType") String houseType,
+            @Param("bedrooms") int bedrooms,
+            @Param("lat") double lat,
+            @Param("lng") double lng,
+            @Param("radiusKm") double radiusKm,
+            @Param("excludeId") Long excludeId);
+
+    /** Sample size behind findAverageComparablePriceByDistance -- same
+     *  WHERE clause, same reasoning as countComparableProperties. */
+    @Query("SELECT COUNT(p) FROM Property p WHERE p.status = 'PUBLISHED' " +
+           "AND p.houseType = :houseType AND p.bedrooms = :bedrooms " +
+           "AND p.id <> :excludeId AND p.latitude IS NOT NULL AND p.longitude IS NOT NULL " +
+           "AND (6371 * acos(cos(radians(:lat)) * cos(radians(p.latitude)) * " +
+           "cos(radians(p.longitude) - radians(:lng)) + " +
+           "sin(radians(:lat)) * sin(radians(p.latitude)))) <= :radiusKm")
+    int countComparablePropertiesByDistance(
+            @Param("houseType") String houseType,
+            @Param("bedrooms") int bedrooms,
+            @Param("lat") double lat,
+            @Param("lng") double lng,
+            @Param("radiusKm") double radiusKm,
+            @Param("excludeId") Long excludeId);
+
+    /**
      * Paginated version of findByStatus("PUBLISHED") -- same scope as the
      * unpaginated feed (no availability or coordinate requirement; an
      * unavailable listing still shows with a "Taken" badge client-side,
