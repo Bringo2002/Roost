@@ -1,6 +1,7 @@
 package com.roost.dto;
 
 import com.roost.model.Property;
+import com.roost.service.PropertyRiskService;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -86,7 +87,21 @@ public class PropertyResponseDto {
     private final Long reviewCount;
     private final Long reportCount;
 
+    // "Is this a fair price?" comparison -- only populated on the
+    // single-property detail fetch (see PropertyController.getPropertyById),
+    // never on list/filter endpoints, which stay as-is deliberately: computing
+    // this per item would mean an extra query per card on every feed page.
+    // Null means "not computed for this response" OR "no comparable listings
+    // found" -- the frontend treats both the same way (don't show the card).
+    private final Double priceComparisonAverage;
+    private final Integer priceComparisonSampleSize;
+    private final Double priceComparisonPercentDiff;
+
     public PropertyResponseDto(Property p) {
+        this(p, null);
+    }
+
+    public PropertyResponseDto(Property p, PropertyRiskService.PriceComparison comparison) {
         this.id = p.getId();
         this.title = p.getTitle();
         this.buildingName = p.getBuildingName();
@@ -149,10 +164,24 @@ public class PropertyResponseDto {
         this.averageRating = p.getAverageRating();
         this.reviewCount = p.getReviewCount();
         this.reportCount = p.getReportCount();
+
+        if (comparison != null) {
+            this.priceComparisonAverage = comparison.averagePrice();
+            this.priceComparisonSampleSize = comparison.sampleSize();
+            this.priceComparisonPercentDiff = comparison.percentDifference();
+        } else {
+            this.priceComparisonAverage = null;
+            this.priceComparisonSampleSize = null;
+            this.priceComparisonPercentDiff = null;
+        }
     }
 
     public static PropertyResponseDto from(Property p) {
         return p == null ? null : new PropertyResponseDto(p);
+    }
+
+    public static PropertyResponseDto from(Property p, PropertyRiskService.PriceComparison comparison) {
+        return p == null ? null : new PropertyResponseDto(p, comparison);
     }
 
     public static List<PropertyResponseDto> from(List<Property> properties) {
@@ -221,4 +250,7 @@ public class PropertyResponseDto {
     public Double getAverageRating() { return averageRating; }
     public Long getReviewCount() { return reviewCount; }
     public Long getReportCount() { return reportCount; }
+    public Double getPriceComparisonAverage() { return priceComparisonAverage; }
+    public Integer getPriceComparisonSampleSize() { return priceComparisonSampleSize; }
+    public Double getPriceComparisonPercentDiff() { return priceComparisonPercentDiff; }
 }

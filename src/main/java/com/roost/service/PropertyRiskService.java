@@ -94,4 +94,28 @@ public class PropertyRiskService {
 
         property.setRiskFlags(flags);
     }
+
+    /**
+     * Plain price-comparison data for the "is this a fair price?"
+     * detail-page feature. Reuses the exact same comparable-listings
+     * match (house type + bedroom count + location) the
+     * PRICE_BELOW_MARKET flag above uses -- same limitation noted on
+     * findAverageComparablePrice applies here too (exact-string location
+     * match). Returns null when there's nothing to compare against,
+     * rather than a comparison with a sample size of zero.
+     */
+    public record PriceComparison(double averagePrice, int sampleSize, double percentDifference) {}
+
+    public PriceComparison getPriceComparison(Property property) {
+        long excludeId = property.getId() != null ? property.getId() : -1L;
+        Double avg = propertyRepository.findAverageComparablePrice(
+                property.getHouseType(), property.getBedrooms(), property.getLocation(), excludeId);
+        if (avg == null || avg <= 0) {
+            return null;
+        }
+        int sampleSize = propertyRepository.countComparableProperties(
+                property.getHouseType(), property.getBedrooms(), property.getLocation(), excludeId);
+        double percentDifference = ((property.getPrice() - avg) / avg) * 100;
+        return new PriceComparison(avg, sampleSize, percentDifference);
+    }
 }

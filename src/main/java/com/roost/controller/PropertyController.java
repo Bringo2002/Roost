@@ -5,6 +5,7 @@ import com.roost.model.Property;
 import com.roost.model.User;
 import com.roost.model.Role;
 import com.roost.service.PropertyService;
+import com.roost.service.PropertyRiskService;
 import com.roost.service.R2StorageService;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -24,6 +25,7 @@ public class PropertyController {
     private static final Logger log = Logger.getLogger(PropertyController.class.getName());
 
     private final PropertyService propertyService;
+    private final PropertyRiskService propertyRiskService;
 
     @org.springframework.beans.factory.annotation.Autowired
     private R2StorageService r2StorageService;
@@ -39,8 +41,9 @@ public class PropertyController {
      *  storage costs or a landlord's mobile data uploading it. */
     private static final int MAX_VIDEO_BYTES = 60 * 1024 * 1024; // 60MB
 
-    public PropertyController(PropertyService propertyService) {
+    public PropertyController(PropertyService propertyService, PropertyRiskService propertyRiskService) {
         this.propertyService = propertyService;
+        this.propertyRiskService = propertyRiskService;
     }
 
     @GetMapping
@@ -388,7 +391,8 @@ public class PropertyController {
         if (!"PUBLISHED".equals(property.getStatus()) && !isOwner) {
             throw com.roost.exception.ApiException.notFound("Property not found");
         }
-        return PropertyResponseDto.from(property);
+        PropertyRiskService.PriceComparison comparison = propertyRiskService.getPriceComparison(property);
+        return PropertyResponseDto.from(property, comparison);
     }
 
     /**

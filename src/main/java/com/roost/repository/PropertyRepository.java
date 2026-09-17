@@ -51,6 +51,18 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
             @Param("location") String location,
             @Param("excludeId") Long excludeId);
 
+    /** Sample size behind findAverageComparablePrice -- same WHERE
+     *  clause, used so the "fair price?" UI can say how many listings
+     *  the comparison is actually based on. */
+    @Query("SELECT COUNT(p) FROM Property p WHERE p.status = 'PUBLISHED' " +
+           "AND p.houseType = :houseType AND p.bedrooms = :bedrooms " +
+           "AND p.location = :location AND p.id <> :excludeId")
+    int countComparableProperties(
+            @Param("houseType") String houseType,
+            @Param("bedrooms") int bedrooms,
+            @Param("location") String location,
+            @Param("excludeId") Long excludeId);
+
     /**
      * Paginated version of findByStatus("PUBLISHED") -- same scope as the
      * unpaginated feed (no availability or coordinate requirement; an
