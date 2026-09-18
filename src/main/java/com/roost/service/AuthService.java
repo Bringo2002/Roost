@@ -112,6 +112,18 @@ public class AuthService {
     public UserProfileResponse updateProfile(User user, Map<String, String> updates) {
         if (updates.containsKey("name")) user.setName(updates.get("name"));
         if (updates.containsKey("phone")) user.setPhone(updates.get("phone"));
+        if (updates.containsKey("avatarUrl")) {
+            String url = updates.get("avatarUrl");
+            if (url == null || url.trim().isEmpty()) {
+                user.setAvatarUrl(null);
+            } else {
+                url = url.trim();
+                if (!url.startsWith("http://") && !url.startsWith("https://")) {
+                    throw ApiException.badRequest("Invalid avatar URL format. Must start with http:// or https://");
+                }
+                user.setAvatarUrl(url);
+            }
+        }
         userRepository.save(user);
         return toProfileResponse(user);
     }
@@ -188,6 +200,7 @@ public class AuthService {
                 .phoneVerified(user.isPhoneVerified())
                 .role(user.getRole())
                 .publicKey(user.getPublicKey())
+                .avatarUrl(user.getAvatarUrl())
                 .lastActiveAt(user.getLastActiveAt())
                 .build();
     }

@@ -39,6 +39,15 @@ public class UserController {
         return ResponseEntity.ok(authService.updateProfile(user, body));
     }
 
+    /** Partial update of the authenticated user's profile (e.g. avatarUrl). */
+    @PatchMapping("/me")
+    public ResponseEntity<UserProfileResponse> patchCurrentUser(@AuthenticationPrincipal User user,
+                                                                  @RequestBody Map<String, String> body) {
+        if (user == null) return ResponseEntity.status(401).build();
+        return ResponseEntity.ok(authService.updateProfile(user, body));
+    }
+
+
     @GetMapping("/{id}")
     public ResponseEntity<UserProfileResponse> getUserProfile(@AuthenticationPrincipal User user, @PathVariable Long id) {
         if (user == null) return ResponseEntity.status(401).build();

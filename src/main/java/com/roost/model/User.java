@@ -37,6 +37,10 @@ public class User implements UserDetails {
 
     private LocalDateTime lastActiveAt;
 
+    /** CDN URL of the user's profile picture. Null until the user uploads one. */
+    @Column(columnDefinition = "TEXT")
+    private String avatarUrl;
+
     private Boolean phoneVerified = false;
 
     /** FCM device registration token for push notifications. Null until
@@ -135,6 +139,15 @@ public class User implements UserDetails {
     public void setPhoneVerified(Boolean phoneVerified) {
         this.phoneVerified = phoneVerified;
     }
+
+    public String getAvatarUrl() {
+        return avatarUrl;
+    }
+
+    public void setAvatarUrl(String avatarUrl) {
+        this.avatarUrl = avatarUrl;
+    }
+
 
     public String getDeviceToken() {
         return deviceToken;

@@ -8,7 +8,7 @@ import java.util.List;
 
 /** Ignore any JSON keys the client sends that don't map to a field here --
  *  this prevents deserialization from crashing whenever the Flutter app
- *  is deployed ahead of the backend (or vice-versa). */
+ *  is deployed ahead of the backend (or vice versa). */
 @JsonIgnoreProperties(ignoreUnknown = true)
 @Entity
 @Table(name = "properties")

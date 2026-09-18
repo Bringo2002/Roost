@@ -11,11 +11,12 @@ public class UserProfileResponse {
     private boolean phoneVerified;
     private Role role;
     private String publicKey;
+    private String avatarUrl;
     private LocalDateTime lastActiveAt;
 
     public UserProfileResponse() {}
 
-    public UserProfileResponse(Long id, String name, String email, String phone, boolean phoneVerified, Role role, String publicKey, LocalDateTime lastActiveAt) {
+    public UserProfileResponse(Long id, String name, String email, String phone, boolean phoneVerified, Role role, String publicKey, String avatarUrl, LocalDateTime lastActiveAt) {
         this.id = id;
         this.name = name;
         this.email = email;
@@ -23,6 +24,7 @@ public class UserProfileResponse {
         this.phoneVerified = phoneVerified;
         this.role = role;
         this.publicKey = publicKey;
+        this.avatarUrl = avatarUrl;
         this.lastActiveAt = lastActiveAt;
     }
 
@@ -90,6 +92,14 @@ public class UserProfileResponse {
         this.lastActiveAt = lastActiveAt;
     }
 
+    public String getAvatarUrl() {
+        return avatarUrl;
+    }
+
+    public void setAvatarUrl(String avatarUrl) {
+        this.avatarUrl = avatarUrl;
+    }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -102,6 +112,7 @@ public class UserProfileResponse {
         private boolean phoneVerified;
         private Role role;
         private String publicKey;
+        private String avatarUrl;
         private LocalDateTime lastActiveAt;
 
         public Builder id(Long id) {
@@ -139,13 +150,18 @@ public class UserProfileResponse {
             return this;
         }
 
+        public Builder avatarUrl(String avatarUrl) {
+            this.avatarUrl = avatarUrl;
+            return this;
+        }
+
         public Builder lastActiveAt(LocalDateTime lastActiveAt) {
             this.lastActiveAt = lastActiveAt;
             return this;
         }
 
         public UserProfileResponse build() {
-            return new UserProfileResponse(id, name, email, phone, phoneVerified, role, publicKey, lastActiveAt);
+            return new UserProfileResponse(id, name, email, phone, phoneVerified, role, publicKey, avatarUrl, lastActiveAt);
         }
     }
 }
