@@ -37,6 +37,7 @@ public class UserService {
                 .name(target.getName())
                 .phoneVerified(target.isPhoneVerified())
                 .role(target.getRole())
+                .avatarUrl(target.getAvatarUrl())
                 .lastActiveAt(target.getLastActiveAt())
                 .build();
     }
