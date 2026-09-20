@@ -37,7 +37,7 @@ public class NearbyFacilitiesService {
             .build();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public record Facility(String name, String category, double distanceMeters) {}
+    public record Facility(String name, String category, double distanceMeters, double lat, double lng) {}
 
     /**
      * Returns the single closest mall, hospital, and major road to
@@ -111,15 +111,15 @@ public class NearbyFacilitiesService {
 
             if ("mall".equals(textOrNull(tags, "shop"))) {
                 if (closestMall == null || distance < closestMall.distanceMeters()) {
-                    closestMall = new Facility(name, "mall", distance);
+                    closestMall = new Facility(name, "mall", distance, lat, lng);
                 }
             } else if ("hospital".equals(textOrNull(tags, "amenity"))) {
                 if (closestHospital == null || distance < closestHospital.distanceMeters()) {
-                    closestHospital = new Facility(name, "hospital", distance);
+                    closestHospital = new Facility(name, "hospital", distance, lat, lng);
                 }
             } else if (tags.has("highway")) {
                 if (closestRoad == null || distance < closestRoad.distanceMeters()) {
-                    closestRoad = new Facility(name, "road", distance);
+                    closestRoad = new Facility(name, "road", distance, lat, lng);
                 }
             }
         }
