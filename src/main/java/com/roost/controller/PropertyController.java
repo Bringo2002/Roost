@@ -6,6 +6,7 @@ import com.roost.model.User;
 import com.roost.model.Role;
 import com.roost.service.PropertyService;
 import com.roost.service.PropertyRiskService;
+import com.roost.service.RentEstimateService;
 import com.roost.service.R2StorageService;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -26,6 +27,7 @@ public class PropertyController {
 
     private final PropertyService propertyService;
     private final PropertyRiskService propertyRiskService;
+    private final RentEstimateService rentEstimateService;
 
     @org.springframework.beans.factory.annotation.Autowired
     private R2StorageService r2StorageService;
@@ -41,9 +43,11 @@ public class PropertyController {
      *  storage costs or a landlord's mobile data uploading it. */
     private static final int MAX_VIDEO_BYTES = 60 * 1024 * 1024; // 60MB
 
-    public PropertyController(PropertyService propertyService, PropertyRiskService propertyRiskService) {
+    public PropertyController(PropertyService propertyService, PropertyRiskService propertyRiskService,
+                               RentEstimateService rentEstimateService) {
         this.propertyService = propertyService;
         this.propertyRiskService = propertyRiskService;
+        this.rentEstimateService = rentEstimateService;
     }
 
     @GetMapping
@@ -164,6 +168,32 @@ public class PropertyController {
         }
         boolean eligible = propertyService.canSubmitCommunityCheck(id, user);
         return ResponseEntity.ok(Map.of("eligible", eligible));
+    }
+
+    /**
+     * Server-side market-price estimate -- see RentEstimateService for
+     * why this replaced a client-side computation that fetched up to
+     * 50 full property records per detail-page view. No auth required:
+     * this is the same kind of market data anyone viewing the listing
+     * already sees, not anything sensitive.
+     */
+    @GetMapping("/{id}/rent-estimate")
+    public ResponseEntity<?> getRentEstimate(@PathVariable Long id) {
+        Property property = propertyService.getPropertyById(id);
+        RentEstimateService.RentEstimate estimate = rentEstimateService.estimate(property);
+        if (estimate == null) {
+            return ResponseEntity.ok(Map.of("available", false));
+        }
+        Map<String, Object> response = new java.util.LinkedHashMap<>();
+        response.put("available", true);
+        response.put("minPrice", estimate.minPrice());
+        response.put("medianPrice", estimate.medianPrice());
+        response.put("maxPrice", estimate.maxPrice());
+        response.put("rating", estimate.rating());
+        response.put("percentile", estimate.percentile());
+        response.put("comparableCount", estimate.comparableCount());
+        response.put("valueDrivers", estimate.valueDrivers());
+        return ResponseEntity.ok(response);
     }
 
     /**

@@ -105,6 +105,40 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
             @Param("excludeId") Long excludeId);
 
     /**
+     * Entity-returning counterparts of the two queries above, for
+     * RentEstimateService -- that needs the actual comparable listings
+     * (to check each one's amenity flags for value-driver analysis),
+     * not just aggregate price stats. Capped via [pageable] since an
+     * unbounded comparable set in a dense area could otherwise pull
+     * an unreasonable number of full entities into memory for what's
+     * an internal computation step, not a user-facing list.
+     */
+    @Query("SELECT p FROM Property p WHERE p.status = 'PUBLISHED' " +
+           "AND p.houseType = :houseType AND p.bedrooms = :bedrooms " +
+           "AND p.location = :location AND p.id <> :excludeId")
+    List<Property> findComparableProperties(
+            @Param("houseType") String houseType,
+            @Param("bedrooms") int bedrooms,
+            @Param("location") String location,
+            @Param("excludeId") Long excludeId,
+            Pageable pageable);
+
+    @Query("SELECT p FROM Property p WHERE p.status = 'PUBLISHED' " +
+           "AND p.houseType = :houseType AND p.bedrooms = :bedrooms " +
+           "AND p.id <> :excludeId AND p.latitude IS NOT NULL AND p.longitude IS NOT NULL " +
+           "AND (6371 * acos(cos(radians(:lat)) * cos(radians(p.latitude)) * " +
+           "cos(radians(p.longitude) - radians(:lng)) + " +
+           "sin(radians(:lat)) * sin(radians(p.latitude)))) <= :radiusKm")
+    List<Property> findComparablePropertiesByDistance(
+            @Param("houseType") String houseType,
+            @Param("bedrooms") int bedrooms,
+            @Param("lat") double lat,
+            @Param("lng") double lng,
+            @Param("radiusKm") double radiusKm,
+            @Param("excludeId") Long excludeId,
+            Pageable pageable);
+
+    /**
      * Paginated version of findByStatus("PUBLISHED") -- same scope as the
      * unpaginated feed (no availability or coordinate requirement; an
      * unavailable listing still shows with a "Taken" badge client-side,
