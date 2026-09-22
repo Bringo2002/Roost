@@ -13,6 +13,9 @@ import com.roost.repository.ReviewRepository;
 import com.roost.repository.UserRepository;
 import com.roost.util.GeoUtils;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,6 +29,8 @@ import java.util.stream.Collectors;
 @Service
 @Transactional
 public class PropertyService {
+
+    private static final Logger log = LoggerFactory.getLogger(PropertyService.class);
 
     private final PropertyRepository propertyRepository;
     private final UserRepository userRepository;
@@ -396,6 +401,8 @@ public class PropertyService {
         existing.setDeposit(updated.getDeposit());
         existing.setMoveInDate(updated.getMoveInDate());
         existing.setImageUrls(updated.getImageUrls());
+        existing.setDocumentUrls(updated.getDocumentUrls());
+        if (updated.getDocumentVerified() != null) existing.setDocumentVerified(updated.getDocumentVerified());
         existing.setVideoUrl(updated.getVideoUrl());
         if (updated.getCountry() != null) existing.setCountry(updated.getCountry());
         if (updated.getStatus() != null && !updated.getStatus().equals(existing.getStatus())
@@ -480,8 +487,13 @@ public class PropertyService {
      * same status field and query filters built for drafts, reused here
      * rather than adding a second hidden-listing mechanism.
      */
+    @Transactional
     public PropertyReport reportProperty(Long propertyId, User reporter, String reason, String details) {
         Property property = getPropertyById(propertyId);
+
+        if (property.getOwner() != null && property.getOwner().getId().equals(reporter.getId())) {
+            throw ApiException.badRequest("You cannot report your own listing.");
+        }
 
         if (propertyReportRepository.existsByPropertyAndReportedBy(property, reporter)) {
             throw ApiException.badRequest("You've already reported this listing.");
@@ -492,7 +504,12 @@ public class PropertyService {
         report.setReportedBy(reporter);
         report.setReason(reason);
         report.setDetails(details);
-        propertyReportRepository.save(report);
+
+        try {
+            propertyReportRepository.saveAndFlush(report);
+        } catch (DataIntegrityViolationException e) {
+            throw ApiException.badRequest("You've already reported this listing.");
+        }
 
         long totalReports = propertyReportRepository.countByProperty(property);
         propertyRiskService.recompute(property);
@@ -500,24 +517,24 @@ public class PropertyService {
         boolean crossedThreshold = totalReports >= REPORT_THRESHOLD && "PUBLISHED".equals(property.getStatus());
         if (crossedThreshold) {
             property.setStatus("UNDER_REVIEW");
+            log.warn("Property ID {} status updated to UNDER_REVIEW due to reaching report threshold ({})", propertyId, totalReports);
         }
         propertyRepository.save(property);
 
-        if (crossedThreshold) {
-            if (property.getOwner() != null) {
-                // Deliberately doesn't name the reporter or reason here --
-                // that detail is for the admin review queue, not the
-                // landlord, both to protect reporter anonymity and because
-                // the reports haven't been judged yet.
-                firebasePushService.sendToUser(
-                        property.getOwner(),
-                        "Listing under review",
-                        property.getTitle() + " has been temporarily hidden pending a quick review",
-                        Map.of("type", "listing_under_review", "propertyId", String.valueOf(property.getId()))
-                );
-            }
+        if (crossedThreshold && property.getOwner() != null) {
+            // Deliberately doesn't name the reporter or reason here --
+            // that detail is for the admin review queue, not the
+            // landlord, both to protect reporter anonymity and because
+            // the reports haven't been judged yet.
+            firebasePushService.sendToUser(
+                    property.getOwner(),
+                    "Listing under review",
+                    property.getTitle() + " has been temporarily hidden pending a quick review",
+                    Map.of("type", "listing_under_review", "propertyId", String.valueOf(property.getId()))
+            );
         }
 
+        log.info("User ID {} reported property ID {} with reason: {}", reporter.getId(), propertyId, reason);
         return report;
     }
 

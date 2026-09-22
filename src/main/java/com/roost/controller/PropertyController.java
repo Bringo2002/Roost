@@ -1,19 +1,26 @@
 package com.roost.controller;
 
 import com.roost.dto.PropertyResponseDto;
+import com.roost.dto.ReportRequestDto;
+import com.roost.dto.ReportSubmissionResponseDto;
+import com.roost.exception.ApiException;
 import com.roost.model.Property;
+import com.roost.model.PropertyReport;
 import com.roost.model.User;
 import com.roost.model.Role;
 import com.roost.service.PropertyService;
 import com.roost.service.PropertyRiskService;
 import com.roost.service.RentEstimateService;
+import com.roost.service.RateLimiterService;
 import com.roost.service.R2StorageService;
+import jakarta.validation.Valid;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Duration;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
@@ -28,6 +35,7 @@ public class PropertyController {
     private final PropertyService propertyService;
     private final PropertyRiskService propertyRiskService;
     private final RentEstimateService rentEstimateService;
+    private final RateLimiterService rateLimiterService;
 
     @org.springframework.beans.factory.annotation.Autowired
     private R2StorageService r2StorageService;
@@ -44,10 +52,11 @@ public class PropertyController {
     private static final int MAX_VIDEO_BYTES = 60 * 1024 * 1024; // 60MB
 
     public PropertyController(PropertyService propertyService, PropertyRiskService propertyRiskService,
-                               RentEstimateService rentEstimateService) {
+                               RentEstimateService rentEstimateService, RateLimiterService rateLimiterService) {
         this.propertyService = propertyService;
         this.propertyRiskService = propertyRiskService;
         this.rentEstimateService = rentEstimateService;
+        this.rateLimiterService = rateLimiterService;
     }
 
     @GetMapping
@@ -149,14 +158,23 @@ public class PropertyController {
     }
 
     @PostMapping("/{id}/report")
-    public ResponseEntity<?> reportProperty(@PathVariable Long id, @RequestBody(required = false) Map<String, String> body, @AuthenticationPrincipal User user) {
+    public ResponseEntity<?> reportProperty(
+            @PathVariable Long id,
+            @Valid @RequestBody ReportRequestDto body,
+            @AuthenticationPrincipal User user) {
         if (user == null) {
             return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
         }
-        String reason = body != null && body.containsKey("reason") ? body.get("reason") : "Unspecified issue";
-        String details = body != null ? body.get("details") : null;
-        propertyService.reportProperty(id, user, reason, details);
-        return ResponseEntity.ok(Map.of("message", "Report received. Our team will review this listing."));
+
+        String rateLimitKey = "report:user:" + user.getId();
+        if (rateLimiterService.isBlocked(rateLimitKey, 5, Duration.ofHours(1))) {
+            throw ApiException.badRequest("Too many reports submitted. Please wait before submitting another report.");
+        }
+
+        PropertyReport report = propertyService.reportProperty(id, user, body.getReason(), body.getDetails());
+        rateLimiterService.record(rateLimitKey);
+
+        return ResponseEntity.ok(ReportSubmissionResponseDto.from(report, "Report received. Our team will review this listing."));
     }
 
     /** Lets the app decide whether to show the "confirm accuracy" prompt

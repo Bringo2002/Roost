@@ -175,6 +175,13 @@ public class Property {
     @Column(name = "image_url")
     private List<String> imageUrls = new ArrayList<>();
 
+    @ElementCollection
+    @CollectionTable(name = "property_document_urls", joinColumns = @JoinColumn(name = "property_id"))
+    @Column(name = "document_url")
+    private List<String> documentUrls = new ArrayList<>();
+
+    private Boolean documentVerified = false;
+
     @ManyToOne
     @JoinColumn(name = "owner_id")
     private User owner;
@@ -645,5 +652,21 @@ public class Property {
 
     public void setNearbyFacilities(String nearbyFacilities) {
         this.nearbyFacilities = nearbyFacilities;
+    }
+
+    public List<String> getDocumentUrls() {
+        return documentUrls;
+    }
+
+    public void setDocumentUrls(List<String> documentUrls) {
+        this.documentUrls = documentUrls;
+    }
+
+    public Boolean getDocumentVerified() {
+        return documentVerified;
+    }
+
+    public void setDocumentVerified(Boolean documentVerified) {
+        this.documentVerified = documentVerified;
     }
 }

@@ -82,6 +82,8 @@ public class PropertyResponseDto {
     private final int viewCount;
     private final int saveCount;
     private final List<String> imageUrls;
+    private final List<String> documentUrls;
+    private final boolean documentVerified;
     private final PropertyOwnerDto owner;
     private final Double averageRating;
     private final Long reviewCount;
@@ -160,6 +162,8 @@ public class PropertyResponseDto {
         this.viewCount = p.getViewCount();
         this.saveCount = p.getSaveCount();
         this.imageUrls = p.getImageUrls();
+        this.documentUrls = p.getDocumentUrls() != null ? p.getDocumentUrls() : new ArrayList<>();
+        this.documentVerified = Boolean.TRUE.equals(p.getDocumentVerified());
         this.owner = PropertyOwnerDto.from(p.getOwner());
         this.averageRating = p.getAverageRating();
         this.reviewCount = p.getReviewCount();
@@ -246,6 +250,8 @@ public class PropertyResponseDto {
     public int getViewCount() { return viewCount; }
     public int getSaveCount() { return saveCount; }
     public List<String> getImageUrls() { return imageUrls; }
+    public List<String> getDocumentUrls() { return documentUrls; }
+    public boolean isDocumentVerified() { return documentVerified; }
     public PropertyOwnerDto getOwner() { return owner; }
     public Double getAverageRating() { return averageRating; }
     public Long getReviewCount() { return reviewCount; }
