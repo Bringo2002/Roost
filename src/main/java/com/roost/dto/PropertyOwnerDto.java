@@ -18,13 +18,19 @@ public class PropertyOwnerDto {
     private final String role;
     private final String avatarUrl;
     private final LocalDateTime lastActiveAt;
+    private final String responseTime;
 
     public PropertyOwnerDto(Long id, String name, String role, String avatarUrl, LocalDateTime lastActiveAt) {
+        this(id, name, role, avatarUrl, lastActiveAt, calculateResponseTime(lastActiveAt));
+    }
+
+    public PropertyOwnerDto(Long id, String name, String role, String avatarUrl, LocalDateTime lastActiveAt, String responseTime) {
         this.id = id;
         this.name = name;
         this.role = role;
         this.avatarUrl = avatarUrl;
         this.lastActiveAt = lastActiveAt;
+        this.responseTime = responseTime;
     }
 
     public static PropertyOwnerDto from(User owner) {
@@ -36,8 +42,24 @@ public class PropertyOwnerDto {
                 owner.getName(),
                 owner.getRole() != null ? owner.getRole().name() : null,
                 owner.getAvatarUrl(),
-                owner.getLastActiveAt()
+                owner.getLastActiveAt(),
+                calculateResponseTime(owner.getLastActiveAt())
         );
+    }
+
+    private static String calculateResponseTime(LocalDateTime lastActiveAt) {
+        if (lastActiveAt != null) {
+            java.time.Duration diff = java.time.Duration.between(lastActiveAt, LocalDateTime.now());
+            long minutes = Math.abs(diff.toMinutes());
+            if (minutes <= 30) {
+                return "Usually responds within 15 minutes";
+            } else if (minutes <= 120) {
+                return "Usually responds within 1 hour";
+            } else if (minutes <= 720) {
+                return "Usually responds within a few hours";
+            }
+        }
+        return "Usually responds within 1 hour";
     }
 
     public Long getId() {
@@ -58,5 +80,9 @@ public class PropertyOwnerDto {
 
     public LocalDateTime getLastActiveAt() {
         return lastActiveAt;
+    }
+
+    public String getResponseTime() {
+        return responseTime;
     }
 }
