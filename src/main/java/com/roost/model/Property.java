@@ -54,6 +54,20 @@ public class Property {
      *  One of the three signals composing [verified]. */
     private Boolean photoApproved = false;
 
+    /** True once an admin has rejected this listing's photos. Kept
+     *  separate from photoApproved so a rejected listing (photoApproved
+     *  still false) doesn't keep resurfacing in the pending-review
+     *  queue -- see PropertyService.getPendingPhotoReview. Cleared back
+     *  to false whenever the owner re-uploads photos. */
+    private Boolean photoRejected = false;
+
+    /** Admin's stated reason the last time photos were rejected, shown
+     *  to the owner so they know what to fix before re-submitting. */
+    @Column(columnDefinition = "TEXT")
+    private String photoRejectionReason;
+
+    private LocalDateTime photoRejectedAt;
+
     /**
      * Set whenever an admin takes a moderation action on this listing's
      * reports (dismiss, hide, or restore). Reports created after this
@@ -181,6 +195,26 @@ public class Property {
     private List<String> documentUrls = new ArrayList<>();
 
     private Boolean documentVerified = false;
+
+    // Direct Landlord & Endorsement fields
+    private Boolean isDirectLandlord = false;
+    private Boolean landlordEndorsed = false;
+    private String endorsementToken;
+    private String ownerVerifyName;
+    private String ownerVerifyPhone;
+
+    // Management Role & Caretaker fields
+    private String managerRole = "LANDLORD"; // LANDLORD, CARETAKER, AGENT
+    private String caretakerName;
+    private String caretakerPhone;
+    private Boolean caretakerLivesOnSite = false;
+
+    // Utility & Move-in breakdown fields
+    private int depositMonths = 1;
+    private double waterFee = 0.0;
+    private double garbageFee = 0.0;
+    private double serviceCharge = 0.0;
+    private String electricityType = "TOKEN"; // TOKEN, MONTHLY_BILL, INCLUDED
 
     @ManyToOne
     @JoinColumn(name = "owner_id")
@@ -318,6 +352,30 @@ public class Property {
 
     public void setPhotoApproved(Boolean photoApproved) {
         this.photoApproved = photoApproved;
+    }
+
+    public boolean isPhotoRejected() {
+        return photoRejected != null && photoRejected;
+    }
+
+    public void setPhotoRejected(Boolean photoRejected) {
+        this.photoRejected = photoRejected;
+    }
+
+    public String getPhotoRejectionReason() {
+        return photoRejectionReason;
+    }
+
+    public void setPhotoRejectionReason(String photoRejectionReason) {
+        this.photoRejectionReason = photoRejectionReason;
+    }
+
+    public LocalDateTime getPhotoRejectedAt() {
+        return photoRejectedAt;
+    }
+
+    public void setPhotoRejectedAt(LocalDateTime photoRejectedAt) {
+        this.photoRejectedAt = photoRejectedAt;
     }
 
     public java.time.LocalDateTime getReportsReviewedAt() {
@@ -669,4 +727,46 @@ public class Property {
     public void setDocumentVerified(Boolean documentVerified) {
         this.documentVerified = documentVerified;
     }
+
+    public boolean isDirectLandlord() { return isDirectLandlord != null && isDirectLandlord; }
+    public void setDirectLandlord(Boolean directLandlord) { this.isDirectLandlord = directLandlord; }
+
+    public boolean isLandlordEndorsed() { return landlordEndorsed != null && landlordEndorsed; }
+    public void setLandlordEndorsed(Boolean landlordEndorsed) { this.landlordEndorsed = landlordEndorsed; }
+
+    public String getEndorsementToken() { return endorsementToken; }
+    public void setEndorsementToken(String endorsementToken) { this.endorsementToken = endorsementToken; }
+
+    public String getOwnerVerifyName() { return ownerVerifyName; }
+    public void setOwnerVerifyName(String ownerVerifyName) { this.ownerVerifyName = ownerVerifyName; }
+
+    public String getOwnerVerifyPhone() { return ownerVerifyPhone; }
+    public void setOwnerVerifyPhone(String ownerVerifyPhone) { this.ownerVerifyPhone = ownerVerifyPhone; }
+
+    public String getManagerRole() { return managerRole; }
+    public void setManagerRole(String managerRole) { this.managerRole = managerRole; }
+
+    public String getCaretakerName() { return caretakerName; }
+    public void setCaretakerName(String caretakerName) { this.caretakerName = caretakerName; }
+
+    public String getCaretakerPhone() { return caretakerPhone; }
+    public void setCaretakerPhone(String caretakerPhone) { this.caretakerPhone = caretakerPhone; }
+
+    public boolean isCaretakerLivesOnSite() { return caretakerLivesOnSite != null && caretakerLivesOnSite; }
+    public void setCaretakerLivesOnSite(Boolean caretakerLivesOnSite) { this.caretakerLivesOnSite = caretakerLivesOnSite; }
+
+    public int getDepositMonths() { return depositMonths; }
+    public void setDepositMonths(int depositMonths) { this.depositMonths = depositMonths; }
+
+    public double getWaterFee() { return waterFee; }
+    public void setWaterFee(double waterFee) { this.waterFee = waterFee; }
+
+    public double getGarbageFee() { return garbageFee; }
+    public void setGarbageFee(double garbageFee) { this.garbageFee = garbageFee; }
+
+    public double getServiceCharge() { return serviceCharge; }
+    public void setServiceCharge(double serviceCharge) { this.serviceCharge = serviceCharge; }
+
+    public String getElectricityType() { return electricityType; }
+    public void setElectricityType(String electricityType) { this.electricityType = electricityType; }
 }

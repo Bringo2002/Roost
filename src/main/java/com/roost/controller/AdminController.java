@@ -46,6 +46,17 @@ public class AdminController {
         return ResponseEntity.ok(PropertyResponseDto.from(updated));
     }
 
+    @PostMapping("/properties/{id}/reject-photos")
+    public ResponseEntity<?> rejectPhotos(@PathVariable Long id,
+                                           @RequestBody Map<String, String> body,
+                                           @AuthenticationPrincipal User user) {
+        if (user == null) return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
+        if (user.getRole() != Role.ADMIN) return ResponseEntity.status(403).body(Map.of("error", "Admin access required"));
+        String reason = body != null ? body.get("reason") : null;
+        Property updated = propertyService.rejectPhotos(id, reason);
+        return ResponseEntity.ok(PropertyResponseDto.from(updated));
+    }
+
     @GetMapping("/flagged-listings")
     public ResponseEntity<?> getFlaggedListings(@AuthenticationPrincipal User user) {
         if (user == null) return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
