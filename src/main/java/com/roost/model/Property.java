@@ -2,6 +2,7 @@ package com.roost.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.*;
+import org.hibernate.annotations.BatchSize;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -111,10 +112,20 @@ public class Property {
      * PropertyRiskService for how these get computed. Every flag here
      * is a plain aggregation query, no AI involved -- keeping it that
      * way means it's free to recompute and fully auditable.
+     *
+     * Batched (rather than one SELECT per property) so that list-scale
+     * queries -- feed, search, filter, nearby -- don't turn into an N+1:
+     * Hibernate loads this collection for up to 20 properties from the
+     * parent result set per query instead of one query per property. See
+     * PropertyRepository for the corresponding owner fetch-join fix;
+     * this collection can't use a fetch join directly because combining
+     * it with pagination would force Hibernate to page the whole result
+     * set in memory.
      */
     @ElementCollection
     @CollectionTable(name = "property_risk_flags", joinColumns = @JoinColumn(name = "property_id"))
     @Column(name = "flag")
+    @BatchSize(size = 20)
     private List<String> riskFlags = new ArrayList<>();
 
     /** DRAFT or PUBLISHED. Drafts are never returned by public feed/
@@ -167,6 +178,7 @@ public class Property {
     @ElementCollection
     @CollectionTable(name = "property_custom_amenities", joinColumns = @JoinColumn(name = "property_id"))
     @Column(name = "amenity")
+    @BatchSize(size = 20)
     private List<String> customAmenities = new ArrayList<>();
 
     private String deposit;
@@ -187,11 +199,13 @@ public class Property {
     @ElementCollection
     @CollectionTable(name = "property_image_urls", joinColumns = @JoinColumn(name = "property_id"))
     @Column(name = "image_url")
+    @BatchSize(size = 20)
     private List<String> imageUrls = new ArrayList<>();
 
     @ElementCollection
     @CollectionTable(name = "property_document_urls", joinColumns = @JoinColumn(name = "property_id"))
     @Column(name = "document_url")
+    @BatchSize(size = 20)
     private List<String> documentUrls = new ArrayList<>();
 
     private Boolean documentVerified = false;
@@ -216,6 +230,13 @@ public class Property {
     private double serviceCharge = 0.0;
     private String electricityType = "TOKEN"; // TOKEN, MONTHLY_BILL, INCLUDED
 
+    /** EAGER by default (plain @ManyToOne) -- at list scale this is
+     *  fetched via an explicit LEFT JOIN FETCH in PropertyRepository's
+     *  list-returning queries so a whole page of properties costs one
+     *  owner-inclusive query, not a base query plus one owner SELECT per
+     *  row. A to-one association can safely be fetch-joined alongside
+     *  Pageable (unlike the @ElementCollection fields above, which use
+     *  @BatchSize instead) because it doesn't multiply result rows. */
     @ManyToOne
     @JoinColumn(name = "owner_id")
     private User owner;

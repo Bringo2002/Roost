@@ -3,6 +3,7 @@ package com.roost.repository;
 import com.roost.model.Property;
 import com.roost.model.User;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -19,10 +20,19 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
 
     List<Property> findByOwner(User owner);
 
+    /** Backs GET /my-listings, which maps every result through
+     *  PropertyResponseDto (and therefore reads .getOwner() on each row)
+     *  -- fetch-join the owner so a landlord's dashboard costs one query
+     *  instead of one plus one owner SELECT per listing. */
+    @EntityGraph(attributePaths = "owner")
     List<Property> findByOwnerOrderByIdDesc(User owner);
 
     Optional<Property> findByEndorsementToken(String endorsementToken);
 
+    /** Backs the saved-properties list, which is also mapped through
+     *  PropertyResponseDto -- same owner fetch-join reasoning as
+     *  findByOwnerOrderByIdDesc above. */
+    @EntityGraph(attributePaths = "owner")
     List<Property> findByIdIn(Collection<Long> ids);
 
     /** Listings due for the 7-day "still available?" reminder -- no
@@ -34,6 +44,10 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
 
     List<Property> findByPhotoApprovedFalseAndPhotoRejectedFalse();
 
+    /** Backs the unpaginated getAllProperties() feed, mapped through
+     *  PropertyResponseDto for every row -- same owner fetch-join
+     *  reasoning as findByOwnerOrderByIdDesc. */
+    @EntityGraph(attributePaths = "owner")
     List<Property> findByStatus(String status);
 
     /**
@@ -152,7 +166,14 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
      * a distance label). Newest-first, matching the /filter endpoint's
      * own newest-first default when no location is given.
      */
-    @Query("SELECT p FROM Property p WHERE p.status = 'PUBLISHED' ORDER BY p.id DESC")
+    // owner is fetch-joined below (LEFT, since a listing can have a null
+    // owner in legacy data) so this list query -- mapped through
+    // PropertyResponseDto per row -- costs one query, not one plus one
+    // owner SELECT per property. A to-one fetch join is safe to combine
+    // with Pageable, unlike a fetch join on imageUrls/customAmenities/
+    // etc., which would force in-memory pagination -- those use
+    // @BatchSize on the entity instead.
+    @Query("SELECT p FROM Property p LEFT JOIN FETCH p.owner WHERE p.status = 'PUBLISHED' ORDER BY p.id DESC")
     List<Property> findByStatusPublishedPaged(Pageable pageable);
 
     /**
@@ -164,7 +185,7 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
      * coordinates still needs to appear (just sorted to the end, via the
      * CASE fallback below, rather than silently dropped).
      */
-    @Query("SELECT p FROM Property p WHERE p.status = 'PUBLISHED' " +
+    @Query("SELECT p FROM Property p LEFT JOIN FETCH p.owner WHERE p.status = 'PUBLISHED' " +
            "ORDER BY (CASE WHEN p.latitude IS NULL OR p.longitude IS NULL THEN 999999 ELSE " +
            "(6371 * acos(cos(radians(:lat)) * cos(radians(p.latitude)) * " +
            "cos(radians(p.longitude) - radians(:lng)) + " +
@@ -187,7 +208,7 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
      * previous query; this only changes how many rows pay for the trig
      * math to get there.
      */
-    @Query("SELECT p FROM Property p WHERE " +
+    @Query("SELECT p FROM Property p LEFT JOIN FETCH p.owner WHERE " +
            "p.status = 'PUBLISHED' AND " +
            "p.available = true AND " +
            "p.latitude IS NOT NULL AND p.longitude IS NOT NULL AND " +
@@ -207,7 +228,7 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
                                @Param("minLng") double minLng,
                                @Param("maxLng") double maxLng);
 
-    @Query("SELECT p FROM Property p WHERE " +
+    @Query("SELECT p FROM Property p LEFT JOIN FETCH p.owner WHERE " +
            "p.status = 'PUBLISHED' AND " +
            "p.available = true AND " +
            "(:houseType IS NULL OR p.houseType = :houseType) AND " +
@@ -242,7 +263,7 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
      * for LIMIT/OFFSET. Newest-first, since that's the useful default
      * for a listings feed and there's no location to sort by here.
      */
-    @Query("SELECT p FROM Property p WHERE " +
+    @Query("SELECT p FROM Property p LEFT JOIN FETCH p.owner WHERE " +
            "p.status = 'PUBLISHED' AND " +
            "p.available = true AND " +
            "(:houseType IS NULL OR p.houseType = :houseType) AND " +
@@ -277,7 +298,7 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
      * through every matching listing sorted by distance, not "listings
      * within Xkm".
      */
-    @Query("SELECT p FROM Property p WHERE " +
+    @Query("SELECT p FROM Property p LEFT JOIN FETCH p.owner WHERE " +
            "p.status = 'PUBLISHED' AND " +
            "p.available = true AND " +
            "(:houseType IS NULL OR p.houseType = :houseType) AND " +
