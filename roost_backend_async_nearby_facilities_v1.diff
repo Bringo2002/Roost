@@ -1,0 +1,230 @@
+diff --git a/src/main/java/com/roost/config/AsyncConfig.java b/src/main/java/com/roost/config/AsyncConfig.java
+new file mode 100644
+index 0000000..89d7b79
+--- /dev/null
++++ b/src/main/java/com/roost/config/AsyncConfig.java
+@@ -0,0 +1,45 @@
++package com.roost.config;
++
++import org.springframework.context.annotation.Bean;
++import org.springframework.context.annotation.Configuration;
++import org.springframework.scheduling.annotation.AsyncConfigurer;
++import org.springframework.scheduling.annotation.EnableAsync;
++import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
++
++import java.util.concurrent.Executor;
++
++/**
++ * Enables {@code @Async} for background work that must not run on a
++ * request thread -- e.g. the Overpass API lookup in
++ * NearbyFacilitiesService, which can take up to its own 10s timeout and
++ * has no business making a GPS-verification request wait on it.
++ *
++ * A small dedicated pool, distinct from Spring's default
++ * SimpleAsyncTaskExecutor (which spins up an unbounded number of
++ * unpooled threads), so a burst of slow third-party calls can't exhaust
++ * server threads.
++ */
++@Configuration
++@EnableAsync
++public class AsyncConfig implements AsyncConfigurer {
++
++    public static final String ENRICHMENT_EXECUTOR = "enrichmentExecutor";
++
++    @Bean(ENRICHMENT_EXECUTOR)
++    public Executor enrichmentExecutor() {
++        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
++        executor.setCorePoolSize(2);
++        executor.setMaxPoolSize(6);
++        executor.setQueueCapacity(50);
++        executor.setThreadNamePrefix("enrichment-");
++        executor.setWaitForTasksToCompleteOnShutdown(true);
++        executor.setAwaitTerminationSeconds(5);
++        executor.initialize();
++        return executor;
++    }
++
++    @Override
++    public Executor getAsyncExecutor() {
++        return enrichmentExecutor();
++    }
++}
+diff --git a/src/main/java/com/roost/event/GpsVerifiedEvent.java b/src/main/java/com/roost/event/GpsVerifiedEvent.java
+new file mode 100644
+index 0000000..315496a
+--- /dev/null
++++ b/src/main/java/com/roost/event/GpsVerifiedEvent.java
+@@ -0,0 +1,11 @@
++package com.roost.event;
++
++/**
++ * Raised after a property's GPS verification transaction has committed.
++ * Listened for by NearbyFacilitiesUpdateListener to populate the
++ * nearbyFacilities field out-of-band, since that lookup hits a free
++ * third-party API (Overpass) with no SLA and shouldn't be on the
++ * critical path of the verification request itself.
++ */
++public record GpsVerifiedEvent(Long propertyId, double latitude, double longitude) {
++}
+diff --git a/src/main/java/com/roost/service/NearbyFacilitiesUpdateListener.java b/src/main/java/com/roost/service/NearbyFacilitiesUpdateListener.java
+new file mode 100644
+index 0000000..616a868
+--- /dev/null
++++ b/src/main/java/com/roost/service/NearbyFacilitiesUpdateListener.java
+@@ -0,0 +1,81 @@
++package com.roost.service;
++
++import com.fasterxml.jackson.databind.ObjectMapper;
++import com.roost.event.GpsVerifiedEvent;
++import com.roost.model.Property;
++import com.roost.repository.PropertyRepository;
++import org.slf4j.Logger;
++import org.slf4j.LoggerFactory;
++import org.springframework.scheduling.annotation.Async;
++import org.springframework.stereotype.Component;
++import org.springframework.transaction.annotation.Propagation;
++import org.springframework.transaction.annotation.Transactional;
++import org.springframework.transaction.event.TransactionPhase;
++import org.springframework.transaction.event.TransactionalEventListener;
++
++import java.util.List;
++
++import static com.roost.config.AsyncConfig.ENRICHMENT_EXECUTOR;
++
++/**
++ * Populates Property.nearbyFacilities out-of-band after GPS verification.
++ *
++ * This used to run synchronously inside PropertyService.verifyGpsLocation,
++ * which meant a landlord verifying their listing's location was stuck
++ * waiting on a free, best-effort third-party API (Overpass, up to a 10s
++ * timeout) for something that's purely a "nice to have" badge on the
++ * listing. Moving it here means:
++ *  - the verification request itself returns as soon as the GPS check
++ *    and save are done, independent of Overpass's health;
++ *  - the listener only fires AFTER the verification transaction commits
++ *    (TransactionPhase.AFTER_COMMIT), so it can't race the still-open
++ *    write that set gpsVerified/gpsVerifiedAt;
++ *  - it runs on a small dedicated pool (see AsyncConfig), not the
++ *    request thread, so a slow Overpass response can't tie up a web
++ *    worker.
++ *
++ * Still best-effort: any failure here (Overpass down, JSON error, the
++ * property having been deleted in the meantime) is logged and dropped --
++ * nearbyFacilities simply stays whatever it was before.
++ */
++@Component
++public class NearbyFacilitiesUpdateListener {
++
++    private static final Logger log = LoggerFactory.getLogger(NearbyFacilitiesUpdateListener.class);
++
++    private final NearbyFacilitiesService nearbyFacilitiesService;
++    private final PropertyRepository propertyRepository;
++    private final ObjectMapper objectMapper = new ObjectMapper();
++
++    public NearbyFacilitiesUpdateListener(NearbyFacilitiesService nearbyFacilitiesService,
++                                           PropertyRepository propertyRepository) {
++        this.nearbyFacilitiesService = nearbyFacilitiesService;
++        this.propertyRepository = propertyRepository;
++    }
++
++    @Async(ENRICHMENT_EXECUTOR)
++    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
++    @Transactional(propagation = Propagation.REQUIRES_NEW)
++    public void onGpsVerified(GpsVerifiedEvent event) {
++        try {
++            List<NearbyFacilitiesService.Facility> facilities =
++                    nearbyFacilitiesService.findNearby(event.latitude(), event.longitude());
++
++            propertyRepository.findById(event.propertyId()).ifPresent(property -> {
++                property.setNearbyFacilities(writeFacilitiesJson(facilities));
++                propertyRepository.save(property);
++            });
++        } catch (Exception e) {
++            log.warn("Failed to populate nearbyFacilities for property {}: {}",
++                    event.propertyId(), e.getMessage());
++        }
++    }
++
++    private String writeFacilitiesJson(List<NearbyFacilitiesService.Facility> facilities) {
++        try {
++            return objectMapper.writeValueAsString(facilities);
++        } catch (Exception e) {
++            return null;
++        }
++    }
++}
+diff --git a/src/main/java/com/roost/service/PropertyService.java b/src/main/java/com/roost/service/PropertyService.java
+index d7d700b..abd7daf 100644
+--- a/src/main/java/com/roost/service/PropertyService.java
++++ b/src/main/java/com/roost/service/PropertyService.java
+@@ -12,9 +12,10 @@ import com.roost.repository.PropertyReportRepository;
+ import com.roost.repository.ReviewRepository;
+ import com.roost.repository.UserRepository;
+ import com.roost.util.GeoUtils;
+-import com.fasterxml.jackson.databind.ObjectMapper;
++import com.roost.event.GpsVerifiedEvent;
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
++import org.springframework.context.ApplicationEventPublisher;
+ import org.springframework.dao.DataIntegrityViolationException;
+ import org.springframework.data.domain.Pageable;
+ import org.springframework.stereotype.Service;
+@@ -41,7 +42,7 @@ public class PropertyService {
+     private final FirebasePushService firebasePushService;
+     private final NearbyFacilitiesService nearbyFacilitiesService;
+     private final PropertyRiskService propertyRiskService;
+-    private final ObjectMapper objectMapper = new ObjectMapper();
++    private final ApplicationEventPublisher eventPublisher;
+ 
+     /** Three distinct people flagging the same listing is enough to pull
+      *  it from public view pending an admin look, rather than waiting on
+@@ -58,7 +59,7 @@ public class PropertyService {
+                             ReviewRepository reviewRepository, PropertyReportRepository propertyReportRepository,
+                             CommunityCheckRepository communityCheckRepository, ApplicationRepository applicationRepository,
+                             FirebasePushService firebasePushService, NearbyFacilitiesService nearbyFacilitiesService,
+-                            PropertyRiskService propertyRiskService) {
++                            PropertyRiskService propertyRiskService, ApplicationEventPublisher eventPublisher) {
+         this.propertyRepository = propertyRepository;
+         this.userRepository = userRepository;
+         this.communityCheckRepository = communityCheckRepository;
+@@ -68,6 +69,7 @@ public class PropertyService {
+         this.firebasePushService = firebasePushService;
+         this.nearbyFacilitiesService = nearbyFacilitiesService;
+         this.propertyRiskService = propertyRiskService;
++        this.eventPublisher = eventPublisher;
+     }
+ 
+     /**
+@@ -208,20 +210,19 @@ public class PropertyService {
+         property.setGpsVerifiedAt(LocalDateTime.now());
+         recomputeVerification(property);
+ 
+-        // Best-effort: nearby facilities are a nice-to-have shown on the
+-        // listing, not something that should block a successful GPS
+-        // verification if the free Overpass service is slow or down.
+-        try {
+-            List<NearbyFacilitiesService.Facility> facilities =
+-                    nearbyFacilitiesService.findNearby(property.getLatitude(), property.getLongitude());
+-            property.setNearbyFacilities(objectMapper.writeValueAsString(facilities));
+-        } catch (Exception e) {
+-            // Leave nearbyFacilities as whatever it was before (likely
+-            // null on first verification) -- the badge/verification
+-            // itself still succeeds either way.
+-        }
++        Property saved = propertyRepository.save(property);
+ 
+-        return populateRatings(propertyRepository.save(property));
++        // Nearby facilities are a nice-to-have shown on the listing, not
++        // something the verification request itself should wait on --
++        // Overpass is a free, best-effort third party with no SLA and up
++        // to a 10s timeout. Publish an event instead of calling it here;
++        // NearbyFacilitiesUpdateListener picks it up asynchronously once
++        // this transaction has committed and populates the field
++        // out-of-band. See that class for the full rationale.
++        eventPublisher.publishEvent(
++                new GpsVerifiedEvent(saved.getId(), saved.getLatitude(), saved.getLongitude()));
++
++        return populateRatings(saved);
+     }
+ 
+     /** Great-circle distance between two coordinates, in meters. */

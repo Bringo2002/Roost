@@ -12,9 +12,10 @@ import com.roost.repository.PropertyReportRepository;
 import com.roost.repository.ReviewRepository;
 import com.roost.repository.UserRepository;
 import com.roost.util.GeoUtils;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.roost.event.GpsVerifiedEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -41,7 +42,7 @@ public class PropertyService {
     private final FirebasePushService firebasePushService;
     private final NearbyFacilitiesService nearbyFacilitiesService;
     private final PropertyRiskService propertyRiskService;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ApplicationEventPublisher eventPublisher;
 
     /** Three distinct people flagging the same listing is enough to pull
      *  it from public view pending an admin look, rather than waiting on
@@ -58,7 +59,7 @@ public class PropertyService {
                             ReviewRepository reviewRepository, PropertyReportRepository propertyReportRepository,
                             CommunityCheckRepository communityCheckRepository, ApplicationRepository applicationRepository,
                             FirebasePushService firebasePushService, NearbyFacilitiesService nearbyFacilitiesService,
-                            PropertyRiskService propertyRiskService) {
+                            PropertyRiskService propertyRiskService, ApplicationEventPublisher eventPublisher) {
         this.propertyRepository = propertyRepository;
         this.userRepository = userRepository;
         this.communityCheckRepository = communityCheckRepository;
@@ -68,6 +69,7 @@ public class PropertyService {
         this.firebasePushService = firebasePushService;
         this.nearbyFacilitiesService = nearbyFacilitiesService;
         this.propertyRiskService = propertyRiskService;
+        this.eventPublisher = eventPublisher;
     }
 
     /**
@@ -208,20 +210,19 @@ public class PropertyService {
         property.setGpsVerifiedAt(LocalDateTime.now());
         recomputeVerification(property);
 
-        // Best-effort: nearby facilities are a nice-to-have shown on the
-        // listing, not something that should block a successful GPS
-        // verification if the free Overpass service is slow or down.
-        try {
-            List<NearbyFacilitiesService.Facility> facilities =
-                    nearbyFacilitiesService.findNearby(property.getLatitude(), property.getLongitude());
-            property.setNearbyFacilities(objectMapper.writeValueAsString(facilities));
-        } catch (Exception e) {
-            // Leave nearbyFacilities as whatever it was before (likely
-            // null on first verification) -- the badge/verification
-            // itself still succeeds either way.
-        }
+        Property saved = propertyRepository.save(property);
 
-        return populateRatings(propertyRepository.save(property));
+        // Nearby facilities are a nice-to-have shown on the listing, not
+        // something the verification request itself should wait on --
+        // Overpass is a free, best-effort third party with no SLA and up
+        // to a 10s timeout. Publish an event instead of calling it here;
+        // NearbyFacilitiesUpdateListener picks it up asynchronously once
+        // this transaction has committed and populates the field
+        // out-of-band. See that class for the full rationale.
+        eventPublisher.publishEvent(
+                new GpsVerifiedEvent(saved.getId(), saved.getLatitude(), saved.getLongitude()));
+
+        return populateRatings(saved);
     }
 
     /** Great-circle distance between two coordinates, in meters. */
