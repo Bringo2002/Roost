@@ -239,7 +239,7 @@ public class PropertyService {
     }
 
     public List<Property> getPropertiesByOwner(User owner) {
-        return populateRatings(propertyRepository.findByOwner(owner));
+        return populateRatings(propertyRepository.findByOwnerOrderByIdDesc(owner));
     }
 
     /** 1 degree of latitude is ~111.32km everywhere; 1 degree of
@@ -326,7 +326,12 @@ public class PropertyService {
     }
 
     public void deleteProperty(Long id) {
-        propertyRepository.deleteById(id);
+        Property property = getPropertyById(id);
+        reviewRepository.deleteByProperty(property);
+        propertyReportRepository.deleteByProperty(property);
+        communityCheckRepository.deleteByProperty(property);
+        applicationRepository.deleteByProperty(property);
+        propertyRepository.delete(property);
     }
 
     /**
@@ -405,6 +410,24 @@ public class PropertyService {
         if (updated.getDocumentVerified() != null) existing.setDocumentVerified(updated.getDocumentVerified());
         existing.setVideoUrl(updated.getVideoUrl());
         if (updated.getCountry() != null) existing.setCountry(updated.getCountry());
+        
+        // Landlord, Caretaker, Utility & Endorsement fields
+        existing.setDirectLandlord(updated.isDirectLandlord());
+        existing.setLandlordEndorsed(updated.isLandlordEndorsed());
+        if (updated.getEndorsementToken() != null) existing.setEndorsementToken(updated.getEndorsementToken());
+        if (updated.getOwnerVerifyName() != null) existing.setOwnerVerifyName(updated.getOwnerVerifyName());
+        if (updated.getOwnerVerifyPhone() != null) existing.setOwnerVerifyPhone(updated.getOwnerVerifyPhone());
+        if (updated.getManagerRole() != null) existing.setManagerRole(updated.getManagerRole());
+        if (updated.getCaretakerName() != null) existing.setCaretakerName(updated.getCaretakerName());
+        if (updated.getCaretakerPhone() != null) existing.setCaretakerPhone(updated.getCaretakerPhone());
+        existing.setCaretakerLivesOnSite(updated.isCaretakerLivesOnSite());
+        existing.setDepositMonths(updated.getDepositMonths());
+        existing.setWaterFee(updated.getWaterFee());
+        existing.setGarbageFee(updated.getGarbageFee());
+        existing.setServiceCharge(updated.getServiceCharge());
+        if (updated.getElectricityType() != null) existing.setElectricityType(updated.getElectricityType());
+        if (updated.getNearbyFacilities() != null) existing.setNearbyFacilities(updated.getNearbyFacilities());
+
         if (updated.getStatus() != null && !updated.getStatus().equals(existing.getStatus())
                 && "PUBLISHED".equals(updated.getStatus())) {
             assertCanPublish(existing.getOwner());
@@ -416,6 +439,19 @@ public class PropertyService {
         recomputeVerification(existing);
         propertyRiskService.recompute(existing);
         return populateRatings(propertyRepository.save(existing));
+    }
+
+    public Property getByEndorsementToken(String token) {
+        return propertyRepository.findByEndorsementToken(token)
+                .orElseThrow(() -> ApiException.notFound("Listing not found with endorsement token: " + token));
+    }
+
+    public Property endorseListing(String token, String verifierName, String verifierPhone) {
+        Property property = getByEndorsementToken(token);
+        property.setLandlordEndorsed(true);
+        property.setOwnerVerifyName(verifierName);
+        property.setOwnerVerifyPhone(verifierPhone);
+        return populateRatings(propertyRepository.save(property));
     }
 
     /**
@@ -471,10 +507,37 @@ public class PropertyService {
         return saved;
     }
 
+    /** Admin rejects a listing's photos as fake/stock/unusable. Kept
+     *  symmetric with approvePhotos: same lookup, same save, same
+     *  push-notification pattern, just the opposite verdict -- plus a
+     *  reason so the owner knows what to fix. */
+    public Property rejectPhotos(Long id, String reason) {
+        Property property = getPropertyById(id);
+        property.setPhotoApproved(false);
+        property.setPhotoRejected(true);
+        property.setPhotoRejectionReason(reason);
+        property.setPhotoRejectedAt(LocalDateTime.now());
+        recomputeVerification(property);
+        Property saved = propertyRepository.save(property);
+        if (saved.getOwner() != null) {
+            firebasePushService.sendToUser(
+                    saved.getOwner(),
+                    "Photos rejected",
+                    saved.getTitle() + " -- " + (reason != null && !reason.isBlank()
+                            ? reason
+                            : "your photos were not approved. Please re-upload."),
+                    Map.of("type", "photo_rejected", "propertyId", String.valueOf(saved.getId()))
+            );
+        }
+        return saved;
+    }
+
     /** Listings awaiting photo review -- have GPS + a confirmed phone
-     *  already, just missing the admin sign-off. */
+     *  already, just missing the admin sign-off. Excludes listings
+     *  already rejected so they don't loop back into the queue until
+     *  the owner re-uploads photos (see PropertyService.rejectPhotos). */
     public List<Property> getPendingPhotoReview() {
-        return propertyRepository.findByPhotoApprovedFalse();
+        return propertyRepository.findByPhotoApprovedFalseAndPhotoRejectedFalse();
     }
 
     /**

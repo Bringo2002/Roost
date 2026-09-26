@@ -77,6 +77,23 @@ public class DatabaseSchemaMigrator implements CommandLineRunner {
             jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS community_verified BOOLEAN DEFAULT FALSE;");
             jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS reports_reviewed_at TIMESTAMP;");
 
+            // Direct Landlord, Caretaker, Utility & Endorsement columns
+            jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS is_direct_landlord BOOLEAN DEFAULT FALSE;");
+            jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS landlord_endorsed BOOLEAN DEFAULT FALSE;");
+            jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS endorsement_token VARCHAR(255);");
+            jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS owner_verify_name VARCHAR(255);");
+            jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS owner_verify_phone VARCHAR(255);");
+            jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS manager_role VARCHAR(255) DEFAULT 'LANDLORD';");
+            jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS caretaker_name VARCHAR(255);");
+            jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS caretaker_phone VARCHAR(255);");
+            jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS caretaker_lives_on_site BOOLEAN DEFAULT FALSE;");
+            jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS deposit_months INT DEFAULT 1;");
+            jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS water_fee DOUBLE PRECISION DEFAULT 0.0;");
+            jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS garbage_fee DOUBLE PRECISION DEFAULT 0.0;");
+            jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS service_charge DOUBLE PRECISION DEFAULT 0.0;");
+            jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS electricity_type VARCHAR(255) DEFAULT 'TOKEN';");
+            jdbcTemplate.execute("ALTER TABLE properties ADD COLUMN IF NOT EXISTS nearby_facilities TEXT;");
+
             // Permanently drop obsolete holding_fee columns if present in properties table
             try {
                 jdbcTemplate.execute("ALTER TABLE properties DROP COLUMN IF EXISTS holding_fee_paid;");
@@ -135,6 +152,13 @@ public class DatabaseSchemaMigrator implements CommandLineRunner {
         // existed is still sitting on NULL and invisible to every query
         // that filters on status = 'PUBLISHED' (i.e. all of them).
         enforceNotNull("properties", "status", "'PUBLISHED'");
+        enforceNotNull("properties", "is_direct_landlord", "FALSE");
+        enforceNotNull("properties", "landlord_endorsed", "FALSE");
+        enforceNotNull("properties", "caretaker_lives_on_site", "FALSE");
+        enforceNotNull("properties", "deposit_months", "1");
+        enforceNotNull("properties", "water_fee", "0.0");
+        enforceNotNull("properties", "garbage_fee", "0.0");
+        enforceNotNull("properties", "service_charge", "0.0");
     }
 
     /**

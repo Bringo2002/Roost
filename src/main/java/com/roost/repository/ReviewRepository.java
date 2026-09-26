@@ -19,6 +19,8 @@ public interface ReviewRepository extends JpaRepository<Review, Long> {
 
     Optional<Review> findByPropertyAndReviewer(Property property, User reviewer);
 
+    void deleteByProperty(Property property);
+
     @Query("SELECT COALESCE(AVG(r.rating), 0) FROM Review r WHERE r.property = :property")
     Double findAverageRatingByProperty(@Param("property") Property property);
 

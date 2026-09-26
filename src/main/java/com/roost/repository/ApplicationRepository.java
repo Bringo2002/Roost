@@ -16,4 +16,6 @@ public interface ApplicationRepository extends JpaRepository<Application, Long> 
     List<Application> findByApplicantOrderByCreatedAtDesc(User applicant);
 
     boolean existsByPropertyAndApplicant(Property property, User applicant);
+
+    void deleteByProperty(Property property);
 }

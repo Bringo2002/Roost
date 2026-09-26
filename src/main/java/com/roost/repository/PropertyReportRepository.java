@@ -20,6 +20,8 @@ public interface PropertyReportRepository extends JpaRepository<PropertyReport, 
 
     long countByProperty(Property property);
 
+    void deleteByProperty(Property property);
+
     /**
      * Every property with at least one report that's newer than the
      * property's last reportsReviewedAt (or has never been reviewed at

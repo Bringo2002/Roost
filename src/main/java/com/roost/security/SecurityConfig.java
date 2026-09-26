@@ -48,6 +48,7 @@ public class SecurityConfig {
                 // Require auth for all property endpoints except GET and POST report
                 .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/properties/**").permitAll()
                 .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/properties/*/report").permitAll()
+                .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/properties/endorse/*").permitAll()
                 // hasAuthority, not hasRole -- User.getAuthorities() returns the raw
                 // role name ("ADMIN"), not Spring's expected "ROLE_ADMIN" prefix.
                 .requestMatchers("/api/admin/**").hasAuthority("ADMIN")

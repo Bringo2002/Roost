@@ -14,6 +14,8 @@ public interface CommunityCheckRepository extends JpaRepository<CommunityCheck, 
     /** One confirmation per tenant per listing. */
     boolean existsByPropertyAndRespondent(Property property, User respondent);
 
+    void deleteByProperty(Property property);
+
     /** Counts confirmations where the visitor says the listing was
      *  accurate across the board -- the signal that actually drives the
      *  Community Verified badge, as opposed to raw response volume. */

@@ -38,6 +38,8 @@ public class PropertyResponseDto {
     private final boolean available;
     private final String imageUrl;
     private final boolean verified;
+    private final boolean photoRejected;
+    private final String photoRejectionReason;
     private final boolean gpsVerified;
     private final boolean communityVerified;
     private final String status;
@@ -84,6 +86,21 @@ public class PropertyResponseDto {
     private final List<String> imageUrls;
     private final List<String> documentUrls;
     private final boolean documentVerified;
+    private final boolean isDirectLandlord;
+    private final boolean landlordEndorsed;
+    private final String endorsementToken;
+    private final String ownerVerifyName;
+    private final String ownerVerifyPhone;
+    private final String managerRole;
+    private final String caretakerName;
+    private final String caretakerPhone;
+    private final boolean caretakerLivesOnSite;
+    private final int depositMonths;
+    private final double waterFee;
+    private final double garbageFee;
+    private final double serviceCharge;
+    private final String electricityType;
+    private final String nearbyFacilities;
     private final PropertyOwnerDto owner;
     private final Double averageRating;
     private final Long reviewCount;
@@ -118,6 +135,8 @@ public class PropertyResponseDto {
         this.available = p.isAvailable();
         this.imageUrl = p.getImageUrl();
         this.verified = p.isVerified();
+        this.photoRejected = p.isPhotoRejected();
+        this.photoRejectionReason = p.getPhotoRejectionReason();
         this.gpsVerified = p.isGpsVerified();
         this.communityVerified = p.isCommunityVerified();
         this.status = p.getStatus();
@@ -164,6 +183,21 @@ public class PropertyResponseDto {
         this.imageUrls = p.getImageUrls();
         this.documentUrls = p.getDocumentUrls() != null ? p.getDocumentUrls() : new ArrayList<>();
         this.documentVerified = Boolean.TRUE.equals(p.getDocumentVerified());
+        this.isDirectLandlord = p.isDirectLandlord();
+        this.landlordEndorsed = p.isLandlordEndorsed();
+        this.endorsementToken = p.getEndorsementToken();
+        this.ownerVerifyName = p.getOwnerVerifyName();
+        this.ownerVerifyPhone = p.getOwnerVerifyPhone();
+        this.managerRole = p.getManagerRole() != null ? p.getManagerRole() : "LANDLORD";
+        this.caretakerName = p.getCaretakerName();
+        this.caretakerPhone = p.getCaretakerPhone();
+        this.caretakerLivesOnSite = p.isCaretakerLivesOnSite();
+        this.depositMonths = p.getDepositMonths();
+        this.waterFee = p.getWaterFee();
+        this.garbageFee = p.getGarbageFee();
+        this.serviceCharge = p.getServiceCharge();
+        this.electricityType = p.getElectricityType() != null ? p.getElectricityType() : "TOKEN";
+        this.nearbyFacilities = p.getNearbyFacilities();
         this.owner = PropertyOwnerDto.from(p.getOwner());
         this.averageRating = p.getAverageRating();
         this.reviewCount = p.getReviewCount();
@@ -206,6 +240,8 @@ public class PropertyResponseDto {
     public boolean isAvailable() { return available; }
     public String getImageUrl() { return imageUrl; }
     public boolean isVerified() { return verified; }
+    public boolean isPhotoRejected() { return photoRejected; }
+    public String getPhotoRejectionReason() { return photoRejectionReason; }
     public boolean isGpsVerified() { return gpsVerified; }
     public boolean isCommunityVerified() { return communityVerified; }
     public String getStatus() { return status; }
@@ -252,6 +288,21 @@ public class PropertyResponseDto {
     public List<String> getImageUrls() { return imageUrls; }
     public List<String> getDocumentUrls() { return documentUrls; }
     public boolean isDocumentVerified() { return documentVerified; }
+    public boolean isDirectLandlord() { return isDirectLandlord; }
+    public boolean isLandlordEndorsed() { return landlordEndorsed; }
+    public String getEndorsementToken() { return endorsementToken; }
+    public String getOwnerVerifyName() { return ownerVerifyName; }
+    public String getOwnerVerifyPhone() { return ownerVerifyPhone; }
+    public String getManagerRole() { return managerRole; }
+    public String getCaretakerName() { return caretakerName; }
+    public String getCaretakerPhone() { return caretakerPhone; }
+    public boolean isCaretakerLivesOnSite() { return caretakerLivesOnSite; }
+    public int getDepositMonths() { return depositMonths; }
+    public double getWaterFee() { return waterFee; }
+    public double getGarbageFee() { return garbageFee; }
+    public double getServiceCharge() { return serviceCharge; }
+    public String getElectricityType() { return electricityType; }
+    public String getNearbyFacilities() { return nearbyFacilities; }
     public PropertyOwnerDto getOwner() { return owner; }
     public Double getAverageRating() { return averageRating; }
     public Long getReviewCount() { return reviewCount; }

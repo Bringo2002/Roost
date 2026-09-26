@@ -12,10 +12,16 @@ import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 
+import java.util.Optional;
+
 @Repository
 public interface PropertyRepository extends JpaRepository<Property, Long> {
 
     List<Property> findByOwner(User owner);
+
+    List<Property> findByOwnerOrderByIdDesc(User owner);
+
+    Optional<Property> findByEndorsementToken(String endorsementToken);
 
     List<Property> findByIdIn(Collection<Long> ids);
 
@@ -26,7 +32,7 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
     /** Listings whose reminder grace period has expired with no response. */
     List<Property> findByAvailableTrueAndRemindedAtIsNotNullAndRemindedAtBefore(LocalDateTime threshold);
 
-    List<Property> findByPhotoApprovedFalse();
+    List<Property> findByPhotoApprovedFalseAndPhotoRejectedFalse();
 
     List<Property> findByStatus(String status);
 

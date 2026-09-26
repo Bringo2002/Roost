@@ -460,4 +460,30 @@ public class PropertyController {
         }
         return ResponseEntity.ok(PropertyResponseDto.from(propertyService.publishDraft(id)));
     }
+
+    /**
+     * Public (no auth) -- the endorsement token is a shareable link the
+     * caretaker/agent sends to the property owner so they can review
+     * and endorse the listing without needing a Roost account.
+     */
+    @GetMapping("/endorse/{token}")
+    public ResponseEntity<?> getEndorsementListing(@PathVariable String token) {
+        return ResponseEntity.ok(PropertyResponseDto.from(propertyService.getByEndorsementToken(token)));
+    }
+
+    /**
+     * The property owner confirms (endorses) a listing created by a
+     * caretaker/agent on their behalf. No auth -- the token itself
+     * serves as a proof-of-possession credential.
+     */
+    @PostMapping("/endorse/{token}")
+    public ResponseEntity<?> endorseListing(@PathVariable String token, @RequestBody Map<String, String> body) {
+        String verifierName = body.get("verifierName");
+        String verifierPhone = body.get("verifierPhone");
+        if (verifierName == null || verifierName.isBlank() || verifierPhone == null || verifierPhone.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "verifierName and verifierPhone are required"));
+        }
+        return ResponseEntity.ok(PropertyResponseDto.from(
+                propertyService.endorseListing(token, verifierName, verifierPhone)));
+    }
 }
