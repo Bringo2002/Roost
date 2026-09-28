@@ -98,6 +98,12 @@ public class PropertyController {
             @RequestParam(required = false) Boolean water,
             @RequestParam(required = false) Boolean security,
             @RequestParam(required = false) Boolean verified,
+            // Free-text remainder of the user's search box -- see
+            // PropertyService#filter and PropertyRepository for how
+            // this is matched. Only affects the paginated (size != null)
+            // branch below: the unpaginated branch is unbounded/legacy
+            // and untouched by this.
+            @RequestParam(required = false) String q,
             @RequestParam(required = false) Double lat,
             @RequestParam(required = false) Double lng,
             @RequestParam(required = false) Integer page,
@@ -111,7 +117,7 @@ public class PropertyController {
         int cappedSize = Math.min(Math.max(size, 1), 50);
         int safePage = page != null ? Math.max(page, 0) : 0;
         Pageable pageable = PageRequest.of(safePage, cappedSize);
-        return PropertyResponseDto.from(propertyService.filter(type, minPrice, maxPrice, bedrooms, furnished, parking, wifi, water, security, verified, lat, lng, pageable));
+        return PropertyResponseDto.from(propertyService.filter(type, minPrice, maxPrice, bedrooms, furnished, parking, wifi, water, security, verified, q, lat, lng, pageable));
     }
 
     @GetMapping("/{id}/view")

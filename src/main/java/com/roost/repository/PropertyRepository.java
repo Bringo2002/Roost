@@ -319,20 +319,100 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
      * for LIMIT/OFFSET. Newest-first, since that's the useful default
      * for a listings feed and there's no location to sort by here.
      */
-    @Query("SELECT p FROM Property p LEFT JOIN FETCH p.owner WHERE " +
-           "p.status = 'PUBLISHED' AND " +
-           "p.available = true AND " +
-           "(:houseType IS NULL OR p.houseType = :houseType) AND " +
-           "(:minPrice IS NULL OR p.price >= :minPrice) AND " +
-           "(:maxPrice IS NULL OR p.price <= :maxPrice) AND " +
-           "(:bedrooms IS NULL OR p.bedrooms >= :bedrooms) AND " +
-           "(:furnished IS NULL OR p.furnished = :furnished) AND " +
-           "(:parking IS NULL OR p.parking = :parking) AND " +
-           "(:wifi IS NULL OR p.wifi = :wifi) AND " +
-           "(:water IS NULL OR p.water = :water) AND " +
-           "(:security IS NULL OR p.security = :security) AND " +
-           "(:verified IS NULL OR p.verified = :verified) " +
-           "ORDER BY p.id DESC")
+    /**
+     * Free-text search doc (applies to both `q`-bearing queries below).
+     *
+     * `q` is pre-tokenized server-side (PropertyService#tokenizeSearchQuery)
+     * into up to 6 lowercase words, padded with nulls -- a
+     * JPQL query is fixed at compile time, so a variable-arity "AND every
+     * word matches somewhere" can't be expressed directly the way the
+     * houseType/minPrice/etc. null-checks are. Each token independently
+     * requires a match in title, buildingName, location, description,
+     * houseType, nearbyFacilities, or customAmenities (any one field is
+     * enough per token; different tokens can match different fields).
+     * A null token (the query had fewer than 6 words) always
+     * passes, so a short or absent `q` behaves exactly as if these
+     * clauses weren't there at all.
+     *
+     * Deliberately NOT covered: the ~20 boolean amenity columns (pool,
+     * gym, ac, ...). Matching "pool" against p.pool = true per token
+     * would multiply this clause by every amenity column; amenity-word
+     * search still happens client-side (PropertySearch, roost_app) over
+     * whatever page was already fetched. Structured filters the app
+     * already extracts from the query text (furnished, parking, wifi,
+     * water, security) go through the existing typed params above, not
+     * `q`.
+     */
+    @Query("""
+          SELECT p FROM Property p LEFT JOIN FETCH p.owner WHERE
+          p.status = 'PUBLISHED' AND
+          p.available = true AND
+          (:houseType IS NULL OR p.houseType = :houseType) AND
+          (:minPrice IS NULL OR p.price >= :minPrice) AND
+          (:maxPrice IS NULL OR p.price <= :maxPrice) AND
+          (:bedrooms IS NULL OR p.bedrooms >= :bedrooms) AND
+          (:furnished IS NULL OR p.furnished = :furnished) AND
+          (:parking IS NULL OR p.parking = :parking) AND
+          (:wifi IS NULL OR p.wifi = :wifi) AND
+          (:water IS NULL OR p.water = :water) AND
+          (:security IS NULL OR p.security = :security) AND
+          (:verified IS NULL OR p.verified = :verified)
+          AND (:token1 IS NULL OR (
+              LOWER(p.title) LIKE CONCAT('%', :token1, '%') OR
+              LOWER(COALESCE(p.buildingName, '')) LIKE CONCAT('%', :token1, '%') OR
+              LOWER(p.location) LIKE CONCAT('%', :token1, '%') OR
+              LOWER(COALESCE(p.description, '')) LIKE CONCAT('%', :token1, '%') OR
+              LOWER(COALESCE(p.houseType, '')) LIKE CONCAT('%', :token1, '%') OR
+              LOWER(COALESCE(p.nearbyFacilities, '')) LIKE CONCAT('%', :token1, '%') OR
+              EXISTS (SELECT ca FROM Property p2 JOIN p2.customAmenities ca WHERE p2.id = p.id AND LOWER(ca) LIKE CONCAT('%', :token1, '%'))
+          ))
+          AND (:token2 IS NULL OR (
+              LOWER(p.title) LIKE CONCAT('%', :token2, '%') OR
+              LOWER(COALESCE(p.buildingName, '')) LIKE CONCAT('%', :token2, '%') OR
+              LOWER(p.location) LIKE CONCAT('%', :token2, '%') OR
+              LOWER(COALESCE(p.description, '')) LIKE CONCAT('%', :token2, '%') OR
+              LOWER(COALESCE(p.houseType, '')) LIKE CONCAT('%', :token2, '%') OR
+              LOWER(COALESCE(p.nearbyFacilities, '')) LIKE CONCAT('%', :token2, '%') OR
+              EXISTS (SELECT ca FROM Property p2 JOIN p2.customAmenities ca WHERE p2.id = p.id AND LOWER(ca) LIKE CONCAT('%', :token2, '%'))
+          ))
+          AND (:token3 IS NULL OR (
+              LOWER(p.title) LIKE CONCAT('%', :token3, '%') OR
+              LOWER(COALESCE(p.buildingName, '')) LIKE CONCAT('%', :token3, '%') OR
+              LOWER(p.location) LIKE CONCAT('%', :token3, '%') OR
+              LOWER(COALESCE(p.description, '')) LIKE CONCAT('%', :token3, '%') OR
+              LOWER(COALESCE(p.houseType, '')) LIKE CONCAT('%', :token3, '%') OR
+              LOWER(COALESCE(p.nearbyFacilities, '')) LIKE CONCAT('%', :token3, '%') OR
+              EXISTS (SELECT ca FROM Property p2 JOIN p2.customAmenities ca WHERE p2.id = p.id AND LOWER(ca) LIKE CONCAT('%', :token3, '%'))
+          ))
+          AND (:token4 IS NULL OR (
+              LOWER(p.title) LIKE CONCAT('%', :token4, '%') OR
+              LOWER(COALESCE(p.buildingName, '')) LIKE CONCAT('%', :token4, '%') OR
+              LOWER(p.location) LIKE CONCAT('%', :token4, '%') OR
+              LOWER(COALESCE(p.description, '')) LIKE CONCAT('%', :token4, '%') OR
+              LOWER(COALESCE(p.houseType, '')) LIKE CONCAT('%', :token4, '%') OR
+              LOWER(COALESCE(p.nearbyFacilities, '')) LIKE CONCAT('%', :token4, '%') OR
+              EXISTS (SELECT ca FROM Property p2 JOIN p2.customAmenities ca WHERE p2.id = p.id AND LOWER(ca) LIKE CONCAT('%', :token4, '%'))
+          ))
+          AND (:token5 IS NULL OR (
+              LOWER(p.title) LIKE CONCAT('%', :token5, '%') OR
+              LOWER(COALESCE(p.buildingName, '')) LIKE CONCAT('%', :token5, '%') OR
+              LOWER(p.location) LIKE CONCAT('%', :token5, '%') OR
+              LOWER(COALESCE(p.description, '')) LIKE CONCAT('%', :token5, '%') OR
+              LOWER(COALESCE(p.houseType, '')) LIKE CONCAT('%', :token5, '%') OR
+              LOWER(COALESCE(p.nearbyFacilities, '')) LIKE CONCAT('%', :token5, '%') OR
+              EXISTS (SELECT ca FROM Property p2 JOIN p2.customAmenities ca WHERE p2.id = p.id AND LOWER(ca) LIKE CONCAT('%', :token5, '%'))
+          ))
+          AND (:token6 IS NULL OR (
+              LOWER(p.title) LIKE CONCAT('%', :token6, '%') OR
+              LOWER(COALESCE(p.buildingName, '')) LIKE CONCAT('%', :token6, '%') OR
+              LOWER(p.location) LIKE CONCAT('%', :token6, '%') OR
+              LOWER(COALESCE(p.description, '')) LIKE CONCAT('%', :token6, '%') OR
+              LOWER(COALESCE(p.houseType, '')) LIKE CONCAT('%', :token6, '%') OR
+              LOWER(COALESCE(p.nearbyFacilities, '')) LIKE CONCAT('%', :token6, '%') OR
+              EXISTS (SELECT ca FROM Property p2 JOIN p2.customAmenities ca WHERE p2.id = p.id AND LOWER(ca) LIKE CONCAT('%', :token6, '%'))
+          ))
+          ORDER BY p.id DESC
+          """)
     List<Property> filterProperties(
             @Param("houseType") String houseType,
             @Param("minPrice") Double minPrice,
@@ -344,33 +424,92 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
             @Param("water") Boolean water,
             @Param("security") Boolean security,
             @Param("verified") Boolean verified,
+            @Param("token1") String token1,
+            @Param("token2") String token2,
+            @Param("token3") String token3,
+            @Param("token4") String token4,
+            @Param("token5") String token5,
+            @Param("token6") String token6,
             Pageable pageable);
 
+
     /**
-     * Same filters again, but sorted by distance from (lat, lng) instead
-     * of newest-first, and paginated -- used when the client has a
-     * device location. No bounding-box pre-filter here unlike findNearby,
-     * because this has no search radius to bound against; it's paging
-     * through every matching listing sorted by distance, not "listings
-     * within Xkm".
+     * Same as the paginated filterProperties above but distance-sorted;
+     * see that method's doc for the `q`/token parameters.
      */
-    @Query("SELECT p FROM Property p LEFT JOIN FETCH p.owner WHERE " +
-           "p.status = 'PUBLISHED' AND " +
-           "p.available = true AND " +
-           "(:houseType IS NULL OR p.houseType = :houseType) AND " +
-           "(:minPrice IS NULL OR p.price >= :minPrice) AND " +
-           "(:maxPrice IS NULL OR p.price <= :maxPrice) AND " +
-           "(:bedrooms IS NULL OR p.bedrooms >= :bedrooms) AND " +
-           "(:furnished IS NULL OR p.furnished = :furnished) AND " +
-           "(:parking IS NULL OR p.parking = :parking) AND " +
-           "(:wifi IS NULL OR p.wifi = :wifi) AND " +
-           "(:water IS NULL OR p.water = :water) AND " +
-           "(:security IS NULL OR p.security = :security) AND " +
-           "(:verified IS NULL OR p.verified = :verified) AND " +
-           "p.latitude IS NOT NULL AND p.longitude IS NOT NULL " +
-           "ORDER BY (6371 * acos(cos(radians(:lat)) * cos(radians(p.latitude)) * " +
-           "cos(radians(p.longitude) - radians(:lng)) + " +
-           "sin(radians(:lat)) * sin(radians(p.latitude)))) ASC")
+    @Query("""
+          SELECT p FROM Property p LEFT JOIN FETCH p.owner WHERE
+          p.status = 'PUBLISHED' AND
+          p.available = true AND
+          (:houseType IS NULL OR p.houseType = :houseType) AND
+          (:minPrice IS NULL OR p.price >= :minPrice) AND
+          (:maxPrice IS NULL OR p.price <= :maxPrice) AND
+          (:bedrooms IS NULL OR p.bedrooms >= :bedrooms) AND
+          (:furnished IS NULL OR p.furnished = :furnished) AND
+          (:parking IS NULL OR p.parking = :parking) AND
+          (:wifi IS NULL OR p.wifi = :wifi) AND
+          (:water IS NULL OR p.water = :water) AND
+          (:security IS NULL OR p.security = :security) AND
+          (:verified IS NULL OR p.verified = :verified) AND
+          p.latitude IS NOT NULL AND p.longitude IS NOT NULL
+          AND (:token1 IS NULL OR (
+              LOWER(p.title) LIKE CONCAT('%', :token1, '%') OR
+              LOWER(COALESCE(p.buildingName, '')) LIKE CONCAT('%', :token1, '%') OR
+              LOWER(p.location) LIKE CONCAT('%', :token1, '%') OR
+              LOWER(COALESCE(p.description, '')) LIKE CONCAT('%', :token1, '%') OR
+              LOWER(COALESCE(p.houseType, '')) LIKE CONCAT('%', :token1, '%') OR
+              LOWER(COALESCE(p.nearbyFacilities, '')) LIKE CONCAT('%', :token1, '%') OR
+              EXISTS (SELECT ca FROM Property p2 JOIN p2.customAmenities ca WHERE p2.id = p.id AND LOWER(ca) LIKE CONCAT('%', :token1, '%'))
+          ))
+          AND (:token2 IS NULL OR (
+              LOWER(p.title) LIKE CONCAT('%', :token2, '%') OR
+              LOWER(COALESCE(p.buildingName, '')) LIKE CONCAT('%', :token2, '%') OR
+              LOWER(p.location) LIKE CONCAT('%', :token2, '%') OR
+              LOWER(COALESCE(p.description, '')) LIKE CONCAT('%', :token2, '%') OR
+              LOWER(COALESCE(p.houseType, '')) LIKE CONCAT('%', :token2, '%') OR
+              LOWER(COALESCE(p.nearbyFacilities, '')) LIKE CONCAT('%', :token2, '%') OR
+              EXISTS (SELECT ca FROM Property p2 JOIN p2.customAmenities ca WHERE p2.id = p.id AND LOWER(ca) LIKE CONCAT('%', :token2, '%'))
+          ))
+          AND (:token3 IS NULL OR (
+              LOWER(p.title) LIKE CONCAT('%', :token3, '%') OR
+              LOWER(COALESCE(p.buildingName, '')) LIKE CONCAT('%', :token3, '%') OR
+              LOWER(p.location) LIKE CONCAT('%', :token3, '%') OR
+              LOWER(COALESCE(p.description, '')) LIKE CONCAT('%', :token3, '%') OR
+              LOWER(COALESCE(p.houseType, '')) LIKE CONCAT('%', :token3, '%') OR
+              LOWER(COALESCE(p.nearbyFacilities, '')) LIKE CONCAT('%', :token3, '%') OR
+              EXISTS (SELECT ca FROM Property p2 JOIN p2.customAmenities ca WHERE p2.id = p.id AND LOWER(ca) LIKE CONCAT('%', :token3, '%'))
+          ))
+          AND (:token4 IS NULL OR (
+              LOWER(p.title) LIKE CONCAT('%', :token4, '%') OR
+              LOWER(COALESCE(p.buildingName, '')) LIKE CONCAT('%', :token4, '%') OR
+              LOWER(p.location) LIKE CONCAT('%', :token4, '%') OR
+              LOWER(COALESCE(p.description, '')) LIKE CONCAT('%', :token4, '%') OR
+              LOWER(COALESCE(p.houseType, '')) LIKE CONCAT('%', :token4, '%') OR
+              LOWER(COALESCE(p.nearbyFacilities, '')) LIKE CONCAT('%', :token4, '%') OR
+              EXISTS (SELECT ca FROM Property p2 JOIN p2.customAmenities ca WHERE p2.id = p.id AND LOWER(ca) LIKE CONCAT('%', :token4, '%'))
+          ))
+          AND (:token5 IS NULL OR (
+              LOWER(p.title) LIKE CONCAT('%', :token5, '%') OR
+              LOWER(COALESCE(p.buildingName, '')) LIKE CONCAT('%', :token5, '%') OR
+              LOWER(p.location) LIKE CONCAT('%', :token5, '%') OR
+              LOWER(COALESCE(p.description, '')) LIKE CONCAT('%', :token5, '%') OR
+              LOWER(COALESCE(p.houseType, '')) LIKE CONCAT('%', :token5, '%') OR
+              LOWER(COALESCE(p.nearbyFacilities, '')) LIKE CONCAT('%', :token5, '%') OR
+              EXISTS (SELECT ca FROM Property p2 JOIN p2.customAmenities ca WHERE p2.id = p.id AND LOWER(ca) LIKE CONCAT('%', :token5, '%'))
+          ))
+          AND (:token6 IS NULL OR (
+              LOWER(p.title) LIKE CONCAT('%', :token6, '%') OR
+              LOWER(COALESCE(p.buildingName, '')) LIKE CONCAT('%', :token6, '%') OR
+              LOWER(p.location) LIKE CONCAT('%', :token6, '%') OR
+              LOWER(COALESCE(p.description, '')) LIKE CONCAT('%', :token6, '%') OR
+              LOWER(COALESCE(p.houseType, '')) LIKE CONCAT('%', :token6, '%') OR
+              LOWER(COALESCE(p.nearbyFacilities, '')) LIKE CONCAT('%', :token6, '%') OR
+              EXISTS (SELECT ca FROM Property p2 JOIN p2.customAmenities ca WHERE p2.id = p.id AND LOWER(ca) LIKE CONCAT('%', :token6, '%'))
+          ))
+          ORDER BY (6371 * acos(cos(radians(:lat)) * cos(radians(p.latitude)) *
+          cos(radians(p.longitude) - radians(:lng)) +
+          sin(radians(:lat)) * sin(radians(p.latitude)))) ASC
+          """)
     List<Property> filterPropertiesSortedByDistance(
             @Param("houseType") String houseType,
             @Param("minPrice") Double minPrice,
@@ -382,6 +521,12 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
             @Param("water") Boolean water,
             @Param("security") Boolean security,
             @Param("verified") Boolean verified,
+            @Param("token1") String token1,
+            @Param("token2") String token2,
+            @Param("token3") String token3,
+            @Param("token4") String token4,
+            @Param("token5") String token5,
+            @Param("token6") String token6,
             @Param("lat") double lat,
             @Param("lng") double lng,
             Pageable pageable);
