@@ -1,0 +1,426 @@
+diff --git a/src/main/java/com/roost/controller/PropertyController.java b/src/main/java/com/roost/controller/PropertyController.java
+index 8c5f826..6141658 100644
+--- a/src/main/java/com/roost/controller/PropertyController.java
++++ b/src/main/java/com/roost/controller/PropertyController.java
+@@ -98,6 +98,12 @@ public class PropertyController {
+             @RequestParam(required = false) Boolean water,
+             @RequestParam(required = false) Boolean security,
+             @RequestParam(required = false) Boolean verified,
++            // Free-text remainder of the user's search box -- see
++            // PropertyService#filter and PropertyRepository for how
++            // this is matched. Only affects the paginated (size != null)
++            // branch below: the unpaginated branch is unbounded/legacy
++            // and untouched by this.
++            @RequestParam(required = false) String q,
+             @RequestParam(required = false) Double lat,
+             @RequestParam(required = false) Double lng,
+             @RequestParam(required = false) Integer page,
+@@ -111,7 +117,7 @@ public class PropertyController {
+         int cappedSize = Math.min(Math.max(size, 1), 50);
+         int safePage = page != null ? Math.max(page, 0) : 0;
+         Pageable pageable = PageRequest.of(safePage, cappedSize);
+-        return PropertyResponseDto.from(propertyService.filter(type, minPrice, maxPrice, bedrooms, furnished, parking, wifi, water, security, verified, lat, lng, pageable));
++        return PropertyResponseDto.from(propertyService.filter(type, minPrice, maxPrice, bedrooms, furnished, parking, wifi, water, security, verified, q, lat, lng, pageable));
+     }
+ 
+     @GetMapping("/{id}/view")
+diff --git a/src/main/java/com/roost/repository/PropertyRepository.java b/src/main/java/com/roost/repository/PropertyRepository.java
+index 7c5a1bb..494f7bc 100644
+--- a/src/main/java/com/roost/repository/PropertyRepository.java
++++ b/src/main/java/com/roost/repository/PropertyRepository.java
+@@ -263,20 +263,100 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
+      * for LIMIT/OFFSET. Newest-first, since that's the useful default
+      * for a listings feed and there's no location to sort by here.
+      */
+-    @Query("SELECT p FROM Property p LEFT JOIN FETCH p.owner WHERE " +
+-           "p.status = 'PUBLISHED' AND " +
+-           "p.available = true AND " +
+-           "(:houseType IS NULL OR p.houseType = :houseType) AND " +
+-           "(:minPrice IS NULL OR p.price >= :minPrice) AND " +
+-           "(:maxPrice IS NULL OR p.price <= :maxPrice) AND " +
+-           "(:bedrooms IS NULL OR p.bedrooms >= :bedrooms) AND " +
+-           "(:furnished IS NULL OR p.furnished = :furnished) AND " +
+-           "(:parking IS NULL OR p.parking = :parking) AND " +
+-           "(:wifi IS NULL OR p.wifi = :wifi) AND " +
+-           "(:water IS NULL OR p.water = :water) AND " +
+-           "(:security IS NULL OR p.security = :security) AND " +
+-           "(:verified IS NULL OR p.verified = :verified) " +
+-           "ORDER BY p.id DESC")
++    /**
++     * Free-text search doc (applies to both `q`-bearing queries below).
++     *
++     * `q` is pre-tokenized server-side (PropertyService#tokenizeSearchQuery)
++     * into up to 6 lowercase words, padded with nulls -- a
++     * JPQL query is fixed at compile time, so a variable-arity "AND every
++     * word matches somewhere" can't be expressed directly the way the
++     * houseType/minPrice/etc. null-checks are. Each token independently
++     * requires a match in title, buildingName, location, description,
++     * houseType, nearbyFacilities, or customAmenities (any one field is
++     * enough per token; different tokens can match different fields).
++     * A null token (the query had fewer than 6 words) always
++     * passes, so a short or absent `q` behaves exactly as if these
++     * clauses weren't there at all.
++     *
++     * Deliberately NOT covered: the ~20 boolean amenity columns (pool,
++     * gym, ac, ...). Matching "pool" against p.pool = true per token
++     * would multiply this clause by every amenity column; amenity-word
++     * search still happens client-side (PropertySearch, roost_app) over
++     * whatever page was already fetched. Structured filters the app
++     * already extracts from the query text (furnished, parking, wifi,
++     * water, security) go through the existing typed params above, not
++     * `q`.
++     */
++    @Query("""
++          SELECT p FROM Property p LEFT JOIN FETCH p.owner WHERE
++          p.status = 'PUBLISHED' AND
++          p.available = true AND
++          (:houseType IS NULL OR p.houseType = :houseType) AND
++          (:minPrice IS NULL OR p.price >= :minPrice) AND
++          (:maxPrice IS NULL OR p.price <= :maxPrice) AND
++          (:bedrooms IS NULL OR p.bedrooms >= :bedrooms) AND
++          (:furnished IS NULL OR p.furnished = :furnished) AND
++          (:parking IS NULL OR p.parking = :parking) AND
++          (:wifi IS NULL OR p.wifi = :wifi) AND
++          (:water IS NULL OR p.water = :water) AND
++          (:security IS NULL OR p.security = :security) AND
++          (:verified IS NULL OR p.verified = :verified)
++          AND (:token1 IS NULL OR (
++              LOWER(p.title) LIKE CONCAT('%', :token1, '%') OR
++              LOWER(COALESCE(p.buildingName, '')) LIKE CONCAT('%', :token1, '%') OR
++              LOWER(p.location) LIKE CONCAT('%', :token1, '%') OR
++              LOWER(COALESCE(p.description, '')) LIKE CONCAT('%', :token1, '%') OR
++              LOWER(COALESCE(p.houseType, '')) LIKE CONCAT('%', :token1, '%') OR
++              LOWER(COALESCE(p.nearbyFacilities, '')) LIKE CONCAT('%', :token1, '%') OR
++              EXISTS (SELECT ca FROM Property p2 JOIN p2.customAmenities ca WHERE p2.id = p.id AND LOWER(ca) LIKE CONCAT('%', :token1, '%'))
++          ))
++          AND (:token2 IS NULL OR (
++              LOWER(p.title) LIKE CONCAT('%', :token2, '%') OR
++              LOWER(COALESCE(p.buildingName, '')) LIKE CONCAT('%', :token2, '%') OR
++              LOWER(p.location) LIKE CONCAT('%', :token2, '%') OR
++              LOWER(COALESCE(p.description, '')) LIKE CONCAT('%', :token2, '%') OR
++              LOWER(COALESCE(p.houseType, '')) LIKE CONCAT('%', :token2, '%') OR
++              LOWER(COALESCE(p.nearbyFacilities, '')) LIKE CONCAT('%', :token2, '%') OR
++              EXISTS (SELECT ca FROM Property p2 JOIN p2.customAmenities ca WHERE p2.id = p.id AND LOWER(ca) LIKE CONCAT('%', :token2, '%'))
++          ))
++          AND (:token3 IS NULL OR (
++              LOWER(p.title) LIKE CONCAT('%', :token3, '%') OR
++              LOWER(COALESCE(p.buildingName, '')) LIKE CONCAT('%', :token3, '%') OR
++              LOWER(p.location) LIKE CONCAT('%', :token3, '%') OR
++              LOWER(COALESCE(p.description, '')) LIKE CONCAT('%', :token3, '%') OR
++              LOWER(COALESCE(p.houseType, '')) LIKE CONCAT('%', :token3, '%') OR
++              LOWER(COALESCE(p.nearbyFacilities, '')) LIKE CONCAT('%', :token3, '%') OR
++              EXISTS (SELECT ca FROM Property p2 JOIN p2.customAmenities ca WHERE p2.id = p.id AND LOWER(ca) LIKE CONCAT('%', :token3, '%'))
++          ))
++          AND (:token4 IS NULL OR (
++              LOWER(p.title) LIKE CONCAT('%', :token4, '%') OR
++              LOWER(COALESCE(p.buildingName, '')) LIKE CONCAT('%', :token4, '%') OR
++              LOWER(p.location) LIKE CONCAT('%', :token4, '%') OR
++              LOWER(COALESCE(p.description, '')) LIKE CONCAT('%', :token4, '%') OR
++              LOWER(COALESCE(p.houseType, '')) LIKE CONCAT('%', :token4, '%') OR
++              LOWER(COALESCE(p.nearbyFacilities, '')) LIKE CONCAT('%', :token4, '%') OR
++              EXISTS (SELECT ca FROM Property p2 JOIN p2.customAmenities ca WHERE p2.id = p.id AND LOWER(ca) LIKE CONCAT('%', :token4, '%'))
++          ))
++          AND (:token5 IS NULL OR (
++              LOWER(p.title) LIKE CONCAT('%', :token5, '%') OR
++              LOWER(COALESCE(p.buildingName, '')) LIKE CONCAT('%', :token5, '%') OR
++              LOWER(p.location) LIKE CONCAT('%', :token5, '%') OR
++              LOWER(COALESCE(p.description, '')) LIKE CONCAT('%', :token5, '%') OR
++              LOWER(COALESCE(p.houseType, '')) LIKE CONCAT('%', :token5, '%') OR
++              LOWER(COALESCE(p.nearbyFacilities, '')) LIKE CONCAT('%', :token5, '%') OR
++              EXISTS (SELECT ca FROM Property p2 JOIN p2.customAmenities ca WHERE p2.id = p.id AND LOWER(ca) LIKE CONCAT('%', :token5, '%'))
++          ))
++          AND (:token6 IS NULL OR (
++              LOWER(p.title) LIKE CONCAT('%', :token6, '%') OR
++              LOWER(COALESCE(p.buildingName, '')) LIKE CONCAT('%', :token6, '%') OR
++              LOWER(p.location) LIKE CONCAT('%', :token6, '%') OR
++              LOWER(COALESCE(p.description, '')) LIKE CONCAT('%', :token6, '%') OR
++              LOWER(COALESCE(p.houseType, '')) LIKE CONCAT('%', :token6, '%') OR
++              LOWER(COALESCE(p.nearbyFacilities, '')) LIKE CONCAT('%', :token6, '%') OR
++              EXISTS (SELECT ca FROM Property p2 JOIN p2.customAmenities ca WHERE p2.id = p.id AND LOWER(ca) LIKE CONCAT('%', :token6, '%'))
++          ))
++          ORDER BY p.id DESC
++          """)
+     List<Property> filterProperties(
+             @Param("houseType") String houseType,
+             @Param("minPrice") Double minPrice,
+@@ -288,33 +368,92 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
+             @Param("water") Boolean water,
+             @Param("security") Boolean security,
+             @Param("verified") Boolean verified,
++            @Param("token1") String token1,
++            @Param("token2") String token2,
++            @Param("token3") String token3,
++            @Param("token4") String token4,
++            @Param("token5") String token5,
++            @Param("token6") String token6,
+             Pageable pageable);
+ 
++
+     /**
+-     * Same filters again, but sorted by distance from (lat, lng) instead
+-     * of newest-first, and paginated -- used when the client has a
+-     * device location. No bounding-box pre-filter here unlike findNearby,
+-     * because this has no search radius to bound against; it's paging
+-     * through every matching listing sorted by distance, not "listings
+-     * within Xkm".
++     * Same as the paginated filterProperties above but distance-sorted;
++     * see that method's doc for the `q`/token parameters.
+      */
+-    @Query("SELECT p FROM Property p LEFT JOIN FETCH p.owner WHERE " +
+-           "p.status = 'PUBLISHED' AND " +
+-           "p.available = true AND " +
+-           "(:houseType IS NULL OR p.houseType = :houseType) AND " +
+-           "(:minPrice IS NULL OR p.price >= :minPrice) AND " +
+-           "(:maxPrice IS NULL OR p.price <= :maxPrice) AND " +
+-           "(:bedrooms IS NULL OR p.bedrooms >= :bedrooms) AND " +
+-           "(:furnished IS NULL OR p.furnished = :furnished) AND " +
+-           "(:parking IS NULL OR p.parking = :parking) AND " +
+-           "(:wifi IS NULL OR p.wifi = :wifi) AND " +
+-           "(:water IS NULL OR p.water = :water) AND " +
+-           "(:security IS NULL OR p.security = :security) AND " +
+-           "(:verified IS NULL OR p.verified = :verified) AND " +
+-           "p.latitude IS NOT NULL AND p.longitude IS NOT NULL " +
+-           "ORDER BY (6371 * acos(cos(radians(:lat)) * cos(radians(p.latitude)) * " +
+-           "cos(radians(p.longitude) - radians(:lng)) + " +
+-           "sin(radians(:lat)) * sin(radians(p.latitude)))) ASC")
++    @Query("""
++          SELECT p FROM Property p LEFT JOIN FETCH p.owner WHERE
++          p.status = 'PUBLISHED' AND
++          p.available = true AND
++          (:houseType IS NULL OR p.houseType = :houseType) AND
++          (:minPrice IS NULL OR p.price >= :minPrice) AND
++          (:maxPrice IS NULL OR p.price <= :maxPrice) AND
++          (:bedrooms IS NULL OR p.bedrooms >= :bedrooms) AND
++          (:furnished IS NULL OR p.furnished = :furnished) AND
++          (:parking IS NULL OR p.parking = :parking) AND
++          (:wifi IS NULL OR p.wifi = :wifi) AND
++          (:water IS NULL OR p.water = :water) AND
++          (:security IS NULL OR p.security = :security) AND
++          (:verified IS NULL OR p.verified = :verified) AND
++          p.latitude IS NOT NULL AND p.longitude IS NOT NULL
++          AND (:token1 IS NULL OR (
++              LOWER(p.title) LIKE CONCAT('%', :token1, '%') OR
++              LOWER(COALESCE(p.buildingName, '')) LIKE CONCAT('%', :token1, '%') OR
++              LOWER(p.location) LIKE CONCAT('%', :token1, '%') OR
++              LOWER(COALESCE(p.description, '')) LIKE CONCAT('%', :token1, '%') OR
++              LOWER(COALESCE(p.houseType, '')) LIKE CONCAT('%', :token1, '%') OR
++              LOWER(COALESCE(p.nearbyFacilities, '')) LIKE CONCAT('%', :token1, '%') OR
++              EXISTS (SELECT ca FROM Property p2 JOIN p2.customAmenities ca WHERE p2.id = p.id AND LOWER(ca) LIKE CONCAT('%', :token1, '%'))
++          ))
++          AND (:token2 IS NULL OR (
++              LOWER(p.title) LIKE CONCAT('%', :token2, '%') OR
++              LOWER(COALESCE(p.buildingName, '')) LIKE CONCAT('%', :token2, '%') OR
++              LOWER(p.location) LIKE CONCAT('%', :token2, '%') OR
++              LOWER(COALESCE(p.description, '')) LIKE CONCAT('%', :token2, '%') OR
++              LOWER(COALESCE(p.houseType, '')) LIKE CONCAT('%', :token2, '%') OR
++              LOWER(COALESCE(p.nearbyFacilities, '')) LIKE CONCAT('%', :token2, '%') OR
++              EXISTS (SELECT ca FROM Property p2 JOIN p2.customAmenities ca WHERE p2.id = p.id AND LOWER(ca) LIKE CONCAT('%', :token2, '%'))
++          ))
++          AND (:token3 IS NULL OR (
++              LOWER(p.title) LIKE CONCAT('%', :token3, '%') OR
++              LOWER(COALESCE(p.buildingName, '')) LIKE CONCAT('%', :token3, '%') OR
++              LOWER(p.location) LIKE CONCAT('%', :token3, '%') OR
++              LOWER(COALESCE(p.description, '')) LIKE CONCAT('%', :token3, '%') OR
++              LOWER(COALESCE(p.houseType, '')) LIKE CONCAT('%', :token3, '%') OR
++              LOWER(COALESCE(p.nearbyFacilities, '')) LIKE CONCAT('%', :token3, '%') OR
++              EXISTS (SELECT ca FROM Property p2 JOIN p2.customAmenities ca WHERE p2.id = p.id AND LOWER(ca) LIKE CONCAT('%', :token3, '%'))
++          ))
++          AND (:token4 IS NULL OR (
++              LOWER(p.title) LIKE CONCAT('%', :token4, '%') OR
++              LOWER(COALESCE(p.buildingName, '')) LIKE CONCAT('%', :token4, '%') OR
++              LOWER(p.location) LIKE CONCAT('%', :token4, '%') OR
++              LOWER(COALESCE(p.description, '')) LIKE CONCAT('%', :token4, '%') OR
++              LOWER(COALESCE(p.houseType, '')) LIKE CONCAT('%', :token4, '%') OR
++              LOWER(COALESCE(p.nearbyFacilities, '')) LIKE CONCAT('%', :token4, '%') OR
++              EXISTS (SELECT ca FROM Property p2 JOIN p2.customAmenities ca WHERE p2.id = p.id AND LOWER(ca) LIKE CONCAT('%', :token4, '%'))
++          ))
++          AND (:token5 IS NULL OR (
++              LOWER(p.title) LIKE CONCAT('%', :token5, '%') OR
++              LOWER(COALESCE(p.buildingName, '')) LIKE CONCAT('%', :token5, '%') OR
++              LOWER(p.location) LIKE CONCAT('%', :token5, '%') OR
++              LOWER(COALESCE(p.description, '')) LIKE CONCAT('%', :token5, '%') OR
++              LOWER(COALESCE(p.houseType, '')) LIKE CONCAT('%', :token5, '%') OR
++              LOWER(COALESCE(p.nearbyFacilities, '')) LIKE CONCAT('%', :token5, '%') OR
++              EXISTS (SELECT ca FROM Property p2 JOIN p2.customAmenities ca WHERE p2.id = p.id AND LOWER(ca) LIKE CONCAT('%', :token5, '%'))
++          ))
++          AND (:token6 IS NULL OR (
++              LOWER(p.title) LIKE CONCAT('%', :token6, '%') OR
++              LOWER(COALESCE(p.buildingName, '')) LIKE CONCAT('%', :token6, '%') OR
++              LOWER(p.location) LIKE CONCAT('%', :token6, '%') OR
++              LOWER(COALESCE(p.description, '')) LIKE CONCAT('%', :token6, '%') OR
++              LOWER(COALESCE(p.houseType, '')) LIKE CONCAT('%', :token6, '%') OR
++              LOWER(COALESCE(p.nearbyFacilities, '')) LIKE CONCAT('%', :token6, '%') OR
++              EXISTS (SELECT ca FROM Property p2 JOIN p2.customAmenities ca WHERE p2.id = p.id AND LOWER(ca) LIKE CONCAT('%', :token6, '%'))
++          ))
++          ORDER BY (6371 * acos(cos(radians(:lat)) * cos(radians(p.latitude)) *
++          cos(radians(p.longitude) - radians(:lng)) +
++          sin(radians(:lat)) * sin(radians(p.latitude)))) ASC
++          """)
+     List<Property> filterPropertiesSortedByDistance(
+             @Param("houseType") String houseType,
+             @Param("minPrice") Double minPrice,
+@@ -326,6 +465,12 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
+             @Param("water") Boolean water,
+             @Param("security") Boolean security,
+             @Param("verified") Boolean verified,
++            @Param("token1") String token1,
++            @Param("token2") String token2,
++            @Param("token3") String token3,
++            @Param("token4") String token4,
++            @Param("token5") String token5,
++            @Param("token6") String token6,
+             @Param("lat") double lat,
+             @Param("lng") double lng,
+             Pageable pageable);
+diff --git a/src/main/java/com/roost/service/PropertyService.java b/src/main/java/com/roost/service/PropertyService.java
+index abd7daf..eff3947 100644
+--- a/src/main/java/com/roost/service/PropertyService.java
++++ b/src/main/java/com/roost/service/PropertyService.java
+@@ -268,20 +268,78 @@ public class PropertyService {
+                 furnished, parking, wifi, water, security, verified));
+     }
+ 
++    /** Max free-text words `q` is split into -- see
++     *  PropertyRepository's filterProperties/filterPropertiesSortedByDistance
++     *  doc for why this has to be a fixed number of query parameters
++     *  rather than a truly variable-length list. Six is generous for a
++     *  real search phrase ("2 bedroom kilimani near yaya centre" is 6
++     *  words after "bedroom"/numbers are pulled out client-side);
++     *  anything beyond that is silently dropped rather than rejected,
++     *  the same fail-open spirit as the rest of this endpoint. */
++    private static final int MAX_SEARCH_TOKENS = 6;
++
++    /** Words to ignore even though the client-side parser already
++     *  strips most of them -- kept here too since `q` can also arrive
++     *  from a caller that didn't run it through PropertySearch (a
++     *  future API consumer, a manual test, `curl`). Small and
++     *  deliberately conservative: better to search an extra filler
++     *  word than to silently drop something a listing actually needs
++     *  to match. */
++    private static final java.util.Set<String> SEARCH_STOP_WORDS = java.util.Set.of(
++            "a", "an", "the", "and", "or", "for", "to", "of", "in", "at", "on",
++            "near", "nearby", "around", "by", "with", "rent", "rental", "rentals",
++            "apartment", "apartments", "house", "houses", "home", "homes",
++            "flat", "flats", "unit", "units", "place", "room", "rooms");
++
++    /**
++     * Splits a raw free-text search string into up to
++     * {@link #MAX_SEARCH_TOKENS} lowercase, punctuation-stripped words,
++     * padded to exactly that many entries with nulls (a null token
++     * param means "no constraint" in the repository query -- see its
++     * doc). Duplicate and blank/stopword tokens are dropped so a
++     * query like "bedsitter bedsitter near kilimani" doesn't waste one
++     * of the six slots repeating itself, and an all-filler query like
++     * "a house for rent" ends up with zero real tokens (every slot
++     * null), matching everything rather than nothing.
++     */
++    static String[] tokenizeSearchQuery(String q) {
++        String[] tokens = new String[MAX_SEARCH_TOKENS];
++        if (q == null || q.isBlank()) return tokens;
++
++        java.util.LinkedHashSet<String> seen = new java.util.LinkedHashSet<>();
++        for (String word : q.toLowerCase().split("[^a-z0-9]+")) {
++            if (word.isBlank() || SEARCH_STOP_WORDS.contains(word)) continue;
++            seen.add(word);
++            if (seen.size() >= MAX_SEARCH_TOKENS) break;
++        }
++        int i = 0;
++        for (String word : seen) tokens[i++] = word;
++        return tokens;
++    }
++
+     /**
+      * Paginated + optionally distance-sorted variant, used once a client
+      * asks for a specific page (search_page.dart's infinite scroll).
+      * Sorts by distance from (lat, lng) when both are provided, otherwise
+      * newest-first -- see the two repository queries this dispatches to.
++     *
++     * [q] is the free-text remainder of the user's search box (after the
++     * client already pulled out price/house-type/etc. into the typed
++     * params above) -- see PropertyRepository for what it matches
++     * against and tokenizeSearchQuery for how it's split up.
+      */
+     public List<Property> filter(String houseType, Double minPrice, Double maxPrice, Integer bedrooms,
+                                  Boolean furnished, Boolean parking, Boolean wifi, Boolean water,
+-                                 Boolean security, Boolean verified, Double lat, Double lng, Pageable pageable) {
++                                 Boolean security, Boolean verified, String q,
++                                 Double lat, Double lng, Pageable pageable) {
++        String[] t = tokenizeSearchQuery(q);
+         List<Property> results = (lat != null && lng != null)
+                 ? propertyRepository.filterPropertiesSortedByDistance(houseType, minPrice, maxPrice, bedrooms,
+-                        furnished, parking, wifi, water, security, verified, lat, lng, pageable)
++                        furnished, parking, wifi, water, security, verified,
++                        t[0], t[1], t[2], t[3], t[4], t[5], lat, lng, pageable)
+                 : propertyRepository.filterProperties(houseType, minPrice, maxPrice, bedrooms,
+-                        furnished, parking, wifi, water, security, verified, pageable);
++                        furnished, parking, wifi, water, security, verified,
++                        t[0], t[1], t[2], t[3], t[4], t[5], pageable);
+         return populateRatings(results);
+     }
+ 
+diff --git a/src/test/java/com/roost/service/PropertySearchTokenizerTest.java b/src/test/java/com/roost/service/PropertySearchTokenizerTest.java
+new file mode 100644
+index 0000000..3d27360
+--- /dev/null
++++ b/src/test/java/com/roost/service/PropertySearchTokenizerTest.java
+@@ -0,0 +1,60 @@
++package com.roost.service;
++
++import org.junit.jupiter.api.Test;
++
++import static org.assertj.core.api.Assertions.assertThat;
++
++/** Unit tests for PropertyService#tokenizeSearchQuery -- pure function,
++ *  no Spring context or DB needed. See PropertyRepository's
++ *  filterProperties doc for how these tokens are used in the query. */
++class PropertySearchTokenizerTest {
++
++    @Test
++    void nullOrBlankQueryProducesAllNullTokens() {
++        assertThat(PropertyService.tokenizeSearchQuery(null)).containsOnlyNulls();
++        assertThat(PropertyService.tokenizeSearchQuery("")).containsOnlyNulls();
++        assertThat(PropertyService.tokenizeSearchQuery("   ")).containsOnlyNulls();
++    }
++
++    @Test
++    void singleWordBecomesFirstTokenLowercased() {
++        String[] tokens = PropertyService.tokenizeSearchQuery("Kilimani");
++        assertThat(tokens[0]).isEqualTo("kilimani");
++        assertThat(tokens).hasSize(6);
++        for (int i = 1; i < tokens.length; i++) assertThat(tokens[i]).isNull();
++    }
++
++    @Test
++    void fillerWordsAreDropped() {
++        String[] tokens = PropertyService.tokenizeSearchQuery("Kilimani apartment for rent");
++        assertThat(tokens[0]).isEqualTo("kilimani");
++        assertThat(tokens[1]).isNull();
++    }
++
++    @Test
++    void allFillerQueryProducesAllNullTokens() {
++        assertThat(PropertyService.tokenizeSearchQuery("a house for rent")).containsOnlyNulls();
++    }
++
++    @Test
++    void punctuationIsSplitOn() {
++        String[] tokens = PropertyService.tokenizeSearchQuery("pet-friendly, kileleshwa!");
++        assertThat(tokens[0]).isEqualTo("pet");
++        assertThat(tokens[1]).isEqualTo("friendly");
++        assertThat(tokens[2]).isEqualTo("kileleshwa");
++    }
++
++    @Test
++    void duplicateWordsAreNotRepeated() {
++        String[] tokens = PropertyService.tokenizeSearchQuery("bedsitter bedsitter kilimani");
++        assertThat(tokens[0]).isEqualTo("bedsitter");
++        assertThat(tokens[1]).isEqualTo("kilimani");
++        assertThat(tokens[2]).isNull();
++    }
++
++    @Test
++    void moreThanSixWordsIsTruncatedNotRejected() {
++        String[] tokens = PropertyService.tokenizeSearchQuery("one two three four five six seven eight");
++        assertThat(tokens).containsExactly("one", "two", "three", "four", "five", "six");
++    }
++}

@@ -298,20 +298,78 @@ public class PropertyService {
                 furnished, parking, wifi, water, security, verified));
     }
 
+    /** Max free-text words `q` is split into -- see
+     *  PropertyRepository's filterProperties/filterPropertiesSortedByDistance
+     *  doc for why this has to be a fixed number of query parameters
+     *  rather than a truly variable-length list. Six is generous for a
+     *  real search phrase ("2 bedroom kilimani near yaya centre" is 6
+     *  words after "bedroom"/numbers are pulled out client-side);
+     *  anything beyond that is silently dropped rather than rejected,
+     *  the same fail-open spirit as the rest of this endpoint. */
+    private static final int MAX_SEARCH_TOKENS = 6;
+
+    /** Words to ignore even though the client-side parser already
+     *  strips most of them -- kept here too since `q` can also arrive
+     *  from a caller that didn't run it through PropertySearch (a
+     *  future API consumer, a manual test, `curl`). Small and
+     *  deliberately conservative: better to search an extra filler
+     *  word than to silently drop something a listing actually needs
+     *  to match. */
+    private static final java.util.Set<String> SEARCH_STOP_WORDS = java.util.Set.of(
+            "a", "an", "the", "and", "or", "for", "to", "of", "in", "at", "on",
+            "near", "nearby", "around", "by", "with", "rent", "rental", "rentals",
+            "apartment", "apartments", "house", "houses", "home", "homes",
+            "flat", "flats", "unit", "units", "place", "room", "rooms");
+
+    /**
+     * Splits a raw free-text search string into up to
+     * {@link #MAX_SEARCH_TOKENS} lowercase, punctuation-stripped words,
+     * padded to exactly that many entries with nulls (a null token
+     * param means "no constraint" in the repository query -- see its
+     * doc). Duplicate and blank/stopword tokens are dropped so a
+     * query like "bedsitter bedsitter near kilimani" doesn't waste one
+     * of the six slots repeating itself, and an all-filler query like
+     * "a house for rent" ends up with zero real tokens (every slot
+     * null), matching everything rather than nothing.
+     */
+    static String[] tokenizeSearchQuery(String q) {
+        String[] tokens = new String[MAX_SEARCH_TOKENS];
+        if (q == null || q.isBlank()) return tokens;
+
+        java.util.LinkedHashSet<String> seen = new java.util.LinkedHashSet<>();
+        for (String word : q.toLowerCase().split("[^a-z0-9]+")) {
+            if (word.isBlank() || SEARCH_STOP_WORDS.contains(word)) continue;
+            seen.add(word);
+            if (seen.size() >= MAX_SEARCH_TOKENS) break;
+        }
+        int i = 0;
+        for (String word : seen) tokens[i++] = word;
+        return tokens;
+    }
+
     /**
      * Paginated + optionally distance-sorted variant, used once a client
      * asks for a specific page (search_page.dart's infinite scroll).
      * Sorts by distance from (lat, lng) when both are provided, otherwise
      * newest-first -- see the two repository queries this dispatches to.
+     *
+     * [q] is the free-text remainder of the user's search box (after the
+     * client already pulled out price/house-type/etc. into the typed
+     * params above) -- see PropertyRepository for what it matches
+     * against and tokenizeSearchQuery for how it's split up.
      */
     public List<Property> filter(String houseType, Double minPrice, Double maxPrice, Integer bedrooms,
                                  Boolean furnished, Boolean parking, Boolean wifi, Boolean water,
-                                 Boolean security, Boolean verified, Double lat, Double lng, Pageable pageable) {
+                                 Boolean security, Boolean verified, String q,
+                                 Double lat, Double lng, Pageable pageable) {
+        String[] t = tokenizeSearchQuery(q);
         List<Property> results = (lat != null && lng != null)
                 ? propertyRepository.filterPropertiesSortedByDistance(houseType, minPrice, maxPrice, bedrooms,
-                        furnished, parking, wifi, water, security, verified, lat, lng, pageable)
+                        furnished, parking, wifi, water, security, verified,
+                        t[0], t[1], t[2], t[3], t[4], t[5], lat, lng, pageable)
                 : propertyRepository.filterProperties(houseType, minPrice, maxPrice, bedrooms,
-                        furnished, parking, wifi, water, security, verified, pageable);
+                        furnished, parking, wifi, water, security, verified,
+                        t[0], t[1], t[2], t[3], t[4], t[5], pageable);
         return populateRatings(results);
     }
 
