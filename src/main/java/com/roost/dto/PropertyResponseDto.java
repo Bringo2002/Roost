@@ -1,6 +1,7 @@
 package com.roost.dto;
 
 import com.roost.model.Property;
+import com.roost.model.User;
 import com.roost.service.PropertyRiskService;
 
 import java.time.LocalDateTime;
@@ -8,7 +9,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Public response shape for every read endpoint in PropertyController
+ * Response shape for every read endpoint in PropertyController
  * (list, nearby, filter, get-by-id, my-listings, and the mutation
  * endpoints that hand the updated property back).
  *
@@ -21,6 +22,20 @@ import java.util.List;
  * id/name/role/lastActiveAt. Routing every response through this DTO
  * makes the public shape explicit and independent of what fields
  * Property/User happen to carry internally.
+ *
+ * Two fields need a second, narrower redaction on top of that: Property
+ * carries {@code endorsementToken} (a bearer credential -- anyone holding
+ * it can call the unauthenticated {@code POST /api/properties/endorse/
+ * {token}} and stamp "landlord endorsed" onto the listing, the trust badge
+ * property cards display) and {@code ownerVerifyName}/{@code
+ * ownerVerifyPhone} (a third party's personal contact details, entered by
+ * a caretaker/agent on the owner's behalf). Serializing the entity
+ * directly put these in every property card payload the app fetches --
+ * anonymous visitors included. The three-argument constructor and the
+ * {@code forOwner}/{@code forViewer} factories below control this: the
+ * public view (used by every endpoint an anonymous visitor can reach)
+ * redacts them to null; only a listing's owner, or whoever already holds
+ * its endorsement token, sees the real values.
  */
 public class PropertyResponseDto {
 
@@ -116,11 +131,47 @@ public class PropertyResponseDto {
     private final Integer priceComparisonSampleSize;
     private final Double priceComparisonPercentDiff;
 
+    /**
+     * Builds the public view of a property: safe to serve to anyone,
+     * including anonymous visitors browsing the feed. The endorsement
+     * token and the verifier's contact details are redacted (see
+     * {@link #PropertyResponseDto(Property, PropertyRiskService.PriceComparison, boolean)}).
+     *
+     * @param p the property to expose
+     */
     public PropertyResponseDto(Property p) {
-        this(p, null);
+        this(p, null, false);
     }
 
+    /**
+     * Builds the public view of a property together with its price
+     * comparison; same redaction as {@link #PropertyResponseDto(Property)}.
+     *
+     * @param p          the property to expose
+     * @param comparison optional "is this a fair price" data, may be null
+     */
     public PropertyResponseDto(Property p, PropertyRiskService.PriceComparison comparison) {
+        this(p, comparison, false);
+    }
+
+    /**
+     * Full constructor.
+     *
+     * <p>{@code includePrivateFields} controls three fields that must
+     * never reach the public: {@code endorsementToken} (a bearer credential
+     * -- whoever holds it can call the unauthenticated
+     * {@code POST /api/properties/endorse/{token}} and stamp "landlord
+     * endorsed", the trust badge property cards display) and the
+     * verifier's {@code ownerVerifyName}/{@code ownerVerifyPhone} (a third
+     * party's personal contact details). When false they serialize as
+     * JSON {@code null}, so the response shape is unchanged for clients.
+     *
+     * @param p                     the property to expose
+     * @param comparison            optional price comparison, may be null
+     * @param includePrivateFields  true only for the listing's owner or the
+     *                              holder of its endorsement token
+     */
+    public PropertyResponseDto(Property p, PropertyRiskService.PriceComparison comparison, boolean includePrivateFields) {
         this.id = p.getId();
         this.title = p.getTitle();
         this.buildingName = p.getBuildingName();
@@ -185,9 +236,9 @@ public class PropertyResponseDto {
         this.documentVerified = Boolean.TRUE.equals(p.getDocumentVerified());
         this.isDirectLandlord = p.isDirectLandlord();
         this.landlordEndorsed = p.isLandlordEndorsed();
-        this.endorsementToken = p.getEndorsementToken();
-        this.ownerVerifyName = p.getOwnerVerifyName();
-        this.ownerVerifyPhone = p.getOwnerVerifyPhone();
+        this.endorsementToken = includePrivateFields ? p.getEndorsementToken() : null;
+        this.ownerVerifyName = includePrivateFields ? p.getOwnerVerifyName() : null;
+        this.ownerVerifyPhone = includePrivateFields ? p.getOwnerVerifyPhone() : null;
         this.managerRole = p.getManagerRole() != null ? p.getManagerRole() : "LANDLORD";
         this.caretakerName = p.getCaretakerName();
         this.caretakerPhone = p.getCaretakerPhone();
@@ -214,16 +265,79 @@ public class PropertyResponseDto {
         }
     }
 
+    /**
+     * Public view (private fields redacted). This is the default for every
+     * endpoint that anonymous users can reach.
+     *
+     * @param p the property, may be null
+     * @return the public DTO, or null if {@code p} is null
+     */
     public static PropertyResponseDto from(Property p) {
         return p == null ? null : new PropertyResponseDto(p);
     }
 
+    /**
+     * Public view with a price comparison attached.
+     *
+     * @param p          the property, may be null
+     * @param comparison optional price comparison, may be null
+     * @return the public DTO, or null if {@code p} is null
+     */
     public static PropertyResponseDto from(Property p, PropertyRiskService.PriceComparison comparison) {
         return p == null ? null : new PropertyResponseDto(p, comparison);
     }
 
+    /**
+     * Public view of many properties.
+     *
+     * @param properties the properties to expose
+     * @return one public DTO per property, in order
+     */
     public static List<PropertyResponseDto> from(List<Property> properties) {
         return properties.stream().map(PropertyResponseDto::new).toList();
+    }
+
+    /**
+     * Owner view (private fields included). Only for endpoints that have
+     * already established the caller owns the listing or holds its
+     * endorsement token.
+     *
+     * @param p the property, may be null
+     * @return the owner DTO, or null if {@code p} is null
+     */
+    public static PropertyResponseDto forOwner(Property p) {
+        return p == null ? null : new PropertyResponseDto(p, null, true);
+    }
+
+    /**
+     * Owner view of many properties (e.g. the landlord's own dashboard).
+     *
+     * @param properties properties already known to belong to the caller
+     * @return one owner DTO per property, in order
+     */
+    public static List<PropertyResponseDto> forOwner(List<Property> properties) {
+        return properties.stream().map(PropertyResponseDto::forOwner).toList();
+    }
+
+    /**
+     * Viewer-aware view: private fields are included only when
+     * {@code viewer} is the listing's owner; everyone else (other users,
+     * anonymous visitors) gets the public view.
+     *
+     * @param p          the property, may be null
+     * @param comparison optional price comparison, may be null
+     * @param viewer     the authenticated caller, or null if anonymous
+     * @return the DTO appropriate for {@code viewer}, or null if {@code p} is null
+     */
+    public static PropertyResponseDto forViewer(Property p, PropertyRiskService.PriceComparison comparison, User viewer) {
+        if (p == null) {
+            return null;
+        }
+        boolean isOwner = viewer != null
+                && viewer.getId() != null
+                && p.getOwner() != null
+                && viewer.getId().equals(p.getOwner().getId());
+        return new PropertyResponseDto(p, comparison, isOwner);
     }
 
     public Long getId() { return id; }

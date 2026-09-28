@@ -128,7 +128,7 @@ public class PropertyController {
         if (user.getRole() != Role.LANDLORD || property.getOwner() == null || !property.getOwner().getId().equals(user.getId())) {
             return ResponseEntity.status(403).body(Map.of("error", "Only property owner can confirm availability."));
         }
-        return ResponseEntity.ok(PropertyResponseDto.from(propertyService.confirmAvailability(id)));
+        return ResponseEntity.ok(PropertyResponseDto.forOwner(propertyService.confirmAvailability(id)));
     }
 
     /**
@@ -154,7 +154,7 @@ public class PropertyController {
         if (lat == null || lng == null) {
             return ResponseEntity.badRequest().body(Map.of("error", "latitude and longitude are required"));
         }
-        return ResponseEntity.ok(PropertyResponseDto.from(propertyService.verifyGpsLocation(id, lat, lng)));
+        return ResponseEntity.ok(PropertyResponseDto.forOwner(propertyService.verifyGpsLocation(id, lat, lng)));
     }
 
     @PostMapping("/{id}/report")
@@ -274,7 +274,7 @@ public class PropertyController {
         property.setLandlordId(user.getId().toString());
         property.setLandlordName(user.getName());
         property.setLandlordPhone(user.getPhone() != null ? user.getPhone() : property.getLandlordPhone());
-        return ResponseEntity.ok(PropertyResponseDto.from(propertyService.addProperty(property)));
+        return ResponseEntity.ok(PropertyResponseDto.forOwner(propertyService.addProperty(property)));
     }
 
     /**
@@ -365,7 +365,7 @@ public class PropertyController {
         if (user.getRole() != Role.LANDLORD) {
             return ResponseEntity.status(403).body(Map.of("error", "Unauthorized"));
         }
-        return ResponseEntity.ok(PropertyResponseDto.from(propertyService.getPropertiesByOwner(user)));
+        return ResponseEntity.ok(PropertyResponseDto.forOwner(propertyService.getPropertiesByOwner(user)));
     }
 
     @GetMapping("/hello")
@@ -398,7 +398,7 @@ public class PropertyController {
         if (user.getRole() != Role.LANDLORD || existing.getOwner() == null || !existing.getOwner().getId().equals(user.getId())) {
             return ResponseEntity.status(403).body(Map.of("error", "Unauthorized"));
         }
-        return ResponseEntity.ok(PropertyResponseDto.from(propertyService.updateProperty(id, property)));
+        return ResponseEntity.ok(PropertyResponseDto.forOwner(propertyService.updateProperty(id, property)));
     }
 
     /**
@@ -425,7 +425,7 @@ public class PropertyController {
         if (user.getRole() != Role.LANDLORD || existing.getOwner() == null || !existing.getOwner().getId().equals(user.getId())) {
             return ResponseEntity.status(403).body(Map.of("error", "Unauthorized"));
         }
-        return ResponseEntity.ok(PropertyResponseDto.from(propertyService.setAvailability(id, available)));
+        return ResponseEntity.ok(PropertyResponseDto.forOwner(propertyService.setAvailability(id, available)));
     }
 
     @GetMapping("/{id}")
@@ -440,7 +440,7 @@ public class PropertyController {
             throw com.roost.exception.ApiException.notFound("Property not found");
         }
         PropertyRiskService.PriceComparison comparison = propertyRiskService.getPriceComparison(property);
-        return PropertyResponseDto.from(property, comparison);
+        return PropertyResponseDto.forViewer(property, comparison, user);
     }
 
     /**
@@ -458,7 +458,7 @@ public class PropertyController {
         if (user.getRole() != Role.LANDLORD || existing.getOwner() == null || !existing.getOwner().getId().equals(user.getId())) {
             return ResponseEntity.status(403).body(Map.of("error", "Unauthorized"));
         }
-        return ResponseEntity.ok(PropertyResponseDto.from(propertyService.publishDraft(id)));
+        return ResponseEntity.ok(PropertyResponseDto.forOwner(propertyService.publishDraft(id)));
     }
 
     /**
@@ -468,7 +468,7 @@ public class PropertyController {
      */
     @GetMapping("/endorse/{token}")
     public ResponseEntity<?> getEndorsementListing(@PathVariable String token) {
-        return ResponseEntity.ok(PropertyResponseDto.from(propertyService.getByEndorsementToken(token)));
+        return ResponseEntity.ok(PropertyResponseDto.forOwner(propertyService.getByEndorsementToken(token)));
     }
 
     /**
@@ -483,7 +483,7 @@ public class PropertyController {
         if (verifierName == null || verifierName.isBlank() || verifierPhone == null || verifierPhone.isBlank()) {
             return ResponseEntity.badRequest().body(Map.of("error", "verifierName and verifierPhone are required"));
         }
-        return ResponseEntity.ok(PropertyResponseDto.from(
+        return ResponseEntity.ok(PropertyResponseDto.forOwner(
                 propertyService.endorseListing(token, verifierName, verifierPhone)));
     }
 }
