@@ -16,6 +16,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -138,5 +140,45 @@ class PropertyReportTest {
         assertEquals("UNDER_REVIEW", property.getStatus());
         verify(propertyRepository).save(property);
         verify(firebasePushService).sendToUser(eq(owner), eq("Listing under review"), anyString(), anyMap());
+    }
+
+    @Test
+    @DisplayName("getFlaggedForReview counts reports in one batched query, not one per property, and sorts by count")
+    void getFlaggedForReview_batchesCountsAndSortsDescending() {
+        Property second = new Property();
+        second.setId(101L);
+        Property third = new Property();
+        third.setId(102L);
+        when(propertyReportRepository.findPropertiesWithUnreviewedReports())
+                .thenReturn(new ArrayList<>(List.of(property, second, third)));
+
+        PropertyReportRepository.PropertyReportCount forFirst = mock(PropertyReportRepository.PropertyReportCount.class);
+        when(forFirst.getPropertyId()).thenReturn(100L);
+        when(forFirst.getReportCount()).thenReturn(1L);
+        PropertyReportRepository.PropertyReportCount forSecond = mock(PropertyReportRepository.PropertyReportCount.class);
+        when(forSecond.getPropertyId()).thenReturn(101L);
+        when(forSecond.getReportCount()).thenReturn(5L);
+        // 102 has no row in the grouped result -> must default to 0.
+        when(propertyReportRepository.countReportsByPropertyIds(any()))
+                .thenReturn(List.of(forFirst, forSecond));
+
+        List<Property> result = propertyService.getFlaggedForReview();
+
+        assertEquals(List.of(101L, 100L, 102L), result.stream().map(Property::getId).toList());
+        assertEquals(5L, result.get(0).getReportCount());
+        assertEquals(1L, result.get(1).getReportCount());
+        assertEquals(0L, result.get(2).getReportCount());
+        verify(propertyReportRepository, times(1)).countReportsByPropertyIds(any());
+        verify(propertyReportRepository, never()).countByProperty(any());
+    }
+
+    @Test
+    @DisplayName("getFlaggedForReview with nothing flagged skips the count query entirely")
+    void getFlaggedForReview_empty_skipsCountQuery() {
+        when(propertyReportRepository.findPropertiesWithUnreviewedReports()).thenReturn(new ArrayList<>());
+
+        assertTrue(propertyService.getFlaggedForReview().isEmpty());
+
+        verify(propertyReportRepository, never()).countReportsByPropertyIds(any());
     }
 }

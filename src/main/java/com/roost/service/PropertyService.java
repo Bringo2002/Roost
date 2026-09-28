@@ -642,8 +642,18 @@ public class PropertyService {
      */
     public List<Property> getFlaggedForReview() {
         List<Property> flagged = propertyReportRepository.findPropertiesWithUnreviewedReports();
+        if (flagged.isEmpty()) {
+            return flagged;
+        }
+        // One grouped query for every flagged listing's total report count,
+        // rather than a countByProperty call per listing.
+        List<Long> ids = flagged.stream().map(Property::getId).toList();
+        Map<Long, Long> countsById = propertyReportRepository.countReportsByPropertyIds(ids).stream()
+                .collect(Collectors.toMap(
+                        PropertyReportRepository.PropertyReportCount::getPropertyId,
+                        PropertyReportRepository.PropertyReportCount::getReportCount));
         for (Property property : flagged) {
-            property.setReportCount(propertyReportRepository.countByProperty(property));
+            property.setReportCount(countsById.getOrDefault(property.getId(), 0L));
         }
         flagged.sort((a, b) -> Long.compare(b.getReportCount(), a.getReportCount()));
         return flagged;
