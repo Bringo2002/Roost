@@ -3,6 +3,7 @@ package com.roost.repository;
 import com.roost.model.Property;
 import com.roost.model.User;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Slice;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -26,6 +27,61 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
      *  instead of one plus one owner SELECT per listing. */
     @EntityGraph(attributePaths = "owner")
     List<Property> findByOwnerOrderByIdDesc(User owner);
+
+    /** Backs GET /api/v2/properties/my-listings (the paginated, slim-DTO
+     *  version of /my-listings). Returns a Slice, not a Page: infinite scroll
+     *  only needs "is there another page?", and Slice answers that by
+     *  fetching size+1 rows instead of running a second COUNT(*) query.
+     *
+     *  `filter` mirrors the dashboard's filter chips and is applied here,
+     *  not client-side, because the client only ever holds the pages it has
+     *  scrolled through. The predicates below MUST stay identical to the
+     *  ones in {@link #countOwnerListings} so a chip's badge count always
+     *  equals the number of rows that chip lists:
+     *    ALL       every listing
+     *    PUBLISHED status PUBLISHED and still available
+     *    DRAFT     status DRAFT
+     *    RENTED    not available
+     *
+     *  Ordering: drafts first (they need the landlord's attention), then
+     *  newest first; id DESC is the tiebreaker that makes offset paging
+     *  deterministic. The owner is fetch-joined (a to-one join, so it can't
+     *  multiply rows or force in-memory paging) to avoid one owner SELECT per
+     *  row. Callers must pass an unsorted Pageable -- the ORDER BY lives here.
+     *
+     *  The slim DTO reads no @ElementCollection fields, so no collection
+     *  loading is triggered at all. */
+    @Query("SELECT p FROM Property p JOIN FETCH p.owner "
+            + "WHERE p.owner = :owner AND ("
+            + "  :filter = 'ALL' "
+            + "  OR (:filter = 'PUBLISHED' AND p.status = 'PUBLISHED' AND p.available = true) "
+            + "  OR (:filter = 'DRAFT' AND p.status = 'DRAFT') "
+            + "  OR (:filter = 'RENTED' AND p.available = false)) "
+            + "ORDER BY CASE WHEN p.status = 'DRAFT' THEN 0 ELSE 1 END, p.id DESC")
+    Slice<Property> findOwnerListingsPage(@Param("owner") User owner,
+                                          @Param("filter") String filter,
+                                          Pageable pageable);
+
+    /** Per-bucket totals for the dashboard's stats header and filter-chip
+     *  badges, computed over ALL of an owner's listings in one aggregate
+     *  query. With pagination the client can no longer count what it has
+     *  loaded -- it would only ever see the pages scrolled so far. Any field
+     *  can be null when the owner has no listings (SUM over zero rows). */
+    interface OwnerListingCounts {
+        Long getTotal();
+        Long getDrafts();
+        Long getAvailable();
+        Long getRented();
+        Long getVerified();
+    }
+
+    @Query("SELECT COUNT(p) AS total, "
+            + "SUM(CASE WHEN p.status = 'DRAFT' THEN 1L ELSE 0L END) AS drafts, "
+            + "SUM(CASE WHEN p.status = 'PUBLISHED' AND p.available = true THEN 1L ELSE 0L END) AS available, "
+            + "SUM(CASE WHEN p.available = false THEN 1L ELSE 0L END) AS rented, "
+            + "SUM(CASE WHEN p.verified = true THEN 1L ELSE 0L END) AS verified "
+            + "FROM Property p WHERE p.owner = :owner")
+    OwnerListingCounts countOwnerListings(@Param("owner") User owner);
 
     Optional<Property> findByEndorsementToken(String endorsementToken);
 

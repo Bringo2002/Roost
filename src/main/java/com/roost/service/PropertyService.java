@@ -243,6 +243,36 @@ public class PropertyService {
         return populateRatings(propertyRepository.findByOwnerOrderByIdDesc(owner));
     }
 
+    /** Filter values accepted by {@link #getMyListingsPage}; they mirror the
+     *  landlord dashboard's filter chips and the predicates in
+     *  PropertyRepository#findOwnerListingsPage. */
+    public static final java.util.Set<String> MY_LISTING_FILTERS =
+            java.util.Set.of("ALL", "PUBLISHED", "DRAFT", "RENTED");
+
+    /** One page of an owner's listings plus whole-portfolio counts. */
+    public record MyListingsPage(
+            org.springframework.data.domain.Slice<Property> listings,
+            PropertyRepository.OwnerListingCounts counts) {
+    }
+
+    /** Backs GET /api/v2/properties/my-listings. Ratings are deliberately not
+     *  populated -- the dashboard list doesn't show them, and skipping it
+     *  saves a query per page. The caller is responsible for clamping
+     *  page/size; `filter` is validated here since it's business input. */
+    @Transactional(readOnly = true)
+    public MyListingsPage getMyListingsPage(User owner, String filter, int page, int size) {
+        String normalized = filter == null || filter.isBlank()
+                ? "ALL"
+                : filter.trim().toUpperCase(java.util.Locale.ROOT);
+        if (!MY_LISTING_FILTERS.contains(normalized)) {
+            throw ApiException.badRequest(
+                    "Unknown filter '" + filter + "'. Expected one of: ALL, PUBLISHED, DRAFT, RENTED");
+        }
+        var listings = propertyRepository.findOwnerListingsPage(
+                owner, normalized, org.springframework.data.domain.PageRequest.of(page, size));
+        return new MyListingsPage(listings, propertyRepository.countOwnerListings(owner));
+    }
+
     /** 1 degree of latitude is ~111.32km everywhere; 1 degree of
      *  longitude shrinks toward the poles by a factor of cos(latitude).
      *  Used only to build a cheap bounding box for findNearby -- see the
@@ -612,8 +642,18 @@ public class PropertyService {
      */
     public List<Property> getFlaggedForReview() {
         List<Property> flagged = propertyReportRepository.findPropertiesWithUnreviewedReports();
+        if (flagged.isEmpty()) {
+            return flagged;
+        }
+        // One grouped query for every flagged listing's total report count,
+        // rather than a countByProperty call per listing.
+        List<Long> ids = flagged.stream().map(Property::getId).toList();
+        Map<Long, Long> countsById = propertyReportRepository.countReportsByPropertyIds(ids).stream()
+                .collect(Collectors.toMap(
+                        PropertyReportRepository.PropertyReportCount::getPropertyId,
+                        PropertyReportRepository.PropertyReportCount::getReportCount));
         for (Property property : flagged) {
-            property.setReportCount(propertyReportRepository.countByProperty(property));
+            property.setReportCount(countsById.getOrDefault(property.getId(), 0L));
         }
         flagged.sort((a, b) -> Long.compare(b.getReportCount(), a.getReportCount()));
         return flagged;
