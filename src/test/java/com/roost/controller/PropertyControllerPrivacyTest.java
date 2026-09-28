@@ -12,6 +12,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.method.annotation.AuthenticationPrincipalArgumentResolver;
@@ -62,6 +63,16 @@ class PropertyControllerPrivacyTest {
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setCustomArgumentResolvers(new AuthenticationPrincipalArgumentResolver())
                 .setControllerAdvice(new GlobalExceptionHandler())
+                // standaloneSetup() doesn't get Spring Boot's real content-
+                // negotiation config -- it independently discovers whatever
+                // HttpMessageConverters are on the classpath, and picks an
+                // XML converter ahead of JSON here (this project's AWS S3
+                // SDK dependency pulls one in transitively). Pin the
+                // converter list to Jackson JSON explicitly so responses in
+                // this test class always serialize the way the real app
+                // (and this test's jsonPath assertions) expect.
+                .setMessageConverters(new MappingJackson2HttpMessageConverter(
+                        new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules()))
                 .build();
 
         owner = new User();
