@@ -6,9 +6,11 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Slice;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.Collection;
@@ -530,4 +532,36 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
             @Param("lat") double lat,
             @Param("lng") double lng,
             Pageable pageable);
+
+    /** Just what the nearby-facilities backfill needs, so it never loads whole entities. */
+    interface GeoPoint {
+        Long getId();
+
+        Double getLatitude();
+
+        Double getLongitude();
+    }
+
+    /**
+     * GPS-verified listings that have never had a facilities lookup
+     * (nearbyFacilities IS NULL). A completed lookup that found nothing is
+     * stored as "[]", so it is NOT returned here and isn't re-queried;
+     * a failed lookup stores nothing, so it is.
+     */
+    @Query("select p.id as id, p.latitude as latitude, p.longitude as longitude "
+            + "from Property p "
+            + "where p.gpsVerified = true and p.nearbyFacilities is null "
+            + "and p.latitude is not null and p.longitude is not null "
+            + "order by p.id")
+    List<GeoPoint> findGpsVerifiedMissingNearbyFacilities(Pageable pageable);
+
+    /**
+     * Writes only the facilities column. A targeted UPDATE (rather than
+     * load + save) so a lookup that took seconds can't overwrite fields the
+     * landlord edited in the meantime.
+     */
+    @Transactional
+    @Modifying
+    @Query("update Property p set p.nearbyFacilities = :json where p.id = :id")
+    int updateNearbyFacilities(@Param("id") Long id, @Param("json") String json);
 }
