@@ -1,0 +1,1024 @@
+diff --git a/src/main/java/com/roost/repository/PropertyRepository.java b/src/main/java/com/roost/repository/PropertyRepository.java
+index 2398386..edea894 100644
+--- a/src/main/java/com/roost/repository/PropertyRepository.java
++++ b/src/main/java/com/roost/repository/PropertyRepository.java
+@@ -6,9 +6,11 @@ import org.springframework.data.domain.Pageable;
+ import org.springframework.data.domain.Slice;
+ import org.springframework.data.jpa.repository.EntityGraph;
+ import org.springframework.data.jpa.repository.JpaRepository;
++import org.springframework.data.jpa.repository.Modifying;
+ import org.springframework.data.jpa.repository.Query;
+ import org.springframework.data.repository.query.Param;
+ import org.springframework.stereotype.Repository;
++import org.springframework.transaction.annotation.Transactional;
+ 
+ import java.time.LocalDateTime;
+ import java.util.Collection;
+@@ -530,4 +532,36 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
+             @Param("lat") double lat,
+             @Param("lng") double lng,
+             Pageable pageable);
++
++    /** Just what the nearby-facilities backfill needs, so it never loads whole entities. */
++    interface GeoPoint {
++        Long getId();
++
++        Double getLatitude();
++
++        Double getLongitude();
++    }
++
++    /**
++     * GPS-verified listings that have never had a facilities lookup
++     * (nearbyFacilities IS NULL). A completed lookup that found nothing is
++     * stored as "[]", so it is NOT returned here and isn't re-queried;
++     * a failed lookup stores nothing, so it is.
++     */
++    @Query("select p.id as id, p.latitude as latitude, p.longitude as longitude "
++            + "from Property p "
++            + "where p.gpsVerified = true and p.nearbyFacilities is null "
++            + "and p.latitude is not null and p.longitude is not null "
++            + "order by p.id")
++    List<GeoPoint> findGpsVerifiedMissingNearbyFacilities(Pageable pageable);
++
++    /**
++     * Writes only the facilities column. A targeted UPDATE (rather than
++     * load + save) so a lookup that took seconds can't overwrite fields the
++     * landlord edited in the meantime.
++     */
++    @Transactional
++    @Modifying
++    @Query("update Property p set p.nearbyFacilities = :json where p.id = :id")
++    int updateNearbyFacilities(@Param("id") Long id, @Param("json") String json);
+ }
+diff --git a/src/main/java/com/roost/service/NearbyFacilitiesBackfillTask.java b/src/main/java/com/roost/service/NearbyFacilitiesBackfillTask.java
+new file mode 100644
+index 0000000..583e9a0
+--- /dev/null
++++ b/src/main/java/com/roost/service/NearbyFacilitiesBackfillTask.java
+@@ -0,0 +1,104 @@
++package com.roost.service;
++
++import com.roost.repository.PropertyRepository;
++import org.slf4j.Logger;
++import org.slf4j.LoggerFactory;
++import org.springframework.beans.factory.annotation.Value;
++import org.springframework.data.domain.PageRequest;
++import org.springframework.scheduling.annotation.Scheduled;
++import org.springframework.stereotype.Component;
++
++import java.util.List;
++
++/**
++ * Fills in nearby facilities for GPS-verified listings that never got them:
++ * everything verified before the feature existed, plus any listing whose
++ * post-verification lookup failed (Overpass down).
++ *
++ * Works through a small batch per run, one listing at a time with a pause
++ * between lookups -- Overpass is a free shared service, so this stays well
++ * inside its fair-use limits -- and stops the run early if lookups keep
++ * failing, rather than hammering an unavailable service. When nothing is
++ * left the run is a single cheap query.
++ *
++ * Safe if two app instances run it at once: the update is idempotent.
++ *
++ * Config (all optional):
++ *   roost.facilities.backfill.enabled      default true
++ *   roost.facilities.backfill.batch-size   default 20
++ *   roost.facilities.backfill.pause-ms     default 2000
++ *   roost.facilities.backfill.interval-ms  default 900000 (15 min)
++ *   roost.facilities.backfill.initial-delay-ms default 120000
++ */
++@Component
++public class NearbyFacilitiesBackfillTask {
++
++    private static final Logger log = LoggerFactory.getLogger(NearbyFacilitiesBackfillTask.class);
++
++    /** Give up on this run after this many failures in a row. */
++    static final int MAX_CONSECUTIVE_FAILURES = 3;
++
++    private final PropertyRepository propertyRepository;
++    private final NearbyFacilitiesEnricher enricher;
++    private final boolean enabled;
++    private final int batchSize;
++    private final long pauseMillis;
++
++    public NearbyFacilitiesBackfillTask(
++            PropertyRepository propertyRepository,
++            NearbyFacilitiesEnricher enricher,
++            @Value("${roost.facilities.backfill.enabled:true}") boolean enabled,
++            @Value("${roost.facilities.backfill.batch-size:20}") int batchSize,
++            @Value("${roost.facilities.backfill.pause-ms:2000}") long pauseMillis) {
++        this.propertyRepository = propertyRepository;
++        this.enricher = enricher;
++        this.enabled = enabled;
++        this.batchSize = batchSize;
++        this.pauseMillis = pauseMillis;
++    }
++
++    @Scheduled(
++            fixedDelayString = "${roost.facilities.backfill.interval-ms:900000}",
++            initialDelayString = "${roost.facilities.backfill.initial-delay-ms:120000}")
++    public void run() {
++        if (!enabled) return;
++
++        List<PropertyRepository.GeoPoint> batch;
++        try {
++            batch = propertyRepository.findGpsVerifiedMissingNearbyFacilities(PageRequest.of(0, batchSize));
++        } catch (Exception e) {
++            log.warn("Nearby-facilities backfill: could not load batch: {}", e.getMessage());
++            return;
++        }
++        if (batch.isEmpty()) return;
++
++        int stored = 0;
++        int consecutiveFailures = 0;
++        for (PropertyRepository.GeoPoint point : batch) {
++            boolean ok = enricher.enrich(point.getId(), point.getLatitude(), point.getLongitude());
++            if (ok) {
++                stored++;
++                consecutiveFailures = 0;
++            } else if (++consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
++                log.warn("Nearby-facilities backfill: {} lookups failed in a row, pausing until next run",
++                        consecutiveFailures);
++                break;
++            }
++            if (!pause()) break;
++        }
++        log.info("Nearby-facilities backfill: stored {} of {} attempted (batch of {})",
++                stored, batch.size(), batchSize);
++    }
++
++    /** @return false if interrupted (shutdown), true otherwise. */
++    private boolean pause() {
++        if (pauseMillis <= 0) return true;
++        try {
++            Thread.sleep(pauseMillis);
++            return true;
++        } catch (InterruptedException e) {
++            Thread.currentThread().interrupt();
++            return false;
++        }
++    }
++}
+diff --git a/src/main/java/com/roost/service/NearbyFacilitiesEnricher.java b/src/main/java/com/roost/service/NearbyFacilitiesEnricher.java
+new file mode 100644
+index 0000000..65581ab
+--- /dev/null
++++ b/src/main/java/com/roost/service/NearbyFacilitiesEnricher.java
+@@ -0,0 +1,58 @@
++package com.roost.service;
++
++import com.fasterxml.jackson.databind.ObjectMapper;
++import com.roost.repository.PropertyRepository;
++import org.slf4j.Logger;
++import org.slf4j.LoggerFactory;
++import org.springframework.stereotype.Component;
++
++import java.util.List;
++import java.util.Optional;
++
++/**
++ * Looks up a listing's nearby facilities and stores them.
++ *
++ * Deliberately NOT @Transactional: the lookup can spend tens of seconds in
++ * Overpass retries, and holding a database connection open for that would
++ * starve the pool. The database is touched only at the very end, by one
++ * short single-statement update.
++ *
++ * Shared by the after-GPS-verification listener and the backfill job, so
++ * both behave identically.
++ */
++@Component
++public class NearbyFacilitiesEnricher {
++
++    private static final Logger log = LoggerFactory.getLogger(NearbyFacilitiesEnricher.class);
++
++    private final NearbyFacilitiesService nearbyFacilitiesService;
++    private final PropertyRepository propertyRepository;
++    private final ObjectMapper objectMapper = new ObjectMapper();
++
++    public NearbyFacilitiesEnricher(NearbyFacilitiesService nearbyFacilitiesService,
++                                    PropertyRepository propertyRepository) {
++        this.nearbyFacilitiesService = nearbyFacilitiesService;
++        this.propertyRepository = propertyRepository;
++    }
++
++    /**
++     * @return true if facilities (possibly an empty list, meaning
++     *         "genuinely nothing nearby") were stored; false if Overpass
++     *         couldn't answer, in which case NOTHING is written so the
++     *         listing stays eligible for the backfill to retry later.
++     */
++    public boolean enrich(Long propertyId, double lat, double lng) {
++        Optional<List<NearbyFacilitiesService.Facility>> facilities = nearbyFacilitiesService.lookup(lat, lng);
++        if (facilities.isEmpty()) {
++            log.warn("Nearby facilities unavailable for property {}; leaving unset to retry later", propertyId);
++            return false;
++        }
++        try {
++            String json = objectMapper.writeValueAsString(facilities.get());
++            return propertyRepository.updateNearbyFacilities(propertyId, json) > 0;
++        } catch (Exception e) {
++            log.warn("Failed to store nearby facilities for property {}: {}", propertyId, e.getMessage());
++            return false;
++        }
++    }
++}
+diff --git a/src/main/java/com/roost/service/NearbyFacilitiesService.java b/src/main/java/com/roost/service/NearbyFacilitiesService.java
+index 825ee11..8173541 100644
+--- a/src/main/java/com/roost/service/NearbyFacilitiesService.java
++++ b/src/main/java/com/roost/service/NearbyFacilitiesService.java
+@@ -3,6 +3,9 @@ package com.roost.service;
+ import com.fasterxml.jackson.databind.JsonNode;
+ import com.fasterxml.jackson.databind.ObjectMapper;
+ import com.roost.util.GeoUtils;
++import org.slf4j.Logger;
++import org.slf4j.LoggerFactory;
++import org.springframework.beans.factory.annotation.Autowired;
+ import org.springframework.stereotype.Service;
+ 
+ import java.net.URI;
+@@ -14,8 +17,12 @@ import java.nio.charset.StandardCharsets;
+ import java.time.Duration;
+ import java.util.ArrayList;
+ import java.util.Comparator;
++import java.util.LinkedHashMap;
+ import java.util.List;
+ import java.util.Locale;
++import java.util.Map;
++import java.util.Optional;
++import java.util.function.LongSupplier;
+ 
+ /**
+  * Looks up nearby points of interest -- the closest shopping mall,
+@@ -28,43 +35,189 @@ import java.util.Locale;
+ @Service
+ public class NearbyFacilitiesService {
+ 
++    private static final Logger log = LoggerFactory.getLogger(NearbyFacilitiesService.class);
++
+     private static final String OVERPASS_ENDPOINT = "https://overpass-api.de/api/interpreter";
+     private static final int SEARCH_RADIUS_METERS = 3000;
+     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(10);
+ 
+-    private final HttpClient httpClient = HttpClient.newBuilder()
+-            .connectTimeout(REQUEST_TIMEOUT)
+-            .build();
++    /** Total tries per lookup (1 initial + 2 retries). */
++    static final int MAX_ATTEMPTS = 3;
++    /** Wait before retry n is BASE * 2^(n-1): 1s, then 2s. */
++    static final long BACKOFF_BASE_MILLIS = 1_000;
++    /** Overpass answers 429 when rate limiting and 502/503/504 when overloaded. */
++    private static final java.util.Set<Integer> RETRYABLE_STATUSES = java.util.Set.of(429, 502, 503, 504);
++
++    /**
++     * Results are cached by coordinates rounded to 4 decimal places (~11 m),
++     * for a day: nothing near a building changes faster than that, and
++     * listings in the same building/compound (or a re-verification) then
++     * cost no Overpass call at all. Distances in a cached result are
++     * measured from the first point that populated it, so they can be off
++     * by up to roughly 11 m for a neighbouring listing -- irrelevant next to
++     * the "600m from X" precision shown to users.
++     */
++    private static final long CACHE_TTL_MILLIS = Duration.ofHours(24).toMillis();
++    private static final int CACHE_MAX_ENTRIES = 500;
++
++    /** One HTTP round trip to Overpass; a seam so retry logic is testable offline. */
++    interface Transport {
++        Response post(String formBody) throws Exception;
++
++        record Response(int status, String body) {}
++    }
++
++    /** Backoff sleeper; a seam so tests don't actually wait. */
++    interface Sleeper {
++        void sleep(long millis) throws InterruptedException;
++    }
++
++    private record CacheEntry(List<Facility> facilities, long expiresAtMillis) {}
++
++    private final Transport transport;
++    private final Sleeper sleeper;
++    private final LongSupplier clockMillis;
+     private final ObjectMapper objectMapper = new ObjectMapper();
+ 
++    // Access-ordered LRU, guarded by "this" (lookups are rare and short).
++    private final Map<String, CacheEntry> cache = new LinkedHashMap<>(64, 0.75f, true) {
++        @Override
++        protected boolean removeEldestEntry(Map.Entry<String, CacheEntry> eldest) {
++            return size() > CACHE_MAX_ENTRIES;
++        }
++    };
++
+     public record Facility(String name, String category, double distanceMeters, double lat, double lng) {}
+ 
+-    /**
+-     * Returns the single closest mall, hospital, and major road to
+-     * [lat]/[lng] (omitting any category with nothing found within
+-     * range), sorted nearest-first. Never throws -- Overpass is a free
+-     * public service that can be slow or briefly unavailable, and a
+-     * listing must still save successfully either way; callers get an
+-     * empty list on any failure rather than an exception.
+-     */
+-    public List<Facility> findNearby(double lat, double lng) {
+-        try {
+-            String query = buildQuery(lat, lng);
+-            String body = "data=" + URLEncoder.encode(query, StandardCharsets.UTF_8);
++    @Autowired
++    public NearbyFacilitiesService() {
++        this(overpassTransport(), Thread::sleep, System::currentTimeMillis);
++    }
+ 
++    NearbyFacilitiesService(Transport transport, Sleeper sleeper, LongSupplier clockMillis) {
++        this.transport = transport;
++        this.sleeper = sleeper;
++        this.clockMillis = clockMillis;
++    }
++
++    private static Transport overpassTransport() {
++        HttpClient httpClient = HttpClient.newBuilder().connectTimeout(REQUEST_TIMEOUT).build();
++        return formBody -> {
+             HttpRequest request = HttpRequest.newBuilder()
+                     .uri(URI.create(OVERPASS_ENDPOINT))
+                     .timeout(REQUEST_TIMEOUT)
+                     .header("Content-Type", "application/x-www-form-urlencoded")
+-                    .POST(HttpRequest.BodyPublishers.ofString(body))
++                    .POST(HttpRequest.BodyPublishers.ofString(formBody))
+                     .build();
+-
+             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+-            if (response.statusCode() != 200) return List.of();
++            return new Transport.Response(response.statusCode(), response.body());
++        };
++    }
++
++    /**
++     * Like [lookup], but collapses failure into an empty list. Kept for
++     * callers that can't tell "nothing nearby" from "Overpass was down"
++     * anyway; new code should use [lookup] so a failed lookup is never
++     * stored as if it were a real, empty answer.
++     */
++    public List<Facility> findNearby(double lat, double lng) {
++        return lookup(lat, lng).orElse(List.of());
++    }
++
++    /**
++     * Returns the single closest mall, hospital, and major road to
++     * [lat]/[lng] (omitting any category with nothing found within
++     * range), sorted nearest-first, or Optional.empty() if Overpass could
++     * not give a trustworthy answer.
++     *
++     * The distinction matters: Optional.of(emptyList) means "looked, and
++     * there is genuinely nothing within 3 km" and is safe to store;
++     * Optional.empty() means "don't know" and must NOT be stored, or the
++     * listing would show no facilities forever after one bad request.
++     *
++     * Never throws. Transient failures (timeouts, connection errors, HTTP
++     * 429/502/503/504, and Overpass's HTTP-200-but-"runtime error" query
++     * timeouts) are retried with exponential backoff; only successful
++     * answers are cached. Blocks the calling thread while retrying, so call
++     * it off the request thread (see NearbyFacilitiesUpdateListener).
++     */
++    public Optional<List<Facility>> lookup(double lat, double lng) {
++        String key = cacheKey(lat, lng);
++        List<Facility> cached = cacheGet(key);
++        if (cached != null) return Optional.of(cached);
++
++        String body = "data=" + URLEncoder.encode(buildQuery(lat, lng), StandardCharsets.UTF_8);
++
++        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
++            boolean retryable;
++            try {
++                Transport.Response response = transport.post(body);
++                if (response.status() == 200) {
++                    Optional<List<Facility>> parsed = parseResponse(response.body(), lat, lng);
++                    if (parsed.isPresent()) {
++                        cachePut(key, parsed.get());
++                        return parsed;
++                    }
++                    retryable = true; // 200 carrying an Overpass runtime error
++                } else {
++                    retryable = RETRYABLE_STATUSES.contains(response.status());
++                    if (!retryable) {
++                        log.warn("Overpass returned non-retryable HTTP {}", response.status());
++                        return Optional.empty();
++                    }
++                }
++            } catch (InterruptedException e) {
++                Thread.currentThread().interrupt();
++                return Optional.empty();
++            } catch (Exception e) {
++                retryable = true; // timeout / connection reset / bad JSON
++                log.debug("Overpass attempt {} failed: {}", attempt, e.toString());
++            }
++
++            if (retryable && attempt < MAX_ATTEMPTS) {
++                try {
++                    sleeper.sleep(BACKOFF_BASE_MILLIS << (attempt - 1));
++                } catch (InterruptedException e) {
++                    Thread.currentThread().interrupt();
++                    return Optional.empty();
++                }
++            }
++        }
++        log.warn("Overpass lookup failed after {} attempts for ({}, {})", MAX_ATTEMPTS, lat, lng);
++        return Optional.empty();
++    }
+ 
+-            return parseClosestPerCategory(response.body(), lat, lng);
++    private static String cacheKey(double lat, double lng) {
++        return String.format(Locale.ROOT, "%.4f,%.4f", lat, lng);
++    }
++
++    private synchronized List<Facility> cacheGet(String key) {
++        CacheEntry entry = cache.get(key);
++        if (entry == null) return null;
++        if (entry.expiresAtMillis() <= clockMillis.getAsLong()) {
++            cache.remove(key);
++            return null;
++        }
++        return entry.facilities();
++    }
++
++    private synchronized void cachePut(String key, List<Facility> facilities) {
++        cache.put(key, new CacheEntry(List.copyOf(facilities), clockMillis.getAsLong() + CACHE_TTL_MILLIS));
++    }
++
++    /** Empty when the body is unusable or Overpass reported a runtime error. */
++    private Optional<List<Facility>> parseResponse(String body, double lat, double lng) {
++        try {
++            JsonNode root = objectMapper.readTree(body);
++            String remark = root.path("remark").asText("");
++            if (remark.startsWith("runtime error")) {
++                log.debug("Overpass runtime error: {}", remark);
++                return Optional.empty();
++            }
++            if (!root.has("elements")) return Optional.empty();
++            return Optional.of(parseClosestPerCategory(root.path("elements"), lat, lng));
+         } catch (Exception e) {
+-            return List.of();
++            return Optional.empty();
+         }
+     }
+ 
+@@ -84,8 +237,7 @@ public class NearbyFacilitiesService {
+                 SEARCH_RADIUS_METERS, lat, lng);
+     }
+ 
+-    private List<Facility> parseClosestPerCategory(String json, double originLat, double originLng) throws Exception {
+-        JsonNode elements = objectMapper.readTree(json).path("elements");
++    private List<Facility> parseClosestPerCategory(JsonNode elements, double originLat, double originLng) {
+ 
+         Facility closestMall = null;
+         Facility closestHospital = null;
+diff --git a/src/main/java/com/roost/service/NearbyFacilitiesUpdateListener.java b/src/main/java/com/roost/service/NearbyFacilitiesUpdateListener.java
+index 616a868..6a5d0be 100644
+--- a/src/main/java/com/roost/service/NearbyFacilitiesUpdateListener.java
++++ b/src/main/java/com/roost/service/NearbyFacilitiesUpdateListener.java
+@@ -1,81 +1,35 @@
+ package com.roost.service;
+ 
+-import com.fasterxml.jackson.databind.ObjectMapper;
+ import com.roost.event.GpsVerifiedEvent;
+-import com.roost.model.Property;
+-import com.roost.repository.PropertyRepository;
+-import org.slf4j.Logger;
+-import org.slf4j.LoggerFactory;
+ import org.springframework.scheduling.annotation.Async;
+ import org.springframework.stereotype.Component;
+-import org.springframework.transaction.annotation.Propagation;
+-import org.springframework.transaction.annotation.Transactional;
+ import org.springframework.transaction.event.TransactionPhase;
+ import org.springframework.transaction.event.TransactionalEventListener;
+ 
+-import java.util.List;
+-
+ import static com.roost.config.AsyncConfig.ENRICHMENT_EXECUTOR;
+ 
+ /**
+- * Populates Property.nearbyFacilities out-of-band after GPS verification.
+- *
+- * This used to run synchronously inside PropertyService.verifyGpsLocation,
+- * which meant a landlord verifying their listing's location was stuck
+- * waiting on a free, best-effort third-party API (Overpass, up to a 10s
+- * timeout) for something that's purely a "nice to have" badge on the
+- * listing. Moving it here means:
+- *  - the verification request itself returns as soon as the GPS check
+- *    and save are done, independent of Overpass's health;
+- *  - the listener only fires AFTER the verification transaction commits
+- *    (TransactionPhase.AFTER_COMMIT), so it can't race the still-open
+- *    write that set gpsVerified/gpsVerifiedAt;
+- *  - it runs on a small dedicated pool (see AsyncConfig), not the
+- *    request thread, so a slow Overpass response can't tie up a web
+- *    worker.
++ * Populates Property.nearbyFacilities right after GPS verification, off the
++ * request thread (see AsyncConfig) and only once the verification
++ * transaction has committed (AFTER_COMMIT), so the verification request
++ * itself never waits on Overpass.
+  *
+- * Still best-effort: any failure here (Overpass down, JSON error, the
+- * property having been deleted in the meantime) is logged and dropped --
+- * nearbyFacilities simply stays whatever it was before.
++ * Best-effort: if Overpass can't answer even after retries, nothing is
++ * stored and NearbyFacilitiesBackfillTask picks the listing up later.
++ * The work itself lives in NearbyFacilitiesEnricher.
+  */
+ @Component
+ public class NearbyFacilitiesUpdateListener {
+ 
+-    private static final Logger log = LoggerFactory.getLogger(NearbyFacilitiesUpdateListener.class);
+-
+-    private final NearbyFacilitiesService nearbyFacilitiesService;
+-    private final PropertyRepository propertyRepository;
+-    private final ObjectMapper objectMapper = new ObjectMapper();
++    private final NearbyFacilitiesEnricher enricher;
+ 
+-    public NearbyFacilitiesUpdateListener(NearbyFacilitiesService nearbyFacilitiesService,
+-                                           PropertyRepository propertyRepository) {
+-        this.nearbyFacilitiesService = nearbyFacilitiesService;
+-        this.propertyRepository = propertyRepository;
++    public NearbyFacilitiesUpdateListener(NearbyFacilitiesEnricher enricher) {
++        this.enricher = enricher;
+     }
+ 
+     @Async(ENRICHMENT_EXECUTOR)
+     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+-    @Transactional(propagation = Propagation.REQUIRES_NEW)
+     public void onGpsVerified(GpsVerifiedEvent event) {
+-        try {
+-            List<NearbyFacilitiesService.Facility> facilities =
+-                    nearbyFacilitiesService.findNearby(event.latitude(), event.longitude());
+-
+-            propertyRepository.findById(event.propertyId()).ifPresent(property -> {
+-                property.setNearbyFacilities(writeFacilitiesJson(facilities));
+-                propertyRepository.save(property);
+-            });
+-        } catch (Exception e) {
+-            log.warn("Failed to populate nearbyFacilities for property {}: {}",
+-                    event.propertyId(), e.getMessage());
+-        }
+-    }
+-
+-    private String writeFacilitiesJson(List<NearbyFacilitiesService.Facility> facilities) {
+-        try {
+-            return objectMapper.writeValueAsString(facilities);
+-        } catch (Exception e) {
+-            return null;
+-        }
++        enricher.enrich(event.propertyId(), event.latitude(), event.longitude());
+     }
+ }
+diff --git a/src/test/java/com/roost/service/NearbyFacilitiesBackfillTaskTest.java b/src/test/java/com/roost/service/NearbyFacilitiesBackfillTaskTest.java
+new file mode 100644
+index 0000000..3eb3817
+--- /dev/null
++++ b/src/test/java/com/roost/service/NearbyFacilitiesBackfillTaskTest.java
+@@ -0,0 +1,105 @@
++package com.roost.service;
++
++import com.roost.repository.PropertyRepository;
++import org.junit.jupiter.api.Test;
++import org.junit.jupiter.api.extension.ExtendWith;
++import org.mockito.Mock;
++import org.mockito.junit.jupiter.MockitoExtension;
++import org.springframework.data.domain.Pageable;
++
++import java.util.List;
++
++import static org.junit.jupiter.api.Assertions.*;
++import static org.mockito.ArgumentMatchers.any;
++import static org.mockito.ArgumentMatchers.anyDouble;
++import static org.mockito.ArgumentMatchers.eq;
++import static org.mockito.Mockito.*;
++
++@ExtendWith(MockitoExtension.class)
++class NearbyFacilitiesBackfillTaskTest {
++
++    @Mock
++    private PropertyRepository propertyRepository;
++    @Mock
++    private NearbyFacilitiesEnricher enricher;
++
++    private record Point(Long id, Double latitude, Double longitude) implements PropertyRepository.GeoPoint {
++        @Override
++        public Long getId() { return id; }
++        @Override
++        public Double getLatitude() { return latitude; }
++        @Override
++        public Double getLongitude() { return longitude; }
++    }
++
++    private NearbyFacilitiesBackfillTask task(boolean enabled, int batchSize, long pauseMillis) {
++        return new NearbyFacilitiesBackfillTask(propertyRepository, enricher, enabled, batchSize, pauseMillis);
++    }
++
++    @Test
++    void doesNothingWhenDisabled() {
++        task(false, 20, 0).run();
++        verifyNoInteractions(propertyRepository, enricher);
++    }
++
++    @Test
++    void doesNothingWhenNoListingsAreMissingFacilities() {
++        when(propertyRepository.findGpsVerifiedMissingNearbyFacilities(any(Pageable.class))).thenReturn(List.of());
++        task(true, 20, 0).run();
++        verifyNoInteractions(enricher);
++    }
++
++    @Test
++    void enrichesEveryListingInTheBatchOnSuccess() {
++        var batch = List.<PropertyRepository.GeoPoint>of(
++                new Point(1L, -1.28, 36.81), new Point(2L, -1.29, 36.82), new Point(3L, -1.30, 36.83));
++        when(propertyRepository.findGpsVerifiedMissingNearbyFacilities(any(Pageable.class))).thenReturn(batch);
++        when(enricher.enrich(anyLong2(), anyDouble(), anyDouble())).thenReturn(true);
++
++        task(true, 20, 0).run();
++
++        verify(enricher).enrich(eq(1L), eq(-1.28), eq(36.81));
++        verify(enricher).enrich(eq(2L), eq(-1.29), eq(36.82));
++        verify(enricher).enrich(eq(3L), eq(-1.30), eq(36.83));
++    }
++
++    @Test
++    void stopsEarlyAfterThreeConsecutiveFailures() {
++        var batch = List.<PropertyRepository.GeoPoint>of(
++                new Point(1L, -1.0, 36.0), new Point(2L, -1.0, 36.0), new Point(3L, -1.0, 36.0),
++                new Point(4L, -1.0, 36.0), new Point(5L, -1.0, 36.0));
++        when(propertyRepository.findGpsVerifiedMissingNearbyFacilities(any(Pageable.class))).thenReturn(batch);
++        when(enricher.enrich(anyLong2(), anyDouble(), anyDouble())).thenReturn(false);
++
++        task(true, 20, 0).run();
++
++        // exactly MAX_CONSECUTIVE_FAILURES attempts, then the run bails
++        verify(enricher, times(NearbyFacilitiesBackfillTask.MAX_CONSECUTIVE_FAILURES)).enrich(anyLong2(), anyDouble(), anyDouble());
++    }
++
++    @Test
++    void aSuccessResetsTheConsecutiveFailureCount() {
++        // fail, fail, succeed, fail, fail, succeed: never 3 in a row, so all 6 run.
++        var batch = List.<PropertyRepository.GeoPoint>of(
++                new Point(1L, -1.0, 36.0), new Point(2L, -1.0, 36.0), new Point(3L, -1.0, 36.0),
++                new Point(4L, -1.0, 36.0), new Point(5L, -1.0, 36.0), new Point(6L, -1.0, 36.0));
++        when(propertyRepository.findGpsVerifiedMissingNearbyFacilities(any(Pageable.class))).thenReturn(batch);
++        when(enricher.enrich(anyLong2(), anyDouble(), anyDouble()))
++                .thenReturn(false, false, true, false, false, true);
++
++        task(true, 20, 0).run();
++
++        verify(enricher, times(6)).enrich(anyLong2(), anyDouble(), anyDouble());
++    }
++
++    @Test
++    void aFailureLoadingTheBatchIsSwallowed() {
++        when(propertyRepository.findGpsVerifiedMissingNearbyFacilities(any(Pageable.class)))
++                .thenThrow(new RuntimeException("db unavailable"));
++
++        assertDoesNotThrow(() -> task(true, 20, 0).run());
++        verifyNoInteractions(enricher);
++    }
++
++    private static long anyLong2() { return org.mockito.ArgumentMatchers.anyLong(); }
++}
+diff --git a/src/test/java/com/roost/service/NearbyFacilitiesEnricherTest.java b/src/test/java/com/roost/service/NearbyFacilitiesEnricherTest.java
+new file mode 100644
+index 0000000..444eb36
+--- /dev/null
++++ b/src/test/java/com/roost/service/NearbyFacilitiesEnricherTest.java
+@@ -0,0 +1,77 @@
++package com.roost.service;
++
++import com.roost.repository.PropertyRepository;
++import org.junit.jupiter.api.Test;
++import org.junit.jupiter.api.extension.ExtendWith;
++import org.mockito.ArgumentCaptor;
++import org.mockito.Mock;
++import org.mockito.junit.jupiter.MockitoExtension;
++
++import java.util.List;
++import java.util.Optional;
++
++import static org.junit.jupiter.api.Assertions.*;
++import static org.mockito.ArgumentMatchers.anyLong;
++import static org.mockito.ArgumentMatchers.anyString;
++import static org.mockito.Mockito.*;
++
++@ExtendWith(MockitoExtension.class)
++class NearbyFacilitiesEnricherTest {
++
++    @Mock
++    private NearbyFacilitiesService nearbyFacilitiesService;
++    @Mock
++    private PropertyRepository propertyRepository;
++
++    private NearbyFacilitiesEnricher enricher;
++
++    private NearbyFacilitiesEnricher newEnricher() {
++        return new NearbyFacilitiesEnricher(nearbyFacilitiesService, propertyRepository);
++    }
++
++    @Test
++    void storesFacilitiesAsJsonAndReturnsTrueOnSuccess() {
++        var facility = new NearbyFacilitiesService.Facility("TRM Mall", "mall", 600.0, -1.29, 36.82);
++        when(nearbyFacilitiesService.lookup(-1.28, 36.81)).thenReturn(Optional.of(List.of(facility)));
++        when(propertyRepository.updateNearbyFacilities(eq(42L), anyString())).thenReturn(1);
++        enricher = newEnricher();
++
++        boolean result = enricher.enrich(42L, -1.28, 36.81);
++
++        assertTrue(result);
++        ArgumentCaptor<String> jsonCaptor = ArgumentCaptor.forClass(String.class);
++        verify(propertyRepository).updateNearbyFacilities(eq(42L), jsonCaptor.capture());
++        assertTrue(jsonCaptor.getValue().contains("TRM Mall"));
++        assertTrue(jsonCaptor.getValue().contains("\"category\":\"mall\""));
++    }
++
++    @Test
++    void storesAnEmptyJsonArrayWhenGenuinelyNothingNearby() {
++        when(nearbyFacilitiesService.lookup(-1.28, 36.81)).thenReturn(Optional.of(List.of()));
++        when(propertyRepository.updateNearbyFacilities(eq(42L), anyString())).thenReturn(1);
++        enricher = newEnricher();
++
++        assertTrue(enricher.enrich(42L, -1.28, 36.81));
++        verify(propertyRepository).updateNearbyFacilities(42L, "[]");
++    }
++
++    @Test
++    void doesNotWriteAnythingWhenLookupFails() {
++        when(nearbyFacilitiesService.lookup(-1.28, 36.81)).thenReturn(Optional.empty());
++        enricher = newEnricher();
++
++        boolean result = enricher.enrich(42L, -1.28, 36.81);
++
++        assertFalse(result);
++        verify(propertyRepository, never()).updateNearbyFacilities(anyLong(), anyString());
++    }
++
++    @Test
++    void returnsFalseIfTheRowWasGoneByTheTimeItWroteBack() {
++        when(nearbyFacilitiesService.lookup(-1.28, 36.81)).thenReturn(Optional.of(List.of()));
++        when(propertyRepository.updateNearbyFacilities(eq(42L), anyString())).thenReturn(0); // no row matched
++        enricher = newEnricher();
++
++        assertFalse(enricher.enrich(42L, -1.28, 36.81));
++    }
++}
+diff --git a/src/test/java/com/roost/service/NearbyFacilitiesServiceTest.java b/src/test/java/com/roost/service/NearbyFacilitiesServiceTest.java
+new file mode 100644
+index 0000000..3483087
+--- /dev/null
++++ b/src/test/java/com/roost/service/NearbyFacilitiesServiceTest.java
+@@ -0,0 +1,253 @@
++package com.roost.service;
++
++import com.roost.service.NearbyFacilitiesService.Facility;
++import com.roost.service.NearbyFacilitiesService.Transport;
++import org.junit.jupiter.api.BeforeEach;
++import org.junit.jupiter.api.DisplayName;
++import org.junit.jupiter.api.Test;
++
++import java.io.IOException;
++import java.util.ArrayDeque;
++import java.util.ArrayList;
++import java.util.Deque;
++import java.util.List;
++import java.util.Optional;
++import java.util.concurrent.atomic.AtomicLong;
++
++import static org.junit.jupiter.api.Assertions.*;
++
++/**
++ * Exercises retry/backoff, the failure-vs-genuinely-empty distinction,
++ * Overpass's HTTP-200 "runtime error" case, and the cache -- all offline,
++ * via a scripted fake Transport and a recording Sleeper.
++ */
++class NearbyFacilitiesServiceTest {
++
++    private static final double LAT = -1.286389;
++    private static final double LNG = 36.817223;
++
++    private static final String THREE_CATEGORIES = """
++            {"elements":[
++              {"type":"way","center":{"lat":-1.2800,"lon":36.8200},
++               "tags":{"highway":"trunk","name":"Thika Superhighway"}},
++              {"type":"node","lat":-1.2900,"lon":36.8200,
++               "tags":{"shop":"mall","name":"TRM Mall"}},
++              {"type":"way","center":{"lat":-1.3000,"lon":36.8300},
++               "tags":{"amenity":"hospital","name":"Aga Khan Hospital"}},
++              {"type":"node","lat":-1.2864,"lon":36.8173,
++               "tags":{"shop":"mall"}}
++            ]}""";
++
++    /** Plays back scripted outcomes: a Response, or an Exception to throw. */
++    private static class ScriptedTransport implements Transport {
++        private final Deque<Object> script = new ArrayDeque<>();
++        int calls = 0;
++
++        ScriptedTransport then(int status, String body) {
++            script.add(new Response(status, body));
++            return this;
++        }
++
++        ScriptedTransport thenThrow(Exception e) {
++            script.add(e);
++            return this;
++        }
++
++        @Override
++        public Response post(String formBody) throws Exception {
++            calls++;
++            Object next = script.poll();
++            if (next == null) throw new IllegalStateException("script exhausted (call " + calls + ")");
++            if (next instanceof Exception e) throw e;
++            return (Response) next;
++        }
++    }
++
++    private final List<Long> sleeps = new ArrayList<>();
++    private final AtomicLong clock = new AtomicLong(1_000_000);
++    private ScriptedTransport transport;
++
++    @BeforeEach
++    void setUp() {
++        transport = new ScriptedTransport();
++        sleeps.clear();
++    }
++
++    private NearbyFacilitiesService service() {
++        return new NearbyFacilitiesService(transport, sleeps::add, clock::get);
++    }
++
++    @Test
++    @DisplayName("returns the closest of each category, nearest first, skipping unnamed features")
++    void parsesClosestPerCategory() {
++        transport.then(200, THREE_CATEGORIES);
++
++        Optional<List<Facility>> result = service().lookup(LAT, LNG);
++
++        assertTrue(result.isPresent());
++        List<Facility> facilities = result.get();
++        // Nearest-first by construction: mall ~506m, road ~775m, hospital ~2072m
++        // from LAT/LNG given the coordinates in THREE_CATEGORIES.
++        assertEquals(List.of("mall", "road", "hospital"),
++                facilities.stream().map(Facility::category).toList());
++        assertTrue(facilities.get(0).distanceMeters() <= facilities.get(1).distanceMeters());
++        assertTrue(facilities.get(1).distanceMeters() <= facilities.get(2).distanceMeters());
++        assertEquals("TRM Mall", facilities.get(0).name());
++        assertEquals(1, transport.calls);
++        assertTrue(sleeps.isEmpty());
++    }
++
++    @Test
++    @DisplayName("a genuine empty answer is Optional.of(empty), NOT a failure")
++    void genuineEmptyIsNotFailure() {
++        transport.then(200, "{\"elements\":[]}");
++
++        Optional<List<Facility>> result = service().lookup(LAT, LNG);
++
++        assertTrue(result.isPresent());
++        assertTrue(result.get().isEmpty());
++    }
++
++    @Test
++    @DisplayName("retries HTTP 503 with 1s then 2s backoff, then succeeds")
++    void retriesTransientStatusThenSucceeds() {
++        transport.then(503, "busy").then(429, "slow down").then(200, THREE_CATEGORIES);
++
++        Optional<List<Facility>> result = service().lookup(LAT, LNG);
++
++        assertTrue(result.isPresent());
++        assertEquals(3, transport.calls);
++        assertEquals(List.of(1000L, 2000L), sleeps);
++    }
++
++    @Test
++    @DisplayName("gives up after 3 attempts and reports failure (Optional.empty)")
++    void givesUpAfterMaxAttempts() {
++        transport.then(503, "").then(503, "").then(503, "");
++
++        Optional<List<Facility>> result = service().lookup(LAT, LNG);
++
++        assertTrue(result.isEmpty());
++        assertEquals(NearbyFacilitiesService.MAX_ATTEMPTS, transport.calls);
++        assertEquals(List.of(1000L, 2000L), sleeps); // no sleep after the final attempt
++    }
++
++    @Test
++    @DisplayName("does not retry a non-retryable status like 400")
++    void doesNotRetryClientError() {
++        transport.then(400, "bad query");
++
++        assertTrue(service().lookup(LAT, LNG).isEmpty());
++        assertEquals(1, transport.calls);
++        assertTrue(sleeps.isEmpty());
++    }
++
++    @Test
++    @DisplayName("retries I/O failures")
++    void retriesIoException() {
++        transport.thenThrow(new IOException("connection reset")).then(200, THREE_CATEGORIES);
++
++        assertTrue(service().lookup(LAT, LNG).isPresent());
++        assertEquals(2, transport.calls);
++    }
++
++    @Test
++    @DisplayName("HTTP 200 carrying an Overpass 'runtime error' is a failure, not an empty result")
++    void runtimeErrorInsideHttp200IsRetried() {
++        String timedOut = "{\"elements\":[],\"remark\":\"runtime error: Query timed out in \\\"query\\\" at line 1\"}";
++        transport.then(200, timedOut).then(200, THREE_CATEGORIES);
++
++        Optional<List<Facility>> result = service().lookup(LAT, LNG);
++
++        assertTrue(result.isPresent());
++        assertEquals(3, result.get().size()); // the good second answer, not the bogus empty one
++        assertEquals(2, transport.calls);
++    }
++
++    @Test
++    @DisplayName("unparseable bodies count as failures")
++    void garbageBodyIsFailure() {
++        transport.then(200, "<html>oops</html>").then(200, "not json").then(200, "{}");
++
++        assertTrue(service().lookup(LAT, LNG).isEmpty());
++        assertEquals(3, transport.calls);
++    }
++
++    @Test
++    @DisplayName("successful lookups are cached by ~11m-rounded coordinates")
++    void cachesSuccessfulLookups() {
++        transport.then(200, THREE_CATEGORIES);
++        NearbyFacilitiesService service = service();
++
++        Optional<List<Facility>> first = service.lookup(-1.28610, 36.81720);
++        Optional<List<Facility>> second = service.lookup(-1.28612, 36.81722); // same 4dp key
++
++        assertEquals(first, second);
++        assertEquals(1, transport.calls);
++    }
++
++    @Test
++    @DisplayName("a different location is not served from the cache")
++    void differentLocationMisses() {
++        transport.then(200, THREE_CATEGORIES).then(200, "{\"elements\":[]}");
++        NearbyFacilitiesService service = service();
++
++        service.lookup(LAT, LNG);
++        Optional<List<Facility>> other = service.lookup(-1.2000, 36.9000);
++
++        assertEquals(2, transport.calls);
++        assertTrue(other.orElseThrow().isEmpty());
++    }
++
++    @Test
++    @DisplayName("cache entries expire after 24 hours")
++    void cacheExpires() {
++        transport.then(200, THREE_CATEGORIES).then(200, THREE_CATEGORIES);
++        NearbyFacilitiesService service = service();
++
++        service.lookup(LAT, LNG);
++        clock.addAndGet(23L * 60 * 60 * 1000);
++        service.lookup(LAT, LNG);
++        assertEquals(1, transport.calls, "still fresh at 23h");
++
++        clock.addAndGet(2L * 60 * 60 * 1000);
++        service.lookup(LAT, LNG);
++        assertEquals(2, transport.calls, "expired at 25h");
++    }
++
++    @Test
++    @DisplayName("failures are never cached, so the next call tries again")
++    void failuresNotCached() {
++        transport.then(503, "").then(503, "").then(503, "").then(200, THREE_CATEGORIES);
++        NearbyFacilitiesService service = service();
++
++        assertTrue(service.lookup(LAT, LNG).isEmpty());
++        assertTrue(service.lookup(LAT, LNG).isPresent());
++        assertEquals(4, transport.calls);
++    }
++
++    @Test
++    @DisplayName("findNearby keeps its old contract: empty list on failure, never throws")
++    void findNearbyCollapsesFailureToEmptyList() {
++        transport.then(503, "").then(503, "").then(503, "");
++
++        assertEquals(List.of(), service().findNearby(LAT, LNG));
++    }
++
++    @Test
++    @DisplayName("an interrupt during backoff stops retrying and preserves the interrupt flag")
++    void interruptDuringBackoff() {
++        transport.then(503, "");
++        NearbyFacilitiesService service = new NearbyFacilitiesService(transport, millis -> {
++            throw new InterruptedException("shutdown");
++        }, clock::get);
++
++        try {
++            assertTrue(service.lookup(LAT, LNG).isEmpty());
++            assertEquals(1, transport.calls);
++            assertTrue(Thread.currentThread().isInterrupted());
++        } finally {
++            Thread.interrupted(); // clear so later tests aren't affected
++        }
++    }
++}

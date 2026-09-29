@@ -1,0 +1,92 @@
+diff --git a/src/main/java/com/roost/config/DatabaseSchemaMigrator.java b/src/main/java/com/roost/config/DatabaseSchemaMigrator.java
+index d878615..0fa0f5e 100644
+--- a/src/main/java/com/roost/config/DatabaseSchemaMigrator.java
++++ b/src/main/java/com/roost/config/DatabaseSchemaMigrator.java
+@@ -107,6 +107,8 @@ public class DatabaseSchemaMigrator implements CommandLineRunner {
+             log.warn("Database schema migration notice: " + e.getMessage());
+         }
+ 
++        createSearchIndexes();
++
+         // This constraint predates ADMIN being added to the Role enum and
+         // was only ever fixed by hand directly on the live database, which
+         // meant it would silently reappear in its old, stricter form on any
+@@ -161,6 +163,78 @@ public class DatabaseSchemaMigrator implements CommandLineRunner {
+         enforceNotNull("properties", "service_charge", "0.0");
+     }
+ 
++    /**
++     * pg_trgm GIN indexes backing PropertyRepository's `q` free-text
++     * search (see that class's doc for the query itself). A plain
++     * `LIKE '%word%'` can't use a normal btree index -- the leading
++     * wildcard means Postgres has to scan every row -- but a trigram
++     * GIN index can, which is the difference between search staying
++     * fast at scale and slowly turning into a full table scan on every
++     * keystroke as the listings table grows.
++     *
++     * pg_trgm is a "trusted" extension as of Postgres 13, so this
++     * generally doesn't need superuser -- but some managed hosting
++     * providers restrict extensions regardless, so this is wrapped the
++     * same fail-open way as the rest of this file: if it can't be
++     * created, search still works, just via a sequential scan, exactly
++     * as it did before this method existed.
++     *
++     * Each expression index below has to match, verbatim, the exact
++     * expression PropertyRepository's query applies to that column
++     * (e.g. `lower(title)`, `lower(coalesce(building_name, ''))`) --
++     * that's what lets Postgres recognise the query can use it. If a
++     * future change to that query's WHERE clause changes how a column
++     * is wrapped, the matching index here needs to change with it, or
++     * it silently stops being used (search stays correct, just slow
++     * again).
++     */
++    private void createSearchIndexes() {
++        try {
++            jdbcTemplate.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm;");
++        } catch (Exception e) {
++            log.warn("Could not create pg_trgm extension (search will still work, just without " +
++                    "trigram-indexed acceleration): " + e.getMessage());
++            return;
++        }
++
++        createTrigramIndex("idx_properties_title_trgm", "properties", "lower(title)");
++        createTrigramIndex("idx_properties_building_name_trgm", "properties", "lower(coalesce(building_name, ''))");
++        createTrigramIndex("idx_properties_location_trgm", "properties", "lower(location)");
++        createTrigramIndex("idx_properties_description_trgm", "properties", "lower(coalesce(description, ''))");
++        createTrigramIndex("idx_properties_nearby_facilities_trgm", "properties", "lower(coalesce(nearby_facilities, ''))");
++        createTrigramIndex("idx_property_custom_amenities_trgm", "property_custom_amenities", "lower(amenity)");
++
++        // Every filter/feed/search query filters on these two columns
++        // (status = 'PUBLISHED' AND available = true) before anything
++        // else -- this is the single highest-value index in the app,
++        // not specific to text search, but it belongs alongside the
++        // trigram indexes since it's what everything above narrows
++        // down from. Partial on status = 'PUBLISHED' since that's the
++        // only value every public-facing query filters on; DRAFT/
++        // UNDER_REVIEW rows never benefit from this index and there's
++        // no reason to pay to maintain entries for them.
++        try {
++            jdbcTemplate.execute(
++                    "CREATE INDEX IF NOT EXISTS idx_properties_published_available " +
++                    "ON properties (available) WHERE status = 'PUBLISHED';");
++        } catch (Exception e) {
++            log.warn("Could not create idx_properties_published_available: " + e.getMessage());
++        }
++    }
++
++    /** One GIN trigram index, isolated in its own try/catch so one
++     *  column's index failing (e.g. a lock held by another connection)
++     *  doesn't prevent the others from being created. */
++    private void createTrigramIndex(String indexName, String table, String expression) {
++        try {
++            jdbcTemplate.execute(String.format(
++                    "CREATE INDEX IF NOT EXISTS %s ON %s USING GIN (%s gin_trgm_ops);",
++                    indexName, table, expression));
++        } catch (Exception e) {
++            log.warn("Could not create {}: {}", indexName, e.getMessage());
++        }
++    }
++
+     /**
+      * Backfills any existing null values in {@code table.column} with
+      * {@code defaultValue}, then applies a NOT NULL constraint. Each column
