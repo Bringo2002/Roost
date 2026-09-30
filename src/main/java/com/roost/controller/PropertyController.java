@@ -4,10 +4,12 @@ import com.roost.dto.PropertyResponseDto;
 import com.roost.dto.ReportRequestDto;
 import com.roost.dto.ReportSubmissionResponseDto;
 import com.roost.exception.ApiException;
+import com.roost.model.MediaHash;
 import com.roost.model.Property;
 import com.roost.model.PropertyReport;
 import com.roost.model.User;
 import com.roost.model.Role;
+import com.roost.repository.MediaHashRepository;
 import com.roost.service.PropertyService;
 import com.roost.service.PropertyRiskService;
 import com.roost.service.RentEstimateService;
@@ -22,7 +24,9 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.Duration;
 import java.util.Base64;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Optional;
 import java.util.Map;
 import java.util.logging.Logger;
 
@@ -39,6 +43,9 @@ public class PropertyController {
 
     @org.springframework.beans.factory.annotation.Autowired
     private R2StorageService r2StorageService;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private MediaHashRepository mediaHashRepository;
 
     /** Safety net for the legacy {@code /upload-photo} endpoint. New uploads
      *  use {@code /presign-upload} and bypass this server entirely — this cap
@@ -306,11 +313,15 @@ public class PropertyController {
      * <p>Request body:
      * <pre>{@code
      *   {
-     *     "type": "photo" | "video"
+     *     "type": "photo" | "video",
+     *     "contentHash": "<optional SHA-256 hex of file bytes>"
      *   }
      * }</pre>
      *
-     * <p>Response:
+     * <p>If {@code contentHash} is provided and matches an existing upload,
+     * the response short-circuits with {@code {"existing": true, "publicUrl": "..."}}.
+     *
+     * <p>Response (new upload):
      * <pre>{@code
      *   {
      *     "uploadUrl": "<presigned PUT URL, valid for 15-60 min>",
@@ -355,6 +366,20 @@ public class PropertyController {
             ttlMinutes = 60;
         }
 
+        // ── Dedup check: short-circuit if the same content was already uploaded ──
+        String contentHash = payload.get("contentHash");
+        if (contentHash != null && !contentHash.isBlank()) {
+            Optional<MediaHash> existing = mediaHashRepository.findByContentHash(contentHash);
+            if (existing.isPresent()) {
+                log.info(String.format("Dedup hit for user %s: hash=%s url=%s",
+                        user.getUsername(), contentHash, existing.get().getPublicUrl()));
+                return ResponseEntity.ok(Map.of(
+                        "existing", true,
+                        "publicUrl", existing.get().getPublicUrl()
+                ));
+            }
+        }
+
         try {
             R2StorageService.PresignedUpload presign =
                     r2StorageService.generatePresignedPut("properties/", contentType, extension, ttlMinutes);
@@ -362,16 +387,80 @@ public class PropertyController {
             log.info(String.format("Presigned %s upload for user %s: key=%s ttl=%dm",
                     type, user.getUsername(), presign.key(), ttlMinutes));
 
-            return ResponseEntity.ok(Map.of(
-                    "uploadUrl", presign.uploadUrl(),
-                    "publicUrl", presign.publicUrl(),
-                    "key",       presign.key()
-            ));
+            Map<String, Object> response = new HashMap<>();
+            response.put("existing", false);
+            response.put("uploadUrl", presign.uploadUrl());
+            response.put("publicUrl", presign.publicUrl());
+            response.put("key",       presign.key());
+            return ResponseEntity.ok(response);
         } catch (IllegalStateException e) {
             log.warning("Presigned upload failed: " + e.getMessage());
             return ResponseEntity.status(503)
                     .body(Map.of("error", "Media uploads are unavailable right now. Please try again."));
         }
+    }
+
+    /**
+     * Records a completed direct upload in the content-hash index so future
+     * identical files can be short-circuited at the presign step.
+     *
+     * <p>Called by the client after a successful PUT to R2.
+     *
+     * <p>Request body:
+     * <pre>{@code
+     *   {
+     *     "contentHash": "<SHA-256 hex>",
+     *     "publicUrl":   "<permanent R2 public URL>",
+     *     "key":         "<R2 object key>",
+     *     "contentType": "image/jpeg" | "video/mp4" | ...,
+     *     "sizeBytes":   "<file size in bytes>"
+     *   }
+     * }</pre>
+     */
+    @PostMapping("/confirm-upload")
+    public ResponseEntity<?> confirmUpload(
+            @RequestBody Map<String, String> payload,
+            @AuthenticationPrincipal User user) {
+        if (user == null) {
+            return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
+        }
+        if (user.getRole() != Role.LANDLORD) {
+            return ResponseEntity.status(403)
+                    .body(Map.of("error", "Only landlords can confirm uploads."));
+        }
+
+        String contentHash = payload.get("contentHash");
+        String publicUrl   = payload.get("publicUrl");
+        String key         = payload.get("key");
+        String contentType = payload.get("contentType");
+        String sizeBytesStr = payload.get("sizeBytes");
+
+        if (contentHash == null || contentHash.isBlank() ||
+            publicUrl == null || publicUrl.isBlank() ||
+            key == null || key.isBlank() ||
+            contentType == null || contentType.isBlank() ||
+            sizeBytesStr == null || sizeBytesStr.isBlank()) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "All fields required: contentHash, publicUrl, key, contentType, sizeBytes"));
+        }
+
+        long sizeBytes;
+        try {
+            sizeBytes = Long.parseLong(sizeBytesStr);
+        } catch (NumberFormatException e) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "sizeBytes must be a number"));
+        }
+
+        // Idempotent: if the hash already exists, skip the insert.
+        if (mediaHashRepository.findByContentHash(contentHash).isEmpty()) {
+            MediaHash hash = new MediaHash(contentHash, publicUrl, key, contentType, sizeBytes);
+            mediaHashRepository.save(hash);
+            log.info(String.format("Recorded dedup hash for user %s: hash=%s key=%s size=%d",
+                    user.getUsername(), contentHash, key, sizeBytes));
+        }
+
+        return ResponseEntity.ok(Map.of("recorded", true));
     }
 
     // ── Legacy upload endpoints (deprecated — use /presign-upload) ─────────
