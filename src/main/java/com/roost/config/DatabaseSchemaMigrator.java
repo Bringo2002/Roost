@@ -107,6 +107,27 @@ public class DatabaseSchemaMigrator implements CommandLineRunner {
             log.warn("Database schema migration notice: " + e.getMessage());
         }
 
+        // ── Media deduplication table ────────────────────────────────────
+        // Maps SHA-256 content hashes to existing R2 objects so the presign
+        // endpoint can short-circuit when the same file is uploaded again
+        // (across listings or re-uploads of the same photo). The table is
+        // append-only — rows are never updated, only inserted on first
+        // upload of a given hash.
+        try {
+            jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS media_hashes (
+                    content_hash  VARCHAR(64)   PRIMARY KEY,
+                    public_url    VARCHAR(512)  NOT NULL,
+                    r2_key        VARCHAR(255)  NOT NULL,
+                    content_type  VARCHAR(100)  NOT NULL,
+                    size_bytes    BIGINT        NOT NULL,
+                    created_at    TIMESTAMP     DEFAULT NOW()
+                );
+            """);
+        } catch (Exception e) {
+            log.warn("Could not create media_hashes table: " + e.getMessage());
+        }
+
         createSearchIndexes();
 
         // This constraint predates ADMIN being added to the Role enum and
