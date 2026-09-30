@@ -376,6 +376,7 @@ class PropertyRepositoryTest {
 
         long statements = statementsFor(() -> propertyRepository.filterProperties(
                 "APARTMENT", null, null, 2, null, null, null, null, null, null,
+                null, null, null, null, null, null,
                 PageRequest.of(0, 20)));
         assertTrue(statements <= 6,
                 "expected a small, row-count-independent number of statements, got " + statements);
@@ -384,6 +385,7 @@ class PropertyRepositoryTest {
         // 0-bedroom studio (wrong bedroom count) or the house (wrong type).
         List<Property> results = propertyRepository.filterProperties(
                 "APARTMENT", null, null, 2, null, null, null, null, null, null,
+                null, null, null, null, null, null,
                 PageRequest.of(0, 20));
         assertEquals(10, results.size());
         assertTrue(results.stream().noneMatch(p -> p.getTitle().equals("studio")));
