@@ -40,16 +40,15 @@ public class PropertyController {
     @org.springframework.beans.factory.annotation.Autowired
     private R2StorageService r2StorageService;
 
-    /** Reject anything absurdly large before it ever reaches R2 -- the
-     *  app should be compressing photos client-side, so a well-behaved
-     *  upload should never get near this. */
-    private static final int MAX_PHOTO_BYTES = 8 * 1024 * 1024; // 8MB
+    /** Safety net for the legacy {@code /upload-photo} endpoint. New uploads
+     *  use {@code /presign-upload} and bypass this server entirely — this cap
+     *  only applies to the deprecated base64 path. */
+    private static final int MAX_PHOTO_BYTES = 8 * 1024 * 1024; // 8 MB
 
-    /** A short vertical walkthrough clip, not a feature film -- generous
-     *  enough for a genuine 30-60s walkthrough at reasonable mobile
-     *  bitrates, capped well short of anything that would strain R2
-     *  storage costs or a landlord's mobile data uploading it. */
-    private static final int MAX_VIDEO_BYTES = 60 * 1024 * 1024; // 60MB
+    /** Raised from 60 MB to 500 MB for backward compat with any client still
+     *  using the legacy {@code /upload-video} endpoint. The presigned upload
+     *  path has no server-side size limit since bytes never touch this server. */
+    private static final long MAX_VIDEO_BYTES = 500L * 1024 * 1024; // 500 MB
 
     public PropertyController(PropertyService propertyService, PropertyRiskService propertyRiskService,
                                RentEstimateService rentEstimateService, RateLimiterService rateLimiterService) {
@@ -295,11 +294,95 @@ public class PropertyController {
         return ResponseEntity.ok(PropertyResponseDto.forOwner(propertyService.addProperty(property)));
     }
 
+    // ── Presigned direct-to-R2 uploads ──────────────────────────────────────
+
     /**
-     * Uploads a single property photo and returns its public URL. Photos
-     * are plain public content (unlike E2EE chat attachments), so this
-     * returns a directly-loadable URL rather than an opaque storage key.
+     * Issues a short-lived presigned PUT URL so the client can upload photos
+     * and videos directly to Cloudflare R2, bypassing this server's memory
+     * and bandwidth limits. The server is not involved in the actual file
+     * transfer — it only validates auth, generates a signed URL, and returns
+     * the URL pair (upload target + permanent public URL).
+     *
+     * <p>Request body:
+     * <pre>{@code
+     *   {
+     *     "type": "photo" | "video"
+     *   }
+     * }</pre>
+     *
+     * <p>Response:
+     * <pre>{@code
+     *   {
+     *     "uploadUrl": "<presigned PUT URL, valid for 15-60 min>",
+     *     "publicUrl": "<permanent public URL, readable after PUT>",
+     *     "key":       "<R2 object key, e.g. properties/uuid.jpg>"
+     *   }
+     * }</pre>
+     *
+     * @param payload JSON body containing {@code type} ("photo" or "video").
+     * @param user    Must be authenticated with {@link Role#LANDLORD}.
      */
+    @PostMapping("/presign-upload")
+    public ResponseEntity<?> presignUpload(
+            @RequestBody Map<String, String> payload,
+            @AuthenticationPrincipal User user) {
+        if (user == null) {
+            return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
+        }
+        if (user.getRole() != Role.LANDLORD) {
+            return ResponseEntity.status(403)
+                    .body(Map.of("error", "Only landlords can upload property media."));
+        }
+
+        String type = payload.get("type");
+        if (type == null || (!"photo".equals(type) && !"video".equals(type))) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "type must be \"photo\" or \"video\""));
+        }
+
+        // Photo: JPEG, short TTL since photos are small.
+        // Video: MP4, long TTL since videos can be hundreds of MB.
+        String contentType;
+        String extension;
+        int ttlMinutes;
+        if ("photo".equals(type)) {
+            contentType = "image/jpeg";
+            extension = ".jpg";
+            ttlMinutes = 15;
+        } else {
+            contentType = "video/mp4";
+            extension = ".mp4";
+            ttlMinutes = 60;
+        }
+
+        try {
+            R2StorageService.PresignedUpload presign =
+                    r2StorageService.generatePresignedPut("properties/", contentType, extension, ttlMinutes);
+
+            log.info(String.format("Presigned %s upload for user %s: key=%s ttl=%dm",
+                    type, user.getUsername(), presign.key(), ttlMinutes));
+
+            return ResponseEntity.ok(Map.of(
+                    "uploadUrl", presign.uploadUrl(),
+                    "publicUrl", presign.publicUrl(),
+                    "key",       presign.key()
+            ));
+        } catch (IllegalStateException e) {
+            log.warning("Presigned upload failed: " + e.getMessage());
+            return ResponseEntity.status(503)
+                    .body(Map.of("error", "Media uploads are unavailable right now. Please try again."));
+        }
+    }
+
+    // ── Legacy upload endpoints (deprecated — use /presign-upload) ─────────
+
+    /**
+     * @deprecated Use {@code POST /api/properties/presign-upload} instead.
+     *             This endpoint routes photo bytes through the application server
+     *             via base64 JSON, limiting throughput and memory. Retained for
+     *             backward compatibility with older clients.
+     */
+    @Deprecated
     @PostMapping("/upload-photo")
     public ResponseEntity<?> uploadPhoto(@RequestBody Map<String, String> payload, @AuthenticationPrincipal User user) {
         if (user == null) {
@@ -335,12 +418,13 @@ public class PropertyController {
     }
 
     /**
-     * A single optional walkthrough video per listing, uploaded the same
-     * way photos are (base64 JSON body) for consistency with the
-     * existing upload flow, but through its own endpoint with a much
-     * larger size cap and a real video content-type/extension so
-     * players can rely on both instead of guessing from raw bytes.
+     * @deprecated Use {@code POST /api/properties/presign-upload} with
+     *             {@code type: "video"} instead. This endpoint routes the
+     *             entire video through the application server as base64,
+     *             consuming server memory and bandwidth unnecessarily.
+     *             Retained for backward compatibility with older clients.
      */
+    @Deprecated
     @PostMapping("/upload-video")
     public ResponseEntity<?> uploadVideo(@RequestBody Map<String, String> payload, @AuthenticationPrincipal User user) {
         if (user == null) {
@@ -361,7 +445,8 @@ public class PropertyController {
             return ResponseEntity.badRequest().body(Map.of("error", "Video data is not valid base64"));
         }
         if (bytes.length > MAX_VIDEO_BYTES) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Video is too large (max 60MB)"));
+            return ResponseEntity.badRequest().body(Map.of("error",
+                    "Video is too large (max 500MB). Consider using /presign-upload for large uploads."));
         }
 
         try {

@@ -93,8 +93,10 @@
 			<version>0.12.6</version>
 			<scope>runtime</scope>
 		</dependency>
-		<!-- S3-compatible client, used against Cloudflare R2 for encrypted
-		     chat attachment storage (R2 only ever sees ciphertext). -->
+		<!-- S3-compatible client used against Cloudflare R2 for property photo/video
+		     storage and encrypted chat attachment storage. S3Presigner (for presigned
+		     PUT URLs) is bundled inside this jar — no separate s3-presigner artifact
+		     is required at this SDK version. -->
 		<dependency>
 			<groupId>software.amazon.awssdk</groupId>
 			<artifactId>s3</artifactId>

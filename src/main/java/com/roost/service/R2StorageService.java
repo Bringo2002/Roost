@@ -11,10 +11,13 @@ import software.amazon.awssdk.services.s3.S3Configuration;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.presigner.S3Presigner;
+import software.amazon.awssdk.services.s3.presigner.model.PresignedPutObjectRequest;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.URI;
+import java.time.Duration;
 import java.util.UUID;
 
 /**
@@ -39,7 +42,23 @@ import java.util.UUID;
 @Service
 public class R2StorageService {
 
+    /**
+     * Result of a presigned PUT operation. Carries everything the client
+     * needs to upload a file directly to R2 and then reference it permanently.
+     *
+     * @param uploadUrl Short-lived presigned PUT URL. The client must PUT raw
+     *                  file bytes here with a matching {@code Content-Type} header.
+     *                  The URL embeds the content-type in its signature — a mismatch
+     *                  causes R2 to reject the request with 403.
+     * @param publicUrl Permanent public URL where the file is readable immediately
+     *                  after the PUT succeeds.
+     * @param key       R2 object key (e.g. {@code "properties/uuid.jpg"}). Retained
+     *                  by the backend for deletion and future deduplication support.
+     */
+    public record PresignedUpload(String uploadUrl, String publicUrl, String key) {}
+
     private final S3Client s3Client;
+    private final S3Presigner s3Presigner;
     private final String bucket;
     private final String publicBaseUrl;
     private final boolean configured;
@@ -60,17 +79,75 @@ public class R2StorageService {
                 && !secretAccessKey.isBlank() && !bucket.isBlank();
         this.publicUploadConfigured = configured && !publicBaseUrl.isBlank();
 
+        // Both clients share the same endpoint and credentials. They are built
+        // separately because S3Client and S3Presigner are distinct SDK types with
+        // different builders, even when connecting to the same bucket.
+        URI endpoint = configured
+                ? URI.create("https://" + accountId + ".r2.cloudflarestorage.com")
+                : null;
+        StaticCredentialsProvider credentials = configured
+                ? StaticCredentialsProvider.create(
+                        AwsBasicCredentials.create(accessKeyId, secretAccessKey))
+                : null;
+
         this.s3Client = configured
                 ? S3Client.builder()
-                        .endpointOverride(URI.create("https://" + accountId + ".r2.cloudflarestorage.com"))
-                        .credentialsProvider(StaticCredentialsProvider.create(
-                                AwsBasicCredentials.create(accessKeyId, secretAccessKey)))
+                        .endpointOverride(endpoint)
+                        .credentialsProvider(credentials)
                         .region(Region.of("auto"))
                         .serviceConfiguration(S3Configuration.builder()
                                 .pathStyleAccessEnabled(true)
                                 .build())
                         .build()
                 : null;
+
+        this.s3Presigner = configured
+                ? S3Presigner.builder()
+                        .endpointOverride(endpoint)
+                        .credentialsProvider(credentials)
+                        .region(Region.of("auto"))
+                        .serviceConfiguration(S3Configuration.builder()
+                                .pathStyleAccessEnabled(true)
+                                .build())
+                        .build()
+                : null;
+    }
+
+    /**
+     * Generates a short-lived presigned PUT URL for direct client-to-R2 uploads.
+     * The client PUTs raw file bytes directly to {@link PresignedUpload#uploadUrl()};
+     * this backend is not involved in the actual file transfer. The file is
+     * immediately accessible at {@link PresignedUpload#publicUrl()} after the PUT
+     * succeeds.
+     *
+     * <p>The client <em>must</em> send a {@code Content-Type: <contentType>} header
+     * matching the value embedded in the presigned URL signature. A mismatch causes
+     * R2 to reject the request with HTTP 403.
+     *
+     * @param keyPrefix   Object key prefix, e.g. {@code "properties/"}.
+     * @param contentType MIME type, e.g. {@code "image/jpeg"} or {@code "video/mp4"}.
+     * @param extension   File extension including dot, e.g. {@code ".jpg"} or {@code ".mp4"}.
+     * @param ttlMinutes  Validity window for the presigned URL. Use 15 for photos
+     *                    and 60 for large videos to allow enough upload time.
+     * @return {@link PresignedUpload} containing the upload URL, public URL, and key.
+     * @throws IllegalStateException if R2 is not fully configured.
+     */
+    public PresignedUpload generatePresignedPut(
+            String keyPrefix, String contentType, String extension, int ttlMinutes) {
+        requirePublicConfigured();
+        String key = keyPrefix + UUID.randomUUID() + extension;
+        PutObjectRequest objectRequest = PutObjectRequest.builder()
+                .bucket(bucket)
+                .key(key)
+                .contentType(contentType)
+                .build();
+        PresignedPutObjectRequest presignedRequest = s3Presigner.presignPutObject(
+                r -> r.signatureDuration(Duration.ofMinutes(ttlMinutes))
+                       .putObjectRequest(objectRequest));
+        return new PresignedUpload(
+                presignedRequest.url().toString(),
+                publicBaseUrl + "/" + key,
+                key);
     }
 
     /** Uploads opaque bytes under "attachments/" and returns the storage
