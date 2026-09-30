@@ -221,6 +221,18 @@ public class PropertyController {
     }
 
     /**
+     * Listings similar to this one -- same house type and bedroom
+     * count, nearby -- for the property detail page's "similar
+     * listings" carousel. No auth required, same reasoning as
+     * rent-estimate above: this is public browse data, not anything
+     * tied to the viewer.
+     */
+    @GetMapping("/{id}/similar")
+    public List<PropertyResponseDto> getSimilarProperties(@PathVariable Long id) {
+        return PropertyResponseDto.from(propertyService.getSimilarProperties(id));
+    }
+
+    /**
      * A tenant's post-application confirmation of whether this listing
      * matched what was advertised -- gated server-side on having
      * actually applied to it (PropertyService.submitCommunityCheck),

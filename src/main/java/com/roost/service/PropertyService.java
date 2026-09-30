@@ -17,6 +17,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -865,5 +866,40 @@ public class PropertyService {
     /** Same lookup as {@link #getPropertyById}, but with ratings populated -- for the property detail view specifically. */
     public Property getPropertyDetail(Long id) {
         return populateRatings(getPropertyById(id));
+    }
+
+    private static final int MAX_SIMILAR = 8;
+    private static final double SIMILAR_RADIUS_KM = 3.0;
+    private static final int MIN_SIMILAR_REQUIRED = 3;
+
+    /**
+     * "Similar listings" for the property detail page -- same house
+     * type and bedroom count, near this listing, excluding itself.
+     * Reuses the comparable-property queries built for
+     * RentEstimateService, and the same distance-first /
+     * location-string-fallback shape: a GPS radius search is the more
+     * accurate signal when both listings have coordinates, but only
+     * trusted here if it clears MIN_SIMILAR_REQUIRED -- otherwise this
+     * falls back to matching on the exact location string, the same
+     * tradeoff findAverageComparablePrice's doc describes (only finds
+     * comparables when location text matches exactly, a known
+     * limitation of the fallback path specifically).
+     */
+    public List<Property> getSimilarProperties(Long id) {
+        Property property = getPropertyById(id);
+        Pageable cap = PageRequest.of(0, MAX_SIMILAR);
+
+        Double lat = property.getLatitude();
+        Double lng = property.getLongitude();
+        if (lat != null && lng != null) {
+            List<Property> byDistance = propertyRepository.findComparablePropertiesByDistance(
+                    property.getHouseType(), property.getBedrooms(), lat, lng, SIMILAR_RADIUS_KM, id, cap);
+            if (byDistance.size() >= MIN_SIMILAR_REQUIRED) {
+                return byDistance;
+            }
+        }
+
+        return propertyRepository.findComparableProperties(
+                property.getHouseType(), property.getBedrooms(), property.getLocation(), id, cap);
     }
 }
