@@ -98,6 +98,18 @@ class PropertyReportRepositoryTest {
         r.setReason("Fraudulent listing");
         r.setCreatedAt(createdAt);
         em.persist(r);
+        em.flush();
+        // PropertyReport#onCreate() is @PrePersist and unconditionally stamps
+        // createdAt with the real clock, discarding the value set above --
+        // correct for production (reports are always "now"), but it means
+        // tests can't backdate a report through the entity alone. Overwrite
+        // it directly in the DB afterward so findPropertiesWithUnreviewedReports
+        // can be tested against reports from the past.
+        em.getEntityManager()
+                .createQuery("UPDATE PropertyReport pr SET pr.createdAt = :createdAt WHERE pr.id = :id")
+                .setParameter("createdAt", createdAt)
+                .setParameter("id", r.getId())
+                .executeUpdate();
     }
 
     private void flushAndClear() {
@@ -160,8 +172,12 @@ class PropertyReportRepositoryTest {
 
         assertEquals(1, flagged.size(), "the same listing reported twice must appear once, not twice");
         assertEquals("owner", flagged.get(0).getOwner().getName());
-        assertEquals(1, statements,
-                "expected exactly 1 statement (owner fetch-joined), got " + statements);
+        // 1 for the fetch-joined page itself + 1 for the owner's EAGER
+        // User.savedPropertyIds collection, which isn't fetch-joined here and
+        // loads once per distinct owner -- same accounting as
+        // PropertyRepositoryTest's owner-fetch-join assertions.
+        assertEquals(2, statements,
+                "expected 2 statements (owner fetch-joined + owner's saved ids), got " + statements);
     }
 
     @Test
