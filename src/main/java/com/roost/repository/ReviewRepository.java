@@ -3,6 +3,7 @@ package com.roost.repository;
 import com.roost.model.Review;
 import com.roost.model.Property;
 import com.roost.model.User;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -15,6 +16,13 @@ import java.util.Optional;
 @Repository
 public interface ReviewRepository extends JpaRepository<Review, Long> {
 
+    // reviewer is fetch-joined because getPropertyReviews maps every
+    // result through ReviewResponseDto (which reads .getReviewer()) --
+    // without it that's one extra reviewer SELECT per review, same
+    // shape as the owner fetch-join on PropertyRepository. This
+    // endpoint is public and unauthenticated, so it's the most exposed
+    // of the list queries to this cost.
+    @EntityGraph(attributePaths = "reviewer")
     List<Review> findByPropertyOrderByCreatedAtDesc(Property property);
 
     Optional<Review> findByPropertyAndReviewer(Property property, User reviewer);
