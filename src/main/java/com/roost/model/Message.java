@@ -1,6 +1,7 @@
 package com.roost.model;
 
 import jakarta.persistence.*;
+import org.hibernate.annotations.BatchSize;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -22,7 +23,13 @@ public class Message {
     @Column
     private LocalDateTime editedAt;
 
+    // MessageResponseDto reads reactions for every message in a chat-history
+    // page; without @BatchSize, EAGER here means one extra SELECT per
+    // message (a 20-message page is 1 + 20 queries). @BatchSize loads
+    // every pending message's reactions in one batched query instead --
+    // same pattern as Property's @ElementCollection fields.
     @OneToMany(mappedBy = "message", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
+    @BatchSize(size = 20)
     private List<MessageReaction> reactions = new ArrayList<>();
 
     @ManyToOne
