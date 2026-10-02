@@ -254,6 +254,17 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
             Pageable pageable);
 
     /**
+     * Backs the public host-profile page: only that owner's PUBLISHED
+     * listings, newest-first, paginated. Unlike findByOwnerOrderByIdDesc
+     * (the landlord's own dashboard, which shows every status), this is
+     * shown to other visitors, so drafts/unpublished listings must not
+     * leak through. owner is fetch-joined for the same reason as
+     * findByStatusPublishedPaged -- PropertyResponseDto reads it per row.
+     */
+    @Query("SELECT p FROM Property p LEFT JOIN FETCH p.owner WHERE p.owner.id = :ownerId AND p.status = 'PUBLISHED' ORDER BY p.id DESC")
+    List<Property> findByOwnerIdAndStatusPublishedPaged(@Param("ownerId") Long ownerId, Pageable pageable);
+
+    /**
      * The lat/lng BETWEEN bounds are a cheap square-shaped pre-filter
      * (computed in PropertyService.getNearby, always a superset of the
      * true circle) applied before the expensive trig distance calc, so

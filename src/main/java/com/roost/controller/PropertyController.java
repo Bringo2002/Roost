@@ -92,6 +92,23 @@ public class PropertyController {
         return PropertyResponseDto.from(propertyService.getNearby(lat, lng, radius));
     }
 
+    /**
+     * Public host-profile listings: PUBLISHED-only, scoped to one owner,
+     * paginated by default (not opt-in like /filter or the root endpoint
+     * above) -- there's no legacy client relying on an unbounded response
+     * here, since this is a brand-new endpoint.
+     */
+    @GetMapping("/by-owner/{ownerId}")
+    public List<PropertyResponseDto> getPublishedPropertiesByOwner(
+            @PathVariable Long ownerId,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size) {
+        int cappedSize = Math.min(Math.max(size != null ? size : 20, 1), 50);
+        int safePage = page != null ? Math.max(page, 0) : 0;
+        Pageable pageable = PageRequest.of(safePage, cappedSize);
+        return PropertyResponseDto.from(propertyService.getPublishedPropertiesByOwner(ownerId, pageable));
+    }
+
     @GetMapping("/filter")
     public List<PropertyResponseDto> filterProperties(
             @RequestParam(required = false) String type,
