@@ -4,16 +4,18 @@ import com.roost.model.Property;
 import com.roost.model.Review;
 import com.roost.model.Role;
 import com.roost.model.User;
-import org.hibernate.SessionFactory;
-import org.hibernate.stat.Statistics;
+import org.hibernate.resource.jdbc.spi.StatementInspector;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.orm.jpa.HibernatePropertiesCustomizer;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
+import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.context.annotation.Bean;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -21,8 +23,10 @@ import org.testcontainers.utility.DockerImageName;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Integration test for the public property-reviews query, run against a
@@ -35,12 +39,33 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * This guards the @EntityGraph fetch-join fix on
  * ReviewRepository.findByPropertyOrderByCreatedAtDesc.
  *
+ * Because reviewer is EAGER, Hibernate resolves it while the repository
+ * call itself is still executing -- before the call returns -- whether
+ * or not it's fetch-joined. A before/after-touch statement-count delta
+ * can't tell the two cases apart, so the join is instead verified
+ * directly against the SQL Hibernate actually issues (via a captured
+ * StatementInspector), per the fix's own code review.
+ *
  * spring.sql.init.mode=never: same reasoning as PropertyRepositoryTest.
  */
 @DataJpaTest(properties = "spring.sql.init.mode=never")
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Testcontainers
 class ReviewRepositoryTest {
+
+    @TestConfiguration
+    static class SqlCaptureConfig {
+        @Bean
+        HibernatePropertiesCustomizer sqlCaptureCustomizer() {
+            StatementInspector inspector = sql -> {
+                CAPTURED_SQL.add(sql);
+                return sql;
+            };
+            return properties -> properties.put("hibernate.session_factory.statement_inspector", inspector);
+        }
+    }
+
+    private static final List<String> CAPTURED_SQL = new CopyOnWriteArrayList<>();
 
     @Container
     @ServiceConnection
@@ -112,17 +137,11 @@ class ReviewRepositoryTest {
     }
 
     @Test
-    @DisplayName("findByPropertyOrderByCreatedAtDesc: touching reviewer on every row costs nothing extra once fetch-joined")
-    void findByPropertyOrderByCreatedAtDesc_reviewerFetchJoinCostsNothingExtra() {
+    @DisplayName("findByPropertyOrderByCreatedAtDesc: the generated SQL fetch-joins reviewer")
+    void findByPropertyOrderByCreatedAtDesc_sqlFetchJoinsReviewer() {
         // 10 distinct reviewers -- the property_id/reviewer_id unique
         // constraint means one review per reviewer, so there's no way
         // to grow row count without also growing distinct-user count.
-        // Note: User.savedPropertyIds is a separate EAGER collection
-        // with no @BatchSize of its own (same gap already documented in
-        // PropertyReportRepositoryTest), so it genuinely costs one
-        // query per distinct reviewer regardless of this fix -- that's
-        // why this test checks the MARGINAL cost of touching reviewer,
-        // not the total statement count, which would be misleading here.
         LocalDateTime base = LocalDateTime.now().minusDays(1);
         for (int i = 0; i < 10; i++) {
             User reviewer = persistUser("reviewer" + i);
@@ -130,31 +149,29 @@ class ReviewRepositoryTest {
         }
         flushAndClear();
 
-        SessionFactory sf = em.getEntityManager().getEntityManagerFactory().unwrap(SessionFactory.class);
-        Statistics stats = sf.getStatistics();
-        stats.setStatisticsEnabled(true);
-        stats.clear();
-
         // Re-fetch property -- it's detached after flushAndClear(), and
         // findByPropertyOrderByCreatedAtDesc needs a managed/usable
         // reference to bind as the query parameter.
         Property managedProperty = em.find(Property.class, property.getId());
-        List<Review> reviews = reviewRepository.findByPropertyOrderByCreatedAtDesc(managedProperty);
-        long afterQuery = stats.getPrepareStatementCount();
 
-        // Touch the reviewer association on every row. A working
-        // fetch-join means reviewer is already fully loaded, so this
-        // costs zero additional statements -- the N+1 this guards
-        // against would instead add one SELECT per review here.
-        for (Review r : reviews) {
-            r.getReviewer().getName();
-        }
-        long afterTouchingReviewer = stats.getPrepareStatementCount();
+        CAPTURED_SQL.clear();
+        List<Review> reviews = reviewRepository.findByPropertyOrderByCreatedAtDesc(managedProperty);
+
+        // reviewer is EAGER, so Hibernate resolves it during this call
+        // regardless of whether it's fetch-joined -- a statement-count
+        // delta from touching reviewer afterward can't distinguish a
+        // working fetch-join from an N+1, since both finish loading
+        // before the call returns. Check the actual SQL instead: the
+        // query against "reviews" must itself contain a JOIN, not a
+        // separate statement per reviewer.
+        String mainSelect = CAPTURED_SQL.stream()
+                .filter(sql -> sql.toLowerCase().contains("from reviews"))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("no SELECT against reviews was issued: " + CAPTURED_SQL));
+        assertTrue(mainSelect.toLowerCase().contains("join"),
+                "expected the reviews query to fetch-join reviewer, but no JOIN appeared in: " + mainSelect);
 
         assertEquals(10, reviews.size());
-        assertEquals(afterQuery, afterTouchingReviewer,
-                "touching reviewer added " + (afterTouchingReviewer - afterQuery)
-                        + " statement(s) -- reviewer wasn't actually fetch-joined");
     }
 
     @Test
