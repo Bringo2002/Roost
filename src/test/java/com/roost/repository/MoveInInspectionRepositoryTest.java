@@ -4,16 +4,18 @@ import com.roost.model.MoveInInspection;
 import com.roost.model.Property;
 import com.roost.model.Role;
 import com.roost.model.User;
-import org.hibernate.SessionFactory;
-import org.hibernate.stat.Statistics;
+import org.hibernate.resource.jdbc.spi.StatementInspector;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.orm.jpa.HibernatePropertiesCustomizer;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
+import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.context.annotation.Bean;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -21,8 +23,10 @@ import org.testcontainers.utility.DockerImageName;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Integration test for the move-in-inspection list queries, run against
@@ -37,12 +41,33 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * fetch-join fix on both findByPropertyOrderByCreatedAtDesc and
  * findByTenantOrderByCreatedAtDesc.
  *
+ * Because property/tenant are EAGER, Hibernate resolves them while the
+ * repository call itself is still executing -- before the call returns
+ * -- whether or not they're fetch-joined. A before/after-touch
+ * statement-count delta can't tell the two cases apart, so the join is
+ * instead verified directly against the SQL Hibernate actually issues
+ * (via a captured StatementInspector), per the fix's own code review.
+ *
  * spring.sql.init.mode=never: same reasoning as PropertyRepositoryTest.
  */
 @DataJpaTest(properties = "spring.sql.init.mode=never")
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Testcontainers
 class MoveInInspectionRepositoryTest {
+
+    @TestConfiguration
+    static class SqlCaptureConfig {
+        @Bean
+        HibernatePropertiesCustomizer sqlCaptureCustomizer() {
+            StatementInspector inspector = sql -> {
+                CAPTURED_SQL.add(sql);
+                return sql;
+            };
+            return properties -> properties.put("hibernate.session_factory.statement_inspector", inspector);
+        }
+    }
+
+    private static final List<String> CAPTURED_SQL = new CopyOnWriteArrayList<>();
 
     @Container
     @ServiceConnection
@@ -102,8 +127,8 @@ class MoveInInspectionRepositoryTest {
     }
 
     @Test
-    @DisplayName("findByPropertyOrderByCreatedAtDesc: touching property and tenant on every row costs nothing extra once fetch-joined")
-    void findByPropertyOrderByCreatedAtDesc_fetchJoinCostsNothingExtra() {
+    @DisplayName("findByPropertyOrderByCreatedAtDesc: the generated SQL fetch-joins tenant")
+    void findByPropertyOrderByCreatedAtDesc_sqlFetchJoinsTenant() {
         Property property = listing("the listing");
         LocalDateTime base = LocalDateTime.now().minusDays(1);
         // Distinct tenants inspecting the same property at different
@@ -113,31 +138,32 @@ class MoveInInspectionRepositoryTest {
         }
         flushAndClear();
 
-        SessionFactory sf = em.getEntityManager().getEntityManagerFactory().unwrap(SessionFactory.class);
-        Statistics stats = sf.getStatistics();
-        stats.setStatisticsEnabled(true);
-        stats.clear();
-
         Property managedProperty = em.find(Property.class, property.getId());
+
+        CAPTURED_SQL.clear();
         List<MoveInInspection> inspections =
                 moveInInspectionRepository.findByPropertyOrderByCreatedAtDesc(managedProperty);
-        long afterQuery = stats.getPrepareStatementCount();
 
-        for (MoveInInspection i : inspections) {
-            i.getProperty().getTitle();
-            i.getTenant().getName();
-        }
-        long afterTouching = stats.getPrepareStatementCount();
+        // property/tenant are EAGER, so Hibernate resolves them during
+        // this call regardless of whether they're fetch-joined -- a
+        // statement-count delta from touching them afterward can't
+        // distinguish a working fetch-join from an N+1, since both
+        // finish loading before the call returns. Check the actual SQL
+        // instead: the query against "move_in_inspections" must itself
+        // contain joins, not a separate statement per tenant.
+        String mainSelect = CAPTURED_SQL.stream()
+                .filter(sql -> sql.toLowerCase().contains("from move_in_inspections"))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("no SELECT against move_in_inspections was issued: " + CAPTURED_SQL));
+        assertTrue(mainSelect.toLowerCase().contains("join"),
+                "expected the move_in_inspections query to fetch-join tenant, but no JOIN appeared in: " + mainSelect);
 
         assertEquals(8, inspections.size());
-        assertEquals(afterQuery, afterTouching,
-                "touching property/tenant added " + (afterTouching - afterQuery)
-                        + " statement(s) -- they weren't actually fetch-joined");
     }
 
     @Test
-    @DisplayName("findByTenantOrderByCreatedAtDesc: touching property and tenant on every row costs nothing extra once fetch-joined")
-    void findByTenantOrderByCreatedAtDesc_fetchJoinCostsNothingExtra() {
+    @DisplayName("findByTenantOrderByCreatedAtDesc: the generated SQL fetch-joins property")
+    void findByTenantOrderByCreatedAtDesc_sqlFetchJoinsProperty() {
         User tenant = persistUser("tenant");
         LocalDateTime base = LocalDateTime.now().minusDays(1);
         // Distinct properties the same tenant has inspected -- the
@@ -147,26 +173,20 @@ class MoveInInspectionRepositoryTest {
         }
         flushAndClear();
 
-        SessionFactory sf = em.getEntityManager().getEntityManagerFactory().unwrap(SessionFactory.class);
-        Statistics stats = sf.getStatistics();
-        stats.setStatisticsEnabled(true);
-        stats.clear();
-
         User managedTenant = em.find(User.class, tenant.getId());
+
+        CAPTURED_SQL.clear();
         List<MoveInInspection> inspections =
                 moveInInspectionRepository.findByTenantOrderByCreatedAtDesc(managedTenant);
-        long afterQuery = stats.getPrepareStatementCount();
 
-        for (MoveInInspection i : inspections) {
-            i.getProperty().getTitle();
-            i.getTenant().getName();
-        }
-        long afterTouching = stats.getPrepareStatementCount();
+        String mainSelect = CAPTURED_SQL.stream()
+                .filter(sql -> sql.toLowerCase().contains("from move_in_inspections"))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("no SELECT against move_in_inspections was issued: " + CAPTURED_SQL));
+        assertTrue(mainSelect.toLowerCase().contains("join"),
+                "expected the move_in_inspections query to fetch-join property, but no JOIN appeared in: " + mainSelect);
 
         assertEquals(8, inspections.size());
-        assertEquals(afterQuery, afterTouching,
-                "touching property/tenant added " + (afterTouching - afterQuery)
-                        + " statement(s) -- they weren't actually fetch-joined");
     }
 
     @Test
