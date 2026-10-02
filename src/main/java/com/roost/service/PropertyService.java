@@ -125,6 +125,17 @@ public class PropertyService {
         return populateRatings(results);
     }
 
+    /**
+     * Backs the public host-profile page: a given owner's PUBLISHED
+     * listings only, paginated. Deliberately separate from
+     * getPropertiesByOwner (the landlord's own dashboard), which returns
+     * every status -- a visitor viewing someone else's profile must never
+     * see their drafts/unpublished listings.
+     */
+    public List<Property> getPublishedPropertiesByOwner(Long ownerId, Pageable pageable) {
+        return populateRatings(propertyRepository.findByOwnerIdAndStatusPublishedPaged(ownerId, pageable));
+    }
+
     public Property addProperty(Property property) {
         if (property.getStatus() == null || property.getStatus().isBlank()) {
             property.setStatus("PUBLISHED");
