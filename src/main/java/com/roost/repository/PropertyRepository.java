@@ -611,4 +611,14 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
     @Modifying
     @Query("update Property p set p.nearbyFacilities = :json where p.id = :id")
     int updateNearbyFacilities(@Param("id") Long id, @Param("json") String json);
+
+    /**
+     * Which of the given ids belong to an existing listing. Selects ids
+     * only, so checking a batch of up to a few dozen ids never loads
+     * Property entities or their collections -- used by the listing-event
+     * endpoint, which is called far more often than any detail view.
+     * Callers must not pass an empty collection.
+     */
+    @Query("select p.id from Property p where p.id in :ids")
+    List<Long> findExistingIds(@Param("ids") Collection<Long> ids);
 }
