@@ -29,6 +29,33 @@
 	<properties>
 		<java.version>21</java.version>
 	</properties>
+	<!-- Override transitive dependency versions to patch known CVEs -->
+	<dependencyManagement>
+		<dependencies>
+			<!-- Netty 4.1.135 has critical CVEs (TLS bypass, HTTP smuggling, DoS);
+			     force latest 4.1.x patch across AWS SDK + Firebase transitive deps -->
+			<dependency>
+				<groupId>io.netty</groupId>
+				<artifactId>netty-bom</artifactId>
+				<version>4.1.138.Final</version>
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>
+			<!-- Conscrypt 2.5.2 (2021) is outdated; upgrade to latest -->
+			<dependency>
+				<groupId>org.conscrypt</groupId>
+				<artifactId>conscrypt-openjdk-uber</artifactId>
+				<version>2.7.0</version>
+			</dependency>
+			<!-- commons-compress 1.24.0 has DoS CVEs (CVE-2024-25710, CVE-2024-26308);
+			     pulled in by Testcontainers (test scope only) -->
+			<dependency>
+				<groupId>org.apache.commons</groupId>
+				<artifactId>commons-compress</artifactId>
+				<version>1.28.0</version>
+			</dependency>
+		</dependencies>
+	</dependencyManagement>
 	<dependencies>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
@@ -54,9 +81,9 @@
 			<artifactId>spring-boot-starter-test</artifactId>
 			<scope>test</scope>
 		</dependency>
-		<!-- Testcontainers, per CLAUDE.md's Layer 1 repository-testing rule:
-		     integration tests run against a real (containerized) PostgreSQL,
-		     never H2 or mocked JDBC. Versions come from spring-boot-starter-parent. -->
+		<!-- Testcontainers: integration tests run against a real (containerized)
+		     PostgreSQL, never H2 or mocked JDBC. Versions come from
+		     spring-boot-starter-parent. -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-testcontainers</artifactId>
@@ -100,14 +127,14 @@
 		<dependency>
 			<groupId>software.amazon.awssdk</groupId>
 			<artifactId>s3</artifactId>
-			<version>2.46.18</version>
+			<version>2.55.10</version>
 		</dependency>
 		<!-- Firebase Admin SDK, used server-side to send push notifications
 		     via FCM to registered device tokens. -->
 		<dependency>
 			<groupId>com.google.firebase</groupId>
 			<artifactId>firebase-admin</artifactId>
-			<version>9.10.0</version>
+			<version>9.11.0</version>
 		</dependency>
 	</dependencies>
 
