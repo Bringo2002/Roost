@@ -477,4 +477,16 @@ class PropertyRepositoryTest {
         assertTrue(statements <= 6,
                 "expected a small, row-count-independent number of statements, got " + statements);
     }
+
+    @Test
+    @DisplayName("findExistingIds: returns only ids that exist, ignoring unknown ones")
+    void findExistingIds_returnsOnlyExistingIds() {
+        Property a = publishedListingWithOwnerAndCollections(owner, "exists-a");
+        Property b = publishedListingWithOwnerAndCollections(owner, "exists-b");
+        flushAndClear();
+
+        List<Long> found = propertyRepository.findExistingIds(List.of(a.getId(), b.getId(), -1L));
+
+        assertEquals(Set.of(a.getId(), b.getId()), new HashSet<>(found));
+    }
 }
