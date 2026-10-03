@@ -31,3 +31,7 @@ build/
 
 ### VS Code ###
 .vscode/
+
+# Applied-patch files should never be committed
+*.diff
+*.patch
