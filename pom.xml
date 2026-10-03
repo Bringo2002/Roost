@@ -28,6 +28,9 @@
 	</scm>
 	<properties>
 		<java.version>21</java.version>
+		<!-- Override Spring Boot-managed versions to patch CVEs -->
+		<tomcat.version>11.0.26</tomcat.version>
+		<jackson-bom.version>3.2.3</jackson-bom.version>
 	</properties>
 	<!-- Override transitive dependency versions still lagging behind -->
 	<dependencyManagement>
@@ -43,6 +46,14 @@
 				<groupId>org.apache.commons</groupId>
 				<artifactId>commons-compress</artifactId>
 				<version>1.28.0</version>
+			</dependency>
+			<!-- Firebase Admin pulls Jackson 2 (2.21.5) with CVEs; force patched -->
+			<dependency>
+				<groupId>com.fasterxml.jackson</groupId>
+				<artifactId>jackson-bom</artifactId>
+				<version>2.21.7</version>
+				<type>pom</type>
+				<scope>import</scope>
 			</dependency>
 		</dependencies>
 	</dependencyManagement>
