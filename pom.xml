@@ -5,7 +5,7 @@
 	<parent>
 		<groupId>org.springframework.boot</groupId>
 		<artifactId>spring-boot-starter-parent</artifactId>
-		<version>3.5.16</version>
+		<version>4.1.1</version>
 		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
 	<groupId>com.roost</groupId>
@@ -29,26 +29,16 @@
 	<properties>
 		<java.version>21</java.version>
 	</properties>
-	<!-- Override transitive dependency versions to patch known CVEs -->
+	<!-- Override transitive dependency versions still lagging behind -->
 	<dependencyManagement>
 		<dependencies>
-			<!-- Netty 4.1.135 has critical CVEs (TLS bypass, HTTP smuggling, DoS);
-			     force latest 4.1.x patch across AWS SDK + Firebase transitive deps -->
-			<dependency>
-				<groupId>io.netty</groupId>
-				<artifactId>netty-bom</artifactId>
-				<version>4.1.138.Final</version>
-				<type>pom</type>
-				<scope>import</scope>
-			</dependency>
-			<!-- Conscrypt 2.5.2 (2021) is outdated; upgrade to latest -->
+			<!-- Firebase Admin SDK pulls conscrypt 2.5.2 (2021); force latest -->
 			<dependency>
 				<groupId>org.conscrypt</groupId>
 				<artifactId>conscrypt-openjdk-uber</artifactId>
 				<version>2.7.0</version>
 			</dependency>
-			<!-- commons-compress 1.24.0 has DoS CVEs (CVE-2024-25710, CVE-2024-26308);
-			     pulled in by Testcontainers (test scope only) -->
+			<!-- Testcontainers pulls commons-compress 1.24.0 with DoS CVEs -->
 			<dependency>
 				<groupId>org.apache.commons</groupId>
 				<artifactId>commons-compress</artifactId>
@@ -91,34 +81,24 @@
 		</dependency>
 		<dependency>
 			<groupId>org.testcontainers</groupId>
-			<artifactId>junit-jupiter</artifactId>
+			<artifactId>testcontainers-junit-jupiter</artifactId>
 			<scope>test</scope>
 		</dependency>
 		<dependency>
 			<groupId>org.testcontainers</groupId>
-			<artifactId>postgresql</artifactId>
+			<artifactId>testcontainers-postgresql</artifactId>
 			<scope>test</scope>
 		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-security</artifactId>
 		</dependency>
+		<!-- Nimbus JOSE+JWT for token signing/verification (replaces JJWT
+		     which depends on Jackson 2, incompatible with Spring Boot 4's
+		     Jackson 3 baseline). Version managed by spring-boot-starter-parent. -->
 		<dependency>
-			<groupId>io.jsonwebtoken</groupId>
-			<artifactId>jjwt-api</artifactId>
-			<version>0.12.6</version>
-		</dependency>
-		<dependency>
-			<groupId>io.jsonwebtoken</groupId>
-			<artifactId>jjwt-impl</artifactId>
-			<version>0.12.6</version>
-			<scope>runtime</scope>
-		</dependency>
-		<dependency>
-			<groupId>io.jsonwebtoken</groupId>
-			<artifactId>jjwt-jackson</artifactId>
-			<version>0.12.6</version>
-			<scope>runtime</scope>
+			<groupId>org.springframework.security</groupId>
+			<artifactId>spring-security-oauth2-jose</artifactId>
 		</dependency>
 		<!-- S3-compatible client used against Cloudflare R2 for property photo/video
 		     storage and encrypted chat attachment storage. S3Presigner (for presigned

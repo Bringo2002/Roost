@@ -1,18 +1,21 @@
 package com.roost.security;
 
-import io.jsonwebtoken.Claims;
-import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.io.Decoders;
-import io.jsonwebtoken.security.Keys;
+import com.nimbusds.jose.JOSEException;
+import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.jose.JWSHeader;
+import com.nimbusds.jose.JWSSigner;
+import com.nimbusds.jose.crypto.MACSigner;
+import com.nimbusds.jose.crypto.MACVerifier;
+import com.nimbusds.jwt.JWTClaimsSet;
+import com.nimbusds.jwt.SignedJWT;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
 
-import javax.crypto.SecretKey;
+import java.text.ParseException;
+import java.util.Base64;
 import java.util.Date;
-import java.util.HashMap;
 import java.util.Map;
-import java.util.function.Function;
 
 @Service
 public class JwtService {
@@ -26,54 +29,61 @@ public class JwtService {
     private String secretKey;
 
     public String extractUsername(String token) {
-        return extractClaim(token, Claims::getSubject);
-    }
-
-    public <T> T extractClaim(String token, Function<Claims, T> claimsResolver) {
-        final Claims claims = extractAllClaims(token);
-        return claimsResolver.apply(claims);
+        try {
+            return parseAndVerify(token).getJWTClaimsSet().getSubject();
+        } catch (ParseException | JOSEException e) {
+            throw new RuntimeException("Invalid JWT token", e);
+        }
     }
 
     public String generateToken(UserDetails userDetails) {
-        return generateToken(new HashMap<>(), userDetails);
+        return generateToken(Map.of(), userDetails);
     }
 
-    public String generateToken(
-            Map<String, Object> extraClaims,
-            UserDetails userDetails
-    ) {
-        return Jwts.builder()
-                .claims(extraClaims)
-                .subject(userDetails.getUsername())
-                .issuedAt(new Date(System.currentTimeMillis()))
-                .expiration(new Date(System.currentTimeMillis() + 1000L * 60 * 60 * 24 * 30)) // 30 days
-                .signWith(getSignInKey())
-                .compact();
+    public String generateToken(Map<String, Object> extraClaims, UserDetails userDetails) {
+        try {
+            JWTClaimsSet.Builder claimsBuilder = new JWTClaimsSet.Builder()
+                    .subject(userDetails.getUsername())
+                    .issueTime(new Date())
+                    .expirationTime(new Date(System.currentTimeMillis() + 1000L * 60 * 60 * 24 * 30)); // 30 days
+
+            extraClaims.forEach(claimsBuilder::claim);
+
+            SignedJWT signedJWT = new SignedJWT(
+                    new JWSHeader(JWSAlgorithm.HS256),
+                    claimsBuilder.build()
+            );
+            JWSSigner signer = new MACSigner(getSecretKeyBytes());
+            signedJWT.sign(signer);
+            return signedJWT.serialize();
+        } catch (JOSEException e) {
+            throw new RuntimeException("Failed to generate JWT token", e);
+        }
     }
 
     public boolean isTokenValid(String token, UserDetails userDetails) {
-        final String username = extractUsername(token);
-        return (username.equals(userDetails.getUsername())) && !isTokenExpired(token);
+        try {
+            SignedJWT signedJWT = parseAndVerify(token);
+            String username = signedJWT.getJWTClaimsSet().getSubject();
+            Date expiration = signedJWT.getJWTClaimsSet().getExpirationTime();
+            return username.equals(userDetails.getUsername())
+                    && expiration != null
+                    && expiration.after(new Date());
+        } catch (ParseException | JOSEException e) {
+            return false;
+        }
     }
 
-    private boolean isTokenExpired(String token) {
-        return extractExpiration(token).before(new Date());
+    private SignedJWT parseAndVerify(String token) throws ParseException, JOSEException {
+        SignedJWT signedJWT = SignedJWT.parse(token);
+        MACVerifier verifier = new MACVerifier(getSecretKeyBytes());
+        if (!signedJWT.verify(verifier)) {
+            throw new JOSEException("JWT signature verification failed");
+        }
+        return signedJWT;
     }
 
-    private Date extractExpiration(String token) {
-        return extractClaim(token, Claims::getExpiration);
-    }
-
-    private Claims extractAllClaims(String token) {
-        return Jwts.parser()
-                .verifyWith(getSignInKey())
-                .build()
-                .parseSignedClaims(token)
-                .getPayload();
-    }
-
-    private SecretKey getSignInKey() {
-        byte[] keyBytes = Decoders.BASE64.decode(secretKey);
-        return Keys.hmacShaKeyFor(keyBytes);
+    private byte[] getSecretKeyBytes() {
+        return Base64.getDecoder().decode(secretKey);
     }
 }
