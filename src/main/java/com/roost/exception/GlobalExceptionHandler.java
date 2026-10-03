@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @ControllerAdvice
 public class GlobalExceptionHandler {
@@ -22,6 +23,23 @@ public class GlobalExceptionHandler {
         Map<String, String> errorResponse = new HashMap<>();
         errorResponse.put("error", ex.getMessage());
         return new ResponseEntity<>(errorResponse, ex.getStatus());
+    }
+
+    /**
+     * Bean Validation failures on a {@code @Valid @RequestBody} are the
+     * client's mistake, not a server fault. Without this they fall through
+     * to the catch-all {@code Exception} handler below and surface as a
+     * 500. Field messages are sorted so the response is deterministic.
+     */
+    @ExceptionHandler(org.springframework.web.bind.MethodArgumentNotValidException.class)
+    public ResponseEntity<Map<String, String>> handleValidation(org.springframework.web.bind.MethodArgumentNotValidException ex) {
+        String msg = ex.getBindingResult().getFieldErrors().stream()
+                .map(e -> e.getField() + ": " + e.getDefaultMessage())
+                .sorted()
+                .collect(Collectors.joining("; "));
+        Map<String, String> errorResponse = new HashMap<>();
+        errorResponse.put("error", msg.isBlank() ? "Invalid request" : msg);
+        return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
     }
 
     @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException.class)
