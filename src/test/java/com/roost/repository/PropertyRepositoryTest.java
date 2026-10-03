@@ -359,6 +359,31 @@ class PropertyRepositoryTest {
     }
 
     @Test
+    @DisplayName("findByOwnerIdAndStatusPublishedPaged (host profile): only that owner's PUBLISHED listings, fetch-joins owner")
+    void findByOwnerIdAndStatusPublishedPaged_scopesToOwnerAndPublishedOnly() {
+        for (int i = 0; i < 10; i++) publishedListingWithOwnerAndCollections(owner, "pub-" + i);
+        listing(owner, "draft", "DRAFT", true, false);
+        listing(otherOwner, "not-mine", "PUBLISHED", true, true);
+        flushAndClear();
+
+        long statements = statementsFor(
+                () -> propertyRepository.findByOwnerIdAndStatusPublishedPaged(owner.getId(), PageRequest.of(0, 10)));
+
+        List<Property> results =
+                propertyRepository.findByOwnerIdAndStatusPublishedPaged(owner.getId(), PageRequest.of(0, 10));
+        assertEquals(10, results.size());
+        assertTrue(results.stream().allMatch(p -> p.getOwner().getId().equals(owner.getId())));
+        assertTrue(results.stream().noneMatch(p -> p.getTitle().equals("draft")),
+                "a draft listing must never appear on another visitor's view of this owner's profile");
+        assertTrue(results.stream().noneMatch(p -> p.getTitle().equals("not-mine")));
+        // Same bound/reasoning as findByStatusPublishedPaged_fetchJoinsOwner:
+        // owner is fetch-joined, so this stays small instead of growing
+        // with row count.
+        assertTrue(statements <= 6,
+                "expected a small, row-count-independent number of statements, got " + statements);
+    }
+
+    @Test
     @DisplayName("filterProperties (paginated): returns only matching rows and does not N+1")
     void filterProperties_paginated_matchesAndDoesNotGrow() {
         for (int i = 0; i < 10; i++) {
