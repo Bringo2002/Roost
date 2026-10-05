@@ -489,4 +489,45 @@ class PropertyRepositoryTest {
 
         assertEquals(Set.of(a.getId(), b.getId()), new HashSet<>(found));
     }
+
+    @Test
+    @DisplayName("findRankingInputs: only published, available listings, with the attributes the formula reads")
+    void findRankingInputs_onlyVisibleListings() {
+        Property visible = listing(owner, "visible", "PUBLISHED", true, true);
+        visible.setPhotoApproved(true);
+        visible.setGpsVerified(true);
+        visible.setCommunityVerified(false);
+        listing(owner, "draft", "DRAFT", true, true);
+        listing(owner, "rented", "PUBLISHED", false, true);
+        flushAndClear();
+
+        List<PropertyRepository.RankingInput> inputs = propertyRepository.findRankingInputs();
+
+        assertEquals(1, inputs.size());
+        PropertyRepository.RankingInput in = inputs.get(0);
+        assertEquals(visible.getId(), in.getId());
+        assertTrue(in.getPhotoApproved());
+        assertTrue(in.getVerified());
+        assertTrue(in.getGpsVerified());
+        assertFalse(in.getCommunityVerified());
+        assertTrue(in.getListedAt() != null);
+    }
+
+    @Test
+    @DisplayName("countRiskFlagsOfPublished: counts per visible listing, omits listings with none and hidden ones")
+    void countRiskFlagsOfPublished_countsPerVisibleListing() {
+        Property flagged = listing(owner, "flagged", "PUBLISHED", true, false);
+        flagged.getRiskFlags().add("PRICE_ANOMALY");
+        flagged.getRiskFlags().add("DUPLICATE_PHOTOS");
+        listing(owner, "clean", "PUBLISHED", true, false);
+        Property hidden = listing(owner, "hidden-flagged", "DRAFT", true, false);
+        hidden.getRiskFlags().add("PRICE_ANOMALY");
+        flushAndClear();
+
+        List<PropertyRepository.RiskFlagCount> counts = propertyRepository.countRiskFlagsOfPublished();
+
+        assertEquals(1, counts.size());
+        assertEquals(flagged.getId(), counts.get(0).getPropertyId());
+        assertEquals(2L, counts.get(0).getFlagCount());
+    }
 }
