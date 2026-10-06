@@ -65,6 +65,22 @@ public class PropertyController {
         this.rateLimiterService = rateLimiterService;
     }
 
+    private static final int DEFAULT_PAGE_SIZE = 20;
+    private static final int MAX_PAGE_SIZE = 50;
+
+    /**
+     * Turns the optional page/size query parameters into a Pageable: page
+     * defaults to 0 and is never negative, size defaults to
+     * {@link #DEFAULT_PAGE_SIZE} and is held between 1 and
+     * {@link #MAX_PAGE_SIZE}, so a client can neither ask for a nonsense
+     * page nor pull an unbounded one.
+     */
+    private static Pageable boundedPageable(Integer page, Integer size) {
+        int cappedSize = Math.min(Math.max(size != null ? size : DEFAULT_PAGE_SIZE, 1), MAX_PAGE_SIZE);
+        int safePage = page != null ? Math.max(page, 0) : 0;
+        return PageRequest.of(safePage, cappedSize);
+    }
+
     @GetMapping
     public List<PropertyResponseDto> getAllProperties(
             @RequestParam(required = false) Double lat,
@@ -78,9 +94,7 @@ public class PropertyController {
         if (size == null) {
             return PropertyResponseDto.from(propertyService.getAllProperties());
         }
-        int cappedSize = Math.min(Math.max(size, 1), 50);
-        int safePage = page != null ? Math.max(page, 0) : 0;
-        Pageable pageable = PageRequest.of(safePage, cappedSize);
+        Pageable pageable = boundedPageable(page, size);
         return PropertyResponseDto.from(propertyService.getAllProperties(lat, lng, pageable));
     }
 
@@ -103,9 +117,7 @@ public class PropertyController {
             @PathVariable Long ownerId,
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer size) {
-        int cappedSize = Math.min(Math.max(size != null ? size : 20, 1), 50);
-        int safePage = page != null ? Math.max(page, 0) : 0;
-        Pageable pageable = PageRequest.of(safePage, cappedSize);
+        Pageable pageable = boundedPageable(page, size);
         return PropertyResponseDto.from(propertyService.getPublishedPropertiesByOwner(ownerId, pageable));
     }
 
@@ -137,9 +149,7 @@ public class PropertyController {
         if (size == null) {
             return PropertyResponseDto.from(propertyService.filter(type, minPrice, maxPrice, bedrooms, furnished, parking, wifi, water, security, verified));
         }
-        int cappedSize = Math.min(Math.max(size, 1), 50);
-        int safePage = page != null ? Math.max(page, 0) : 0;
-        Pageable pageable = PageRequest.of(safePage, cappedSize);
+        Pageable pageable = boundedPageable(page, size);
         return PropertyResponseDto.from(propertyService.filter(type, minPrice, maxPrice, bedrooms, furnished, parking, wifi, water, security, verified, q, lat, lng, pageable));
     }
 
