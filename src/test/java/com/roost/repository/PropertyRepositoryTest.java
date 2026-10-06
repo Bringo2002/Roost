@@ -14,7 +14,6 @@ import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jpa.test.autoconfigure.TestEntityManager;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Slice;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -93,10 +92,6 @@ class PropertyRepositoryTest {
     private void flushAndClear() {
         em.flush();
         em.clear();
-    }
-
-    private List<String> titles(List<Property> list) {
-        return list.stream().map(Property::getTitle).toList();
     }
 
     private List<String> titles(Slice<Property> slice) {
@@ -450,79 +445,6 @@ class PropertyRepositoryTest {
                 "expected a small, row-count-independent number of statements, got " + statements);
     }
 
-    /** findNearby (paged) around Nairobi CBD, computing the bounding box the
-     *  way PropertyService.getNearby does. */
-    private List<Property> findNearbyNairobi(double radiusKm, Pageable pageable) {
-        double lat = -1.2921, lng = 36.8219;
-        double latDelta = radiusKm / 111.0;
-        double lngDelta = radiusKm / (111.0 * Math.cos(Math.toRadians(lat)));
-        return propertyRepository.findNearby(
-                lat, lng, radiusKm,
-                lat - latDelta, lat + latDelta,
-                lng - lngDelta, lng + lngDelta,
-                pageable);
-    }
-
-    @Test
-    @DisplayName("findNearby (paged): returns nearest-first pages without repeating or skipping a listing")
-    void findNearbyPaged_pagesNearestFirst() {
-        // ~1km, ~2km and ~3km north of CBD, all inside a 5km radius. Saved
-        // farthest-first so the order can't just be insertion order.
-        publishedListingNearNairobi(owner, "three-km", 0.027, 0);
-        publishedListingNearNairobi(owner, "one-km", 0.009, 0);
-        publishedListingNearNairobi(owner, "two-km", 0.018, 0);
-        flushAndClear();
-
-        assertEquals(List.of("one-km", "two-km"), titles(findNearbyNairobi(5, PageRequest.of(0, 2))));
-        assertEquals(List.of("three-km"), titles(findNearbyNairobi(5, PageRequest.of(1, 2))));
-        assertEquals(List.<String>of(), titles(findNearbyNairobi(5, PageRequest.of(2, 2))));
-    }
-
-    @Test
-    @DisplayName("findNearby (paged): listings at the same distance keep a stable order across pages")
-    void findNearbyPaged_equalDistanceOrdersById() {
-        publishedListingNearNairobi(owner, "twin-a", 0.009, 0);
-        publishedListingNearNairobi(owner, "twin-b", 0.009, 0);
-        flushAndClear();
-
-        assertEquals(List.of("twin-a"), titles(findNearbyNairobi(5, PageRequest.of(0, 1))));
-        assertEquals(List.of("twin-b"), titles(findNearbyNairobi(5, PageRequest.of(1, 1))));
-    }
-
-    @Test
-    @DisplayName("findNearby (paged): statement count does not grow with the page size")
-    void findNearbyPaged_doesNotN1() {
-        for (int i = 0; i < 6; i++) {
-            publishedListingNearNairobi(owner, "n-" + i, 0.001 * (i + 1), 0);
-        }
-        flushAndClear();
-
-        long statements = statementsFor(() -> findNearbyNairobi(5, PageRequest.of(0, 6)));
-
-        assertTrue(statements <= 6,
-                "expected a small, row-count-independent number of statements, got " + statements);
-    }
-
-    @Test
-    @DisplayName("findNearby (unpaged overload): still returns every listing in range, nearest first")
-    void findNearbyUnpaged_returnsEveryListingInRange() {
-        publishedListingNearNairobi(owner, "two-km", 0.018, 0);
-        publishedListingNearNairobi(owner, "one-km", 0.009, 0);
-        publishedListingNearNairobi(owner, "far", 0.45, 0);
-        flushAndClear();
-
-        double lat = -1.2921, lng = 36.8219, radiusKm = 5;
-        double latDelta = radiusKm / 111.0;
-        double lngDelta = radiusKm / (111.0 * Math.cos(Math.toRadians(lat)));
-
-        List<Property> results = propertyRepository.findNearby(
-                lat, lng, radiusKm,
-                lat - latDelta, lat + latDelta,
-                lng - lngDelta, lng + lngDelta);
-
-        assertEquals(List.of("one-km", "two-km"), titles(results));
-    }
-
     @Test
     @DisplayName("findByOwnerOrderByIdDesc (my-listings): fetch-joins owner, newest first")
     void findByOwnerOrderByIdDesc_fetchJoinsOwnerNewestFirst() {
@@ -566,46 +488,5 @@ class PropertyRepositoryTest {
         List<Long> found = propertyRepository.findExistingIds(List.of(a.getId(), b.getId(), -1L));
 
         assertEquals(Set.of(a.getId(), b.getId()), new HashSet<>(found));
-    }
-
-    @Test
-    @DisplayName("findRankingInputs: only published, available listings, with the attributes the formula reads")
-    void findRankingInputs_onlyVisibleListings() {
-        Property visible = listing(owner, "visible", "PUBLISHED", true, true);
-        visible.setPhotoApproved(true);
-        visible.setGpsVerified(true);
-        visible.setCommunityVerified(false);
-        listing(owner, "draft", "DRAFT", true, true);
-        listing(owner, "rented", "PUBLISHED", false, true);
-        flushAndClear();
-
-        List<PropertyRepository.RankingInput> inputs = propertyRepository.findRankingInputs();
-
-        assertEquals(1, inputs.size());
-        PropertyRepository.RankingInput in = inputs.get(0);
-        assertEquals(visible.getId(), in.getId());
-        assertTrue(in.getPhotoApproved());
-        assertTrue(in.getVerified());
-        assertTrue(in.getGpsVerified());
-        assertFalse(in.getCommunityVerified());
-        assertTrue(in.getListedAt() != null);
-    }
-
-    @Test
-    @DisplayName("countRiskFlagsOfPublished: counts per visible listing, omits listings with none and hidden ones")
-    void countRiskFlagsOfPublished_countsPerVisibleListing() {
-        Property flagged = listing(owner, "flagged", "PUBLISHED", true, false);
-        flagged.getRiskFlags().add("PRICE_ANOMALY");
-        flagged.getRiskFlags().add("DUPLICATE_PHOTOS");
-        listing(owner, "clean", "PUBLISHED", true, false);
-        Property hidden = listing(owner, "hidden-flagged", "DRAFT", true, false);
-        hidden.getRiskFlags().add("PRICE_ANOMALY");
-        flushAndClear();
-
-        List<PropertyRepository.RiskFlagCount> counts = propertyRepository.countRiskFlagsOfPublished();
-
-        assertEquals(1, counts.size());
-        assertEquals(flagged.getId(), counts.get(0).getPropertyId());
-        assertEquals(2L, counts.get(0).getFlagCount());
     }
 }

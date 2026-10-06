@@ -276,10 +276,6 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
      * published listing in the database. Results are identical to the
      * previous query; this only changes how many rows pay for the trig
      * math to get there.
-     *
-     * Paged: ordered by distance, then by id, so listings at the same
-     * distance keep a stable order from one page to the next instead of
-     * repeating or skipping across a page boundary.
      */
     @Query("SELECT p FROM Property p LEFT JOIN FETCH p.owner WHERE " +
            "p.status = 'PUBLISHED' AND " +
@@ -292,25 +288,14 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
            "sin(radians(:lat)) * sin(radians(p.latitude)))) < :radiusKm " +
            "ORDER BY (6371 * acos(cos(radians(:lat)) * cos(radians(p.latitude)) * " +
            "cos(radians(p.longitude) - radians(:lng)) + " +
-           "sin(radians(:lat)) * sin(radians(p.latitude)))) ASC, p.id ASC")
+           "sin(radians(:lat)) * sin(radians(p.latitude)))) ASC")
     List<Property> findNearby(@Param("lat") double lat,
                                @Param("lng") double lng,
                                @Param("radiusKm") double radiusKm,
                                @Param("minLat") double minLat,
                                @Param("maxLat") double maxLat,
                                @Param("minLng") double minLng,
-                               @Param("maxLng") double maxLng,
-                               Pageable pageable);
-
-    /**
-     * Unpaged variant, kept so PropertyService keeps compiling until it
-     * moves to the paged overload above. Remove once nothing calls it.
-     */
-    default List<Property> findNearby(double lat, double lng, double radiusKm,
-                                      double minLat, double maxLat,
-                                      double minLng, double maxLng) {
-        return findNearby(lat, lng, radiusKm, minLat, maxLat, minLng, maxLng, Pageable.unpaged());
-    }
+                               @Param("maxLng") double maxLng);
 
     @Query("SELECT p FROM Property p LEFT JOIN FETCH p.owner WHERE " +
            "p.status = 'PUBLISHED' AND " +
@@ -636,50 +621,4 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
      */
     @Query("select p.id from Property p where p.id in :ids")
     List<Long> findExistingIds(@Param("ids") Collection<Long> ids);
-
-    /**
-     * The listing attributes the ranking formula reads, without loading
-     * whole entities or their collections. Risk flags are counted
-     * separately ({@link #countRiskFlagsOfPublished()}) so this query stays
-     * a flat, join-free scan.
-     */
-    interface RankingInput {
-        Long getId();
-
-        LocalDateTime getListedAt();
-
-        Boolean getPhotoApproved();
-
-        Boolean getVerified();
-
-        Boolean getGpsVerified();
-
-        Boolean getCommunityVerified();
-    }
-
-    /**
-     * Every listing a tenant can currently see (published and available),
-     * which is the set that gets a ranking score. Loads the whole set in one
-     * query: fine while published listings number in the thousands; page it
-     * with a keyset on id once they number in the hundreds of thousands.
-     */
-    @Query("select p.id as id, p.listedAt as listedAt, p.photoApproved as photoApproved, "
-            + "p.verified as verified, p.gpsVerified as gpsVerified, "
-            + "p.communityVerified as communityVerified "
-            + "from Property p where p.status = 'PUBLISHED' and p.available = true")
-    List<RankingInput> findRankingInputs();
-
-    /** Number of risk flags on one listing; listings with none are absent. */
-    interface RiskFlagCount {
-        Long getPropertyId();
-
-        long getFlagCount();
-    }
-
-    /** Risk-flag counts for the same published, available set, in one grouped query. */
-    @Query("select p.id as propertyId, count(f) as flagCount "
-            + "from Property p join p.riskFlags f "
-            + "where p.status = 'PUBLISHED' and p.available = true "
-            + "group by p.id")
-    List<RiskFlagCount> countRiskFlagsOfPublished();
 }

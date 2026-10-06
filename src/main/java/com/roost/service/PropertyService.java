@@ -291,7 +291,7 @@ public class PropertyService {
      *  comment on that query for why. */
     private static final double KM_PER_DEGREE_LATITUDE = 111.32;
 
-    public List<Property> getNearby(double lat, double lng, double radiusKm, Pageable pageable) {
+    public List<Property> getNearby(double lat, double lng, double radiusKm) {
         double latDeltaDeg = radiusKm / KM_PER_DEGREE_LATITUDE;
         // Clamp so a search near the poles (or a lat of exactly +-90)
         // can't divide by ~0 and blow the longitude bound out to infinity.
@@ -300,8 +300,7 @@ public class PropertyService {
         return populateRatings(propertyRepository.findNearby(
                 lat, lng, radiusKm,
                 lat - latDeltaDeg, lat + latDeltaDeg,
-                lng - lngDeltaDeg, lng + lngDeltaDeg,
-                pageable));
+                lng - lngDeltaDeg, lng + lngDeltaDeg));
     }
 
     public List<Property> filter(String houseType, Double minPrice, Double maxPrice, Integer bedrooms,

@@ -189,13 +189,13 @@ When adding a new column or constraint:
 
 ### DTO-Only Responses (Current State + Migration Rule)
 
-**Current state:** This debt has been paid off. All controllers now return DTOs (e.g. `PropertyResponseDto`) rather than raw JPA `@Entity` objects — verified across every controller in `src/main/java/com/roost/controller/`. Keep it that way going forward: see the rule below.
+**Current state:** Several controllers (notably `PropertyController`) return raw JPA `@Entity` objects directly. This is a known debt — it leaks internal schema details, Hibernate proxy behavior, and `@Transient` fields into the API contract.
 
 **Rule going forward:** Every new endpoint must return a DTO, not an entity. When modifying an existing endpoint that currently returns an entity, introduce a DTO in `src/main/java/com/roost/dto/` and map through it. Do not add new fields to an entity with the expectation that Jackson serialization of the entity IS the API contract — route through a DTO so the response shape is explicitly controlled.
 
 ### Mandatory Pagination on List Endpoints
 
-**Current state:** Partially addressed. `getAllProperties`, `filterProperties`, and the host-profile `by-owner` endpoint now accept optional `page`/`size` query params and page via `Pageable` when supplied. Pagination is **opt-in** on `getAllProperties`/`filterProperties` for backward compatibility: omitting `page`/`size` still returns the full unbounded result, matching pre-existing client behavior. `by-owner` is paginated by default, since it is a new endpoint with no legacy callers to preserve. `getNearby` still takes no `page`/`size` params at all and remains fully unbounded — this is still open debt at 20M+ scale. Do not treat this item as closed: the opt-in defaults mean unbounded responses are still reachable on the older endpoints, and `getNearby` needs the same treatment.
+**Current state:** List endpoints (`getAllProperties`, `getNearby`, `filterProperties`) return unbounded `List<Property>`. This is a known debt at 20M+ scale.
 
 **Rule going forward:**
 
@@ -271,7 +271,7 @@ The current `Dockerfile` and `Procfile` do not specify a collector — Java 21 d
 
 Do not write implementation code without a preceding failing test. The cycle is: **Red → Green → Refactor.**
 
-**Current state:** This debt has been paid off. The suite now spans 24 test files covering repositories, services, controllers, and DTOs (`src/test/java/com/roost/{repository,service,controller,dto}/`), following the Red → Green → Refactor cycle and the minimum-coverage table below. Keep extending this pattern — do not regress to writing implementation code without a preceding failing test.
+**Current state:** The test suite has a single file (`RoostApplicationTests.java`) with a context-load test. This is known debt. Every new feature must include proper tests going forward.
 
 ### Minimum Coverage Requirements
 
