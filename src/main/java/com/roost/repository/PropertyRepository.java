@@ -302,16 +302,6 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
                                @Param("maxLng") double maxLng,
                                Pageable pageable);
 
-    /**
-     * Unpaged variant, kept so PropertyService keeps compiling until it
-     * moves to the paged overload above. Remove once nothing calls it.
-     */
-    default List<Property> findNearby(double lat, double lng, double radiusKm,
-                                      double minLat, double maxLat,
-                                      double minLng, double maxLng) {
-        return findNearby(lat, lng, radiusKm, minLat, maxLat, minLng, maxLng, Pageable.unpaged());
-    }
-
     @Query("SELECT p FROM Property p LEFT JOIN FETCH p.owner WHERE " +
            "p.status = 'PUBLISHED' AND " +
            "p.available = true AND " +
