@@ -433,19 +433,9 @@ class PropertyRepositoryTest {
         publishedListingNearNairobi(owner, "far", 0.45, 0);
         flushAndClear();
 
-        double lat = -1.2921, lng = 36.8219, radiusKm = 5;
-        double latDelta = radiusKm / 111.0;
-        double lngDelta = radiusKm / (111.0 * Math.cos(Math.toRadians(lat)));
+        long statements = statementsFor(() -> findNearbyNairobi(5, PageRequest.of(0, 50)));
 
-        long statements = statementsFor(() -> propertyRepository.findNearby(
-                lat, lng, radiusKm,
-                lat - latDelta, lat + latDelta,
-                lng - lngDelta, lng + lngDelta));
-
-        List<Property> results = propertyRepository.findNearby(
-                lat, lng, radiusKm,
-                lat - latDelta, lat + latDelta,
-                lng - lngDelta, lng + lngDelta);
+        List<Property> results = findNearbyNairobi(5, PageRequest.of(0, 50));
 
         assertEquals(List.of("close"), results.stream().map(Property::getTitle).toList());
         assertTrue(statements <= 6,
@@ -503,26 +493,6 @@ class PropertyRepositoryTest {
 
         assertTrue(statements <= 6,
                 "expected a small, row-count-independent number of statements, got " + statements);
-    }
-
-    @Test
-    @DisplayName("findNearby (unpaged overload): still returns every listing in range, nearest first")
-    void findNearbyUnpaged_returnsEveryListingInRange() {
-        publishedListingNearNairobi(owner, "two-km", 0.018, 0);
-        publishedListingNearNairobi(owner, "one-km", 0.009, 0);
-        publishedListingNearNairobi(owner, "far", 0.45, 0);
-        flushAndClear();
-
-        double lat = -1.2921, lng = 36.8219, radiusKm = 5;
-        double latDelta = radiusKm / 111.0;
-        double lngDelta = radiusKm / (111.0 * Math.cos(Math.toRadians(lat)));
-
-        List<Property> results = propertyRepository.findNearby(
-                lat, lng, radiusKm,
-                lat - latDelta, lat + latDelta,
-                lng - lngDelta, lng + lngDelta);
-
-        assertEquals(List.of("one-km", "two-km"), titles(results));
     }
 
     @Test
