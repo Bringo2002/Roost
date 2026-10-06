@@ -1,5 +1,6 @@
 package com.roost.repository;
 
+import com.roost.model.ListingRankScore;
 import com.roost.model.Property;
 import com.roost.model.Role;
 import com.roost.model.User;
@@ -21,6 +22,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -607,5 +609,55 @@ class PropertyRepositoryTest {
         assertEquals(1, counts.size());
         assertEquals(flagged.getId(), counts.get(0).getPropertyId());
         assertEquals(2L, counts.get(0).getFlagCount());
+    }
+
+    @Test
+    @DisplayName("filterPropertiesRecommended: highest stored score first, unscored listings ordered by the supplied default, ties newest-first")
+    void filterPropertiesRecommended_ordersByScore() {
+        Property low = listing(owner, "low", "PUBLISHED", true, false);
+        Property high = listing(owner, "high", "PUBLISHED", true, false);
+        Property unscored = listing(owner, "unscored", "PUBLISHED", true, false);
+        Property tieOld = listing(owner, "tie-old", "PUBLISHED", true, false);
+        Property tieNew = listing(owner, "tie-new", "PUBLISHED", true, false);
+        em.persist(new ListingRankScore(low, 0.10, 0.0, Instant.now()));
+        em.persist(new ListingRankScore(high, 0.90, 0.0, Instant.now()));
+        em.persist(new ListingRankScore(tieOld, 0.50, 0.0, Instant.now()));
+        em.persist(new ListingRankScore(tieNew, 0.50, 0.0, Instant.now()));
+        flushAndClear();
+
+        List<Property> result = propertyRepository.filterPropertiesRecommended(
+                null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, 0.30, PageRequest.of(0, 10));
+
+        assertEquals(
+                List.of(high.getId(), tieNew.getId(), tieOld.getId(), unscored.getId(), low.getId()),
+                result.stream().map(Property::getId).toList());
+    }
+
+    @Test
+    @DisplayName("filterPropertiesRecommended: still applies filters and search tokens, and pages without overlap")
+    void filterPropertiesRecommended_filtersAndPages() {
+        Property a = listing(owner, "sunny studio", "PUBLISHED", true, true);
+        Property b = listing(owner, "sunny loft", "PUBLISHED", true, true);
+        Property c = listing(owner, "sunny flat", "PUBLISHED", true, true);
+        Property unverified = listing(owner, "sunny shack", "PUBLISHED", true, false);
+        Property draft = listing(owner, "sunny draft", "DRAFT", true, true);
+        listing(owner, "gloomy cellar", "PUBLISHED", true, true);
+        em.persist(new ListingRankScore(a, 0.9, 0.0, Instant.now()));
+        em.persist(new ListingRankScore(b, 0.8, 0.0, Instant.now()));
+        em.persist(new ListingRankScore(c, 0.7, 0.0, Instant.now()));
+        em.persist(new ListingRankScore(unverified, 0.99, 0.0, Instant.now()));
+        flushAndClear();
+
+        List<Property> page0 = propertyRepository.filterPropertiesRecommended(
+                null, null, null, null, null, null, null, null, null, true,
+                "sunny", null, null, null, null, null, 0.30, PageRequest.of(0, 2));
+        List<Property> page1 = propertyRepository.filterPropertiesRecommended(
+                null, null, null, null, null, null, null, null, null, true,
+                "sunny", null, null, null, null, null, 0.30, PageRequest.of(1, 2));
+
+        assertEquals(List.of(a.getId(), b.getId()), page0.stream().map(Property::getId).toList());
+        assertEquals(List.of(c.getId()), page1.stream().map(Property::getId).toList());
+        assertFalse(page0.stream().anyMatch(x -> x.getId().equals(draft.getId())));
     }
 }
