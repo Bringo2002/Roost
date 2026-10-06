@@ -102,8 +102,13 @@ public class PropertyController {
     public List<PropertyResponseDto> getNearby(
             @RequestParam double lat,
             @RequestParam double lng,
-            @RequestParam(defaultValue = "10") double radius) {
-        return PropertyResponseDto.from(propertyService.getNearby(lat, lng, radius));
+            @RequestParam(defaultValue = "10") double radius,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size) {
+        // Paginated by default (like /by-owner, unlike the root endpoint and
+        // /filter): a wide radius would otherwise return every PUBLISHED
+        // listing in range in a single response.
+        return PropertyResponseDto.from(propertyService.getNearby(lat, lng, radius, boundedPageable(page, size)));
     }
 
     /**

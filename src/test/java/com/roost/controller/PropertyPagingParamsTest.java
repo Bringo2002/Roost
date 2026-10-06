@@ -19,6 +19,8 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyDouble;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -97,6 +99,63 @@ class PropertyPagingParamsTest {
 
         assertEquals(2, pageable.getPageNumber());
         assertEquals(5, pageable.getPageSize());
+    }
+
+    // ─── GET /api/properties/nearby: paginated by default ───
+
+    private Pageable nearbyPageable(String... queryParams) throws Exception {
+        when(propertyService.getNearby(anyDouble(), anyDouble(), anyDouble(), any(Pageable.class)))
+                .thenReturn(List.<Property>of());
+        var request = get("/api/properties/nearby").param("lat", "-1.29").param("lng", "36.82");
+        for (int i = 0; i < queryParams.length; i += 2) {
+            request = request.param(queryParams[i], queryParams[i + 1]);
+        }
+        mockMvc.perform(request).andExpect(status().isOk());
+
+        ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
+        verify(propertyService).getNearby(anyDouble(), anyDouble(), anyDouble(), captor.capture());
+        return captor.getValue();
+    }
+
+    @Test
+    @DisplayName("nearby: defaults to the first page of 20")
+    void nearbyDefaultsToFirstPageOfTwenty() throws Exception {
+        Pageable pageable = nearbyPageable();
+
+        assertEquals(0, pageable.getPageNumber());
+        assertEquals(20, pageable.getPageSize());
+    }
+
+    @Test
+    @DisplayName("nearby: caps the page size at 50")
+    void nearbyCapsTheSizeAtFifty() throws Exception {
+        assertEquals(50, nearbyPageable("size", "500").getPageSize());
+    }
+
+    @Test
+    @DisplayName("nearby: raises a non-positive size to 1 and a negative page to 0")
+    void nearbyClampsNonsenseValues() throws Exception {
+        Pageable pageable = nearbyPageable("size", "0", "page", "-1");
+
+        assertEquals(1, pageable.getPageSize());
+        assertEquals(0, pageable.getPageNumber());
+    }
+
+    @Test
+    @DisplayName("nearby: honours an explicit page and size")
+    void nearbyHonoursPageAndSize() throws Exception {
+        Pageable pageable = nearbyPageable("page", "3", "size", "10");
+
+        assertEquals(3, pageable.getPageNumber());
+        assertEquals(10, pageable.getPageSize());
+    }
+
+    @Test
+    @DisplayName("nearby: still passes the coordinates through and defaults the radius to 10 km")
+    void nearbyKeepsCoordinatesAndDefaultRadius() throws Exception {
+        nearbyPageable();
+
+        verify(propertyService).getNearby(eq(-1.29), eq(36.82), eq(10.0), any(Pageable.class));
     }
 
     // ─── GET /api/properties: pagination is opt-in ───
