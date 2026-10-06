@@ -65,6 +65,15 @@ public final class ListingRankingFormula {
     /** Listings below this quality never receive a boost. */
     static final double MIN_QUALITY_FOR_BOOST = 0.50;
 
+    /**
+     * Ordering value for a listing that has no stored score yet (published since
+     * the last ranking run): what the formula gives a brand-new, unverified
+     * listing nobody has seen. Lands mid-feed -- below good established
+     * listings, above old poor ones -- instead of at the bottom for an hour.
+     */
+    public static final double UNSCORED_SCORE =
+            score(new Signals(0.0, false, false, false, false, 0, 0, 0, 0, 0, 0)).score();
+
     private ListingRankingFormula() {}
 
     /**

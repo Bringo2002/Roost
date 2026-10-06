@@ -146,8 +146,23 @@ public class PropertyController {
             @RequestParam(required = false) String q,
             @RequestParam(required = false) Double lat,
             @RequestParam(required = false) Double lng,
+            // Optional ordering. Absent keeps the existing behaviour (nearest
+            // first when lat/lng are sent, otherwise newest first). The only
+            // value today is "recommended": order by the stored ranking score.
+            // Needs pagination, and then lat/lng no longer affect the order.
+            @RequestParam(required = false) String sort,
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer size) {
+        boolean recommended = false;
+        if (sort != null && !sort.isBlank()) {
+            if (!"recommended".equalsIgnoreCase(sort.trim())) {
+                throw ApiException.badRequest("Unknown sort '" + sort + "'. Expected: recommended");
+            }
+            if (size == null) {
+                throw ApiException.badRequest("sort requires paginated requests (send size)");
+            }
+            recommended = true;
+        }
         // Pagination is opt-in: omitting page/size preserves the exact
         // previous behaviour (return everything matching, unbounded) so
         // existing/older clients aren't silently truncated to one page.
@@ -155,6 +170,9 @@ public class PropertyController {
             return PropertyResponseDto.from(propertyService.filter(type, minPrice, maxPrice, bedrooms, furnished, parking, wifi, water, security, verified));
         }
         Pageable pageable = boundedPageable(page, size);
+        if (recommended) {
+            return PropertyResponseDto.from(propertyService.filterRecommended(type, minPrice, maxPrice, bedrooms, furnished, parking, wifi, water, security, verified, q, pageable));
+        }
         return PropertyResponseDto.from(propertyService.filter(type, minPrice, maxPrice, bedrooms, furnished, parking, wifi, water, security, verified, q, lat, lng, pageable));
     }
 
