@@ -12,6 +12,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -124,7 +125,7 @@ class PropertyControllerPrivacyTest {
     @Test
     @DisplayName("GET /api/properties/nearby never exposes the token")
     void nearbyRedactsPrivateFields() throws Exception {
-        when(propertyService.getNearby(anyDouble(), anyDouble(), anyDouble()))
+        when(propertyService.getNearby(anyDouble(), anyDouble(), anyDouble(), any(Pageable.class)))
                 .thenReturn(List.of(property));
 
         mockMvc.perform(get("/api/properties/nearby").param("lat", "-1.29").param("lng", "36.82"))

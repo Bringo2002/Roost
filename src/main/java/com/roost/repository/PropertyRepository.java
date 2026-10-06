@@ -276,6 +276,10 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
      * published listing in the database. Results are identical to the
      * previous query; this only changes how many rows pay for the trig
      * math to get there.
+     *
+     * Paged: ordered by distance, then by id, so listings at the same
+     * distance keep a stable order from one page to the next instead of
+     * repeating or skipping across a page boundary.
      */
     @Query("SELECT p FROM Property p LEFT JOIN FETCH p.owner WHERE " +
            "p.status = 'PUBLISHED' AND " +
@@ -288,14 +292,25 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
            "sin(radians(:lat)) * sin(radians(p.latitude)))) < :radiusKm " +
            "ORDER BY (6371 * acos(cos(radians(:lat)) * cos(radians(p.latitude)) * " +
            "cos(radians(p.longitude) - radians(:lng)) + " +
-           "sin(radians(:lat)) * sin(radians(p.latitude)))) ASC")
+           "sin(radians(:lat)) * sin(radians(p.latitude)))) ASC, p.id ASC")
     List<Property> findNearby(@Param("lat") double lat,
                                @Param("lng") double lng,
                                @Param("radiusKm") double radiusKm,
                                @Param("minLat") double minLat,
                                @Param("maxLat") double maxLat,
                                @Param("minLng") double minLng,
-                               @Param("maxLng") double maxLng);
+                               @Param("maxLng") double maxLng,
+                               Pageable pageable);
+
+    /**
+     * Unpaged variant, kept so PropertyService keeps compiling until it
+     * moves to the paged overload above. Remove once nothing calls it.
+     */
+    default List<Property> findNearby(double lat, double lng, double radiusKm,
+                                      double minLat, double maxLat,
+                                      double minLng, double maxLng) {
+        return findNearby(lat, lng, radiusKm, minLat, maxLat, minLng, maxLng, Pageable.unpaged());
+    }
 
     @Query("SELECT p FROM Property p LEFT JOIN FETCH p.owner WHERE " +
            "p.status = 'PUBLISHED' AND " +
