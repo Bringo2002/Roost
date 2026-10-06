@@ -147,4 +147,15 @@ class ListingRankingFormulaTest {
         assertThrows(IllegalArgumentException.class,
                 () -> new Signals(1, true, true, true, true, -1, 0, 0, 0, 0, 0));
     }
+
+    @Test
+    @DisplayName("a listing with no stored score orders mid-feed: above old poor ones, below good established ones")
+    void unscoredScoreSitsMidFeed() {
+        double poorOld = scoreOf(unverified(60, 300));
+        double goodEstablished = scoreOf(good(10, 500, 100, 20, 5, 2));
+
+        assertTrue(Double.isFinite(ListingRankingFormula.UNSCORED_SCORE));
+        assertTrue(ListingRankingFormula.UNSCORED_SCORE > poorOld);
+        assertTrue(ListingRankingFormula.UNSCORED_SCORE < goodEstablished);
+    }
 }
