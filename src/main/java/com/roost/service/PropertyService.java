@@ -386,6 +386,24 @@ public class PropertyService {
         return populateRatings(results);
     }
 
+    /**
+     * Paginated search ordered by the stored ranking score (see
+     * ListingRankingFormula and ListingRankingTask) instead of newest-first.
+     * Same filters and free-text matching as the {@code filter} overload above.
+     * Distance is not part of this ordering; a caller that wants nearest-first
+     * uses that overload with lat/lng.
+     */
+    public List<Property> filterRecommended(String houseType, Double minPrice, Double maxPrice, Integer bedrooms,
+                                            Boolean furnished, Boolean parking, Boolean wifi, Boolean water,
+                                            Boolean security, Boolean verified, String q, Pageable pageable) {
+        String[] t = tokenizeSearchQuery(q);
+        return populateRatings(propertyRepository.filterPropertiesRecommended(
+                houseType, minPrice, maxPrice, bedrooms,
+                furnished, parking, wifi, water, security, verified,
+                t[0], t[1], t[2], t[3], t[4], t[5],
+                ListingRankingFormula.UNSCORED_SCORE, pageable));
+    }
+
     public Property incrementViewCount(Long id) {
         Property property = getPropertyById(id);
         property.setViewCount(property.getViewCount() + 1);
