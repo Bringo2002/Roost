@@ -195,7 +195,7 @@ When adding a new column or constraint:
 
 ### Mandatory Pagination on List Endpoints
 
-**Current state:** Partially addressed. `getAllProperties`, `filterProperties`, and the host-profile `by-owner` endpoint now accept optional `page`/`size` query params and page via `Pageable` when supplied. Pagination is **opt-in** on `getAllProperties`/`filterProperties` for backward compatibility: omitting `page`/`size` still returns the full unbounded result, matching pre-existing client behavior. `by-owner` is paginated by default, since it is a new endpoint with no legacy callers to preserve. `getNearby` still takes no `page`/`size` params at all and remains fully unbounded — this is still open debt at 20M+ scale. Do not treat this item as closed: the opt-in defaults mean unbounded responses are still reachable on the older endpoints, and `getNearby` needs the same treatment.
+**Current state:** Mostly addressed. `getAllProperties`, `getNearby`, `filterProperties`, and the host-profile `by-owner` endpoint all now accept optional `page`/`size` query params, bounded via the shared `boundedPageable()` helper in `PropertyController`. `getNearby` and `by-owner` are paginated **by default** (no legacy unbounded callers to preserve), so a bare request to either is always bounded. `getAllProperties` and `filterProperties` keep pagination **opt-in** for backward compatibility: omitting `page`/`size` still returns the full unbounded result, matching pre-existing client behavior. The remaining open debt is narrower than before — only those two endpoints' no-params path is still unbounded. Do not treat this item as fully closed until that opt-in default is removed or those clients are migrated.
 
 **Rule going forward:**
 
