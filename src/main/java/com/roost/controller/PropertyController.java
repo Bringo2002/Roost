@@ -344,6 +344,12 @@ public class PropertyController {
         if (user.getRole() != Role.LANDLORD) {
             return ResponseEntity.status(403).body(Map.of("error", "Only landlords can list properties."));
         }
+        // The body is bound straight onto the JPA entity, so a caller can send
+        // any field, including "id". save() treats an entity that has an id as
+        // an update, which would let a caller overwrite -- and, through the
+        // owner assignment below, take over -- someone else's listing.
+        // Creation must always insert a new row.
+        property.setId(null);
         property.setOwner(user);
         property.setLandlordId(user.getId().toString());
         property.setLandlordName(user.getName());
