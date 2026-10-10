@@ -10,7 +10,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.data.domain.Pageable;
-import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
+import org.springframework.http.converter.json.JacksonJsonHttpMessageConverter;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
@@ -48,8 +48,7 @@ class PropertyControllerSortTest {
                 .setControllerAdvice(new GlobalExceptionHandler())
                 // Same pinning as PropertyControllerPrivacyTest: standalone MockMvc would
                 // otherwise pick an XML converter that the S3 SDK pulls onto the classpath.
-                .setMessageConverters(new MappingJackson2HttpMessageConverter(
-                        new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules()))
+                .setMessageConverters(new JacksonJsonHttpMessageConverter())
                 .build();
         when(propertyService.filterRecommended(
                 any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(Pageable.class)))
