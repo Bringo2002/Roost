@@ -200,7 +200,7 @@ When adding a new column or constraint:
 **Rule going forward:**
 
 - Every new list endpoint must use `Pageable` and return `Page<T>` or `Slice<T>`.
-- Default page size: **20 items**. Maximum page size: **100 items**. Enforce the max in the controller or via a `PageableDefault`/`PageableHandlerMethodArgumentResolver` configuration.
+- Default page size: **20 items**. Maximum page size: **50 items** (`MAX_PAGE_SIZE` in `PropertyController` and `PropertyV2Controller`). A larger `size` is clamped to 50, not rejected, so a client that asks for more than 50 and treats a short page as the last page will stop early. Enforce the max in the controller or via a `PageableDefault`/`PageableHandlerMethodArgumentResolver` configuration.
 - When modifying an existing unbounded list endpoint, add pagination. Do not introduce new unbounded list endpoints.
 
 ### N+1 Query Prevention
