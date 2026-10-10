@@ -13,7 +13,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.domain.Pageable;
-import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
+import org.springframework.http.converter.json.JacksonJsonHttpMessageConverter;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.method.annotation.AuthenticationPrincipalArgumentResolver;
@@ -72,8 +72,7 @@ class PropertyControllerPrivacyTest {
                 // converter list to Jackson JSON explicitly so responses in
                 // this test class always serialize the way the real app
                 // (and this test's jsonPath assertions) expect.
-                .setMessageConverters(new MappingJackson2HttpMessageConverter(
-                        new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules()))
+                .setMessageConverters(new JacksonJsonHttpMessageConverter())
                 .build();
 
         owner = new User();
