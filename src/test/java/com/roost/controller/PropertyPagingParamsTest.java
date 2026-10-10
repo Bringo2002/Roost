@@ -11,7 +11,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.data.domain.Pageable;
-import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
+import org.springframework.http.converter.json.JacksonJsonHttpMessageConverter;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
@@ -48,8 +48,7 @@ class PropertyPagingParamsTest {
                 .setControllerAdvice(new GlobalExceptionHandler())
                 // Pin Jackson JSON: standaloneSetup() would otherwise pick up
                 // the XML converter this project's AWS S3 SDK pulls in.
-                .setMessageConverters(new MappingJackson2HttpMessageConverter(
-                        new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules()))
+                .setMessageConverters(new JacksonJsonHttpMessageConverter())
                 .build();
     }
 
