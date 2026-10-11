@@ -36,7 +36,7 @@ public class DatabaseConfig {
                     password = System.getenv("PGPASSWORD");
                 }
 
-                System.out.println("JDBC URL detected. Configuring datasource directly: " + databaseUrl);
+                System.out.println("JDBC URL detected. Configuring datasource directly.");
                 return DataSourceBuilder.create()
                         .url(databaseUrl)
                         .username(username)
@@ -55,7 +55,7 @@ public class DatabaseConfig {
                 String password = "";
                 if (dbUri.getUserInfo() != null && dbUri.getUserInfo().contains(":")) {
                     username = dbUri.getUserInfo().split(":")[0];
-                    password = dbUri.getUserInfo().split(":")[1];
+                    password = dbUri.getUserInfo().split(":", 2)[1];
                 } else if (dbUri.getUserInfo() != null) {
                     username = dbUri.getUserInfo();
                 }
@@ -68,7 +68,7 @@ public class DatabaseConfig {
                     jdbcUrl += "?" + dbUri.getQuery();
                 }
 
-                System.out.println("Programmatic datasource configured successfully from URL: " + jdbcUrl);
+                System.out.println("Programmatic datasource configured successfully from parsed URL.");
 
                 return DataSourceBuilder.create()
                         .url(jdbcUrl)
@@ -77,7 +77,7 @@ public class DatabaseConfig {
                         .driverClassName("org.postgresql.Driver")
                         .build();
             } catch (URISyntaxException e) {
-                throw new RuntimeException("Invalid database URL syntax: " + databaseUrl, e);
+                throw new RuntimeException("Invalid database URL syntax (URL redacted for security)", e);
             }
         }
 
@@ -118,7 +118,7 @@ public class DatabaseConfig {
         }
         
         String jdbcUrl = "jdbc:postgresql://" + host + ":" + port + "/" + database;
-        System.out.println("Configuring datasource dynamically using PG* variables or local defaults: " + jdbcUrl);
+        System.out.println("Configuring datasource dynamically using PG* variables or local defaults.");
         
         return DataSourceBuilder.create()
                 .url(jdbcUrl)
