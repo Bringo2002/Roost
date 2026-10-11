@@ -26,6 +26,8 @@ import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
@@ -149,6 +151,12 @@ public class PropertyService {
         if (property.getLastConfirmedAt() == null) {
             property.setLastConfirmedAt(LocalDateTime.now());
         }
+
+        // Server-generated endorsement token -- never trust a client-
+        // supplied value, since possession of the token is the only
+        // credential for the public endorsement endpoint.
+        property.setEndorsementToken(UUID.randomUUID().toString());
+
         recomputeVerification(property);
         // Risk flags need a real id for the report/community-check
         // lookups below (they compare by entity reference, which a
@@ -527,14 +535,15 @@ public class PropertyService {
         existing.setMoveInDate(updated.getMoveInDate());
         existing.setImageUrls(updated.getImageUrls());
         existing.setDocumentUrls(updated.getDocumentUrls());
-        if (updated.getDocumentVerified() != null) existing.setDocumentVerified(updated.getDocumentVerified());
+        // documentVerified, landlordEndorsed, and endorsementToken are
+        // admin/system-controlled trust badges -- never copy from the
+        // request body. They change only through their dedicated flows
+        // (admin doc verify, public endorsement endpoint, etc.).
         existing.setVideoUrl(updated.getVideoUrl());
         if (updated.getCountry() != null) existing.setCountry(updated.getCountry());
         
-        // Landlord, Caretaker, Utility & Endorsement fields
+        // Landlord, Caretaker, Utility fields (endorsement fields excluded)
         existing.setDirectLandlord(updated.isDirectLandlord());
-        existing.setLandlordEndorsed(updated.isLandlordEndorsed());
-        if (updated.getEndorsementToken() != null) existing.setEndorsementToken(updated.getEndorsementToken());
         if (updated.getOwnerVerifyName() != null) existing.setOwnerVerifyName(updated.getOwnerVerifyName());
         if (updated.getOwnerVerifyPhone() != null) existing.setOwnerVerifyPhone(updated.getOwnerVerifyPhone());
         if (updated.getManagerRole() != null) existing.setManagerRole(updated.getManagerRole());
@@ -548,6 +557,14 @@ public class PropertyService {
         if (updated.getElectricityType() != null) existing.setElectricityType(updated.getElectricityType());
         if (updated.getNearbyFacilities() != null) existing.setNearbyFacilities(updated.getNearbyFacilities());
 
+        // A listing placed UNDER_REVIEW by reports or admin moderation
+        // cannot have its status changed by the landlord -- only an
+        // admin action (restoreListing / hideListing) can move it out.
+        if ("UNDER_REVIEW".equals(existing.getStatus()) && updated.getStatus() != null
+                && !"UNDER_REVIEW".equals(updated.getStatus())) {
+            throw ApiException.forbidden(
+                    "This listing is under admin review and its status cannot be changed.");
+        }
         if (updated.getStatus() != null && !updated.getStatus().equals(existing.getStatus())
                 && "PUBLISHED".equals(updated.getStatus())) {
             assertCanPublish(existing.getOwner());
@@ -600,6 +617,10 @@ public class PropertyService {
      */
     public Property publishDraft(Long id) {
         Property existing = getPropertyById(id);
+        if ("UNDER_REVIEW".equals(existing.getStatus())) {
+            throw ApiException.forbidden(
+                    "This listing is under admin review and cannot be published.");
+        }
         assertCanPublish(existing.getOwner());
         existing.setStatus("PUBLISHED");
         if (existing.getListedAt() == null) {
