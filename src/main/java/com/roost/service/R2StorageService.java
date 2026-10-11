@@ -64,6 +64,13 @@ public class R2StorageService {
     private final boolean configured;
     private final boolean publicUploadConfigured;
 
+    /** Returns the configured R2 public base URL (no trailing slash), or
+     *  empty string if not configured. Used by confirm-upload to validate
+     *  that a client-supplied URL points to our own bucket. */
+    public String getPublicBaseUrl() {
+        return publicBaseUrl;
+    }
+
     public R2StorageService(
             @Value("${r2.account-id:}") String accountId,
             @Value("${r2.access-key-id:}") String accessKeyId,

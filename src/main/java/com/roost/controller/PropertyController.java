@@ -354,6 +354,23 @@ public class PropertyController {
         property.setLandlordId(user.getId().toString());
         property.setLandlordName(user.getName());
         property.setLandlordPhone(user.getPhone() != null ? user.getPhone() : property.getLandlordPhone());
+
+        // Sanitize admin/system-controlled fields that the client must
+        // never set directly. Each of these has a dedicated server-side
+        // flow (GPS verify, photo review, doc verify, endorsement) that
+        // is the only legitimate way to earn these badges.
+        property.setGpsVerified(false);
+        property.setGpsVerifiedAt(null);
+        property.setPhotoApproved(false);
+        property.setPhotoRejected(false);
+        property.setPhotoRejectionReason(null);
+        property.setPhotoRejectedAt(null);
+        property.setDocumentVerified(null);
+        property.setLandlordEndorsed(false);
+        property.setVerified(false);
+        property.setViewCount(0);
+        property.setSaveCount(0);
+
         return ResponseEntity.ok(PropertyResponseDto.forOwner(propertyService.addProperty(property)));
     }
 
@@ -510,6 +527,15 @@ public class PropertyController {
 
         // Idempotent: if the hash already exists, skip the insert.
         if (mediaHashRepository.findByContentHash(contentHash).isEmpty()) {
+            // Validate the URL points to our own R2 bucket -- without
+            // this, a caller could record an arbitrary URL and the app
+            // would later serve or reference it as if it were a
+            // legitimate upload.
+            String r2Base = r2StorageService.getPublicBaseUrl();
+            if (r2Base != null && !r2Base.isBlank() && !publicUrl.startsWith(r2Base)) {
+                return ResponseEntity.badRequest()
+                        .body(Map.of("error", "publicUrl must point to the configured R2 bucket."));
+            }
             MediaHash hash = new MediaHash(contentHash, publicUrl, key, contentType, sizeBytes);
             mediaHashRepository.save(hash);
             log.info(String.format("Recorded dedup hash for user %s: hash=%s key=%s size=%d",
@@ -614,11 +640,6 @@ public class PropertyController {
             return ResponseEntity.status(403).body(Map.of("error", "Unauthorized"));
         }
         return ResponseEntity.ok(PropertyResponseDto.forOwner(propertyService.getPropertiesByOwner(user)));
-    }
-
-    @GetMapping("/hello")
-    public String hello() {
-        return "Roost API is LIVE";
     }
 
     @DeleteMapping("/{id}")
