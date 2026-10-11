@@ -36,6 +36,10 @@ public class ReviewService {
 
         Property property = propertyService.getPropertyById(propertyId);
 
+        if (property.getOwner() != null && property.getOwner().getId().equals(reviewer.getId())) {
+            throw ApiException.badRequest("You cannot review your own listing.");
+        }
+
         if (reviewRepository.findByPropertyAndReviewer(property, reviewer).isPresent()) {
             throw ApiException.badRequest("You have already reviewed this property");
         }

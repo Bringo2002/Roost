@@ -1,11 +1,13 @@
 package com.roost.controller;
 
+import com.roost.dto.AppleAuthRequest;
 import com.roost.dto.AuthRequest;
 import com.roost.dto.AuthResponse;
 import com.roost.dto.SignupRequest;
 import com.roost.dto.UserProfileResponse;
 import com.roost.exception.ApiException;
 import com.roost.model.User;
+import com.roost.service.AppleLoginService;
 import com.roost.service.AuthService;
 import com.roost.service.RateLimiterService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -22,6 +24,7 @@ import java.util.Map;
 public class AuthController {
 
     private final AuthService authService;
+    private final AppleLoginService appleLoginService;
     private final RateLimiterService rateLimiterService;
 
     // 10 failed attempts / 15 min, checked by IP and by the targeted
@@ -37,8 +40,10 @@ public class AuthController {
     private static final int SIGNUP_MAX_ACCOUNTS = 5;
     private static final Duration SIGNUP_WINDOW = Duration.ofHours(1);
 
-    public AuthController(AuthService authService, RateLimiterService rateLimiterService) {
+    public AuthController(AuthService authService, AppleLoginService appleLoginService,
+                          RateLimiterService rateLimiterService) {
         this.authService = authService;
+        this.appleLoginService = appleLoginService;
         this.rateLimiterService = rateLimiterService;
     }
 
@@ -94,6 +99,14 @@ public class AuthController {
     @PostMapping("/google")
     public ResponseEntity<AuthResponse> google(@RequestBody com.roost.dto.GoogleAuthRequest request) {
         return ResponseEntity.ok(authService.loginWithGoogle(request));
+    }
+
+    /** Sign in with Apple -- mirrors the Google endpoint above. The
+     *  service validates the Firebase ID token and creates or links
+     *  the account. */
+    @PostMapping("/apple")
+    public ResponseEntity<AuthResponse> apple(@RequestBody AppleAuthRequest request) {
+        return ResponseEntity.ok(appleLoginService.loginWithApple(request));
     }
 
     @PostMapping("/refresh")
