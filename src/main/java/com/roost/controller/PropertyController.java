@@ -370,6 +370,7 @@ public class PropertyController {
         property.setVerified(false);
         property.setViewCount(0);
         property.setSaveCount(0);
+        property.setReportCount(null);
 
         return ResponseEntity.ok(PropertyResponseDto.forOwner(propertyService.addProperty(property)));
     }
