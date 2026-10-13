@@ -179,4 +179,36 @@ class PropertyServiceSecurityTest {
         assertDoesNotThrow(() -> java.util.UUID.fromString(result.getEndorsementToken()),
                 "endorsementToken should be a valid UUID");
     }
+
+    // ── H1 supplement: Status whitelist ───────────────────────────────────
+
+    @Test
+    @DisplayName("updateProperty rejects an arbitrary/invalid status value")
+    void updateProperty_rejectsArbitraryStatus() {
+        existingProperty.setStatus("DRAFT");
+        when(propertyRepository.findById(10L)).thenReturn(Optional.of(existingProperty));
+
+        Property updated = new Property();
+        updated.setStatus("HACKED");
+
+        ApiException ex = assertThrows(ApiException.class,
+                () -> propertyService.updateProperty(10L, updated));
+        assertTrue(ex.getMessage().toLowerCase().contains("status"),
+                "Error message should mention status: " + ex.getMessage());
+    }
+
+    @Test
+    @DisplayName("updateProperty rejects landlord setting status to UNDER_REVIEW")
+    void updateProperty_rejectsTransitionToUnderReview() {
+        existingProperty.setStatus("PUBLISHED");
+        when(propertyRepository.findById(10L)).thenReturn(Optional.of(existingProperty));
+
+        Property updated = new Property();
+        updated.setStatus("UNDER_REVIEW");
+
+        ApiException ex = assertThrows(ApiException.class,
+                () -> propertyService.updateProperty(10L, updated));
+        assertTrue(ex.getMessage().toLowerCase().contains("status"),
+                "Error message should mention status: " + ex.getMessage());
+    }
 }

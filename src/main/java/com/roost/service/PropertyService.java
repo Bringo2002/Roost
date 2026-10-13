@@ -34,6 +34,12 @@ import java.util.stream.Collectors;
 @Transactional
 public class PropertyService {
 
+    /** Statuses a landlord is allowed to set via updateProperty. UNDER_REVIEW
+     *  is system-only (set by reports/admin). Any value outside this set is
+     *  rejected to prevent arbitrary status injection. */
+    private static final Set<String> LANDLORD_ALLOWED_STATUSES =
+            Set.of("DRAFT", "PUBLISHED", "RENTED");
+
     private static final Logger log = LoggerFactory.getLogger(PropertyService.class);
 
     private final PropertyRepository propertyRepository;
@@ -564,6 +570,14 @@ public class PropertyService {
                 && !"UNDER_REVIEW".equals(updated.getStatus())) {
             throw ApiException.forbidden(
                     "This listing is under admin review and its status cannot be changed.");
+        }
+        // Reject arbitrary or system-only status values. Without this a
+        // landlord could inject "HACKED" or self-assign "UNDER_REVIEW".
+        if (updated.getStatus() != null
+                && !LANDLORD_ALLOWED_STATUSES.contains(updated.getStatus())) {
+            throw ApiException.badRequest(
+                    "Invalid status '" + updated.getStatus()
+                    + "'. Allowed values: " + LANDLORD_ALLOWED_STATUSES);
         }
         if (updated.getStatus() != null && !updated.getStatus().equals(existing.getStatus())
                 && "PUBLISHED".equals(updated.getStatus())) {
