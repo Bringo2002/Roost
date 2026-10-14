@@ -44,6 +44,11 @@ public class SecurityConfig {
             .csrf(csrf -> csrf.disable())
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .authorizeHttpRequests(auth -> auth
+                // Spring Security also checks the internal error dispatch. Without
+                // this, an error raised outside a controller (or an unmapped path)
+                // is re-dispatched to /error, denied as anonymous, and reaches the
+                // client as an empty 401/403 that hides the real status.
+                .requestMatchers("/error").permitAll()
                 .requestMatchers("/api/auth/**").permitAll()
                 // Require auth for all property endpoints except GET and POST report
                 .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/properties/**").permitAll()
