@@ -17,6 +17,7 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.nio.charset.StandardCharsets;
@@ -27,6 +28,7 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -133,6 +135,58 @@ class JwtAuthenticationFilterTest {
         assertNotNull(chain.getRequest());
         assertSame(user, SecurityContextHolder.getContext().getAuthentication().getPrincipal());
         verify(userRepository).save(user);
+    }
+
+    // Regression: these three used to throw out of the filter, so a stale or
+    // garbage token could break even public endpoints.
+
+    @Test
+    @DisplayName("a token signed with a different secret (e.g. after a rotation) is treated as no credentials")
+    void tokenFromAnotherSecretIsIgnored() throws Exception {
+        JwtService other = new JwtService();
+        ReflectionTestUtils.setField(other, "secretKey", base64("fedcba9876543210fedcba9876543210"));
+        bearer(other.generateToken(user));
+
+        assertDoesNotThrow(() -> filter.doFilter(request, response, chain));
+
+        assertNotNull(chain.getRequest());
+        assertNull(SecurityContextHolder.getContext().getAuthentication());
+        verifyNoInteractions(userDetailsService);
+    }
+
+    @Test
+    @DisplayName("a malformed token is treated as no credentials")
+    void malformedTokenIsIgnored() {
+        bearer("not-a-jwt");
+
+        assertDoesNotThrow(() -> filter.doFilter(request, response, chain));
+
+        assertNotNull(chain.getRequest());
+        assertNull(SecurityContextHolder.getContext().getAuthentication());
+        verifyNoInteractions(userDetailsService);
+    }
+
+    @Test
+    @DisplayName("a valid token for an account that no longer exists is treated as no credentials")
+    void tokenForDeletedUserIsIgnored() throws Exception {
+        when(userDetailsService.loadUserByUsername(EMAIL))
+                .thenThrow(new UsernameNotFoundException("User not found"));
+        bearer(jwtService.generateToken(user));
+
+        assertDoesNotThrow(() -> filter.doFilter(request, response, chain));
+
+        assertNotNull(chain.getRequest());
+        assertNull(SecurityContextHolder.getContext().getAuthentication());
+    }
+
+    @Test
+    @DisplayName("a failure loading the user (e.g. database down) is not mistaken for a bad token")
+    void loadFailureStillPropagates() {
+        when(userDetailsService.loadUserByUsername(EMAIL))
+                .thenThrow(new IllegalStateException("database unavailable"));
+        bearer(jwtService.generateToken(user));
+
+        assertThrows(IllegalStateException.class, () -> filter.doFilter(request, response, chain));
     }
 
     @Test
