@@ -2,13 +2,17 @@ package com.roost.service;
 
 import com.roost.exception.ApiException;
 import com.roost.model.Application;
+import com.roost.model.ListingEvent;
+import com.roost.model.ListingEventType;
 import com.roost.model.Property;
 import com.roost.model.Role;
 import com.roost.model.User;
 import com.roost.repository.ApplicationRepository;
+import com.roost.repository.ListingEventRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -19,10 +23,14 @@ public class ApplicationService {
 
     private final ApplicationRepository applicationRepository;
     private final PropertyService propertyService;
+    private final ListingEventRepository listingEventRepository;
 
-    public ApplicationService(ApplicationRepository applicationRepository, PropertyService propertyService) {
+    public ApplicationService(ApplicationRepository applicationRepository,
+                              PropertyService propertyService,
+                              ListingEventRepository listingEventRepository) {
         this.applicationRepository = applicationRepository;
         this.propertyService = propertyService;
+        this.listingEventRepository = listingEventRepository;
     }
 
     public Application submitApplication(User applicant, Map<String, Object> payload) {
@@ -43,7 +51,14 @@ public class ApplicationService {
         application.setStatus("PENDING");
         application.setCreatedAt(LocalDateTime.now());
 
-        return applicationRepository.save(application);
+        Application saved = applicationRepository.save(application);
+
+        // Recorded here rather than reported by the client: this is the only
+        // place an application is created, it cannot be forged or missed, and
+        // it commits or rolls back together with the application itself.
+        listingEventRepository.save(
+                new ListingEvent(property, applicant.getId(), null, ListingEventType.APPLICATION, Instant.now()));
+        return saved;
     }
 
     public List<Application> getPropertyApplications(User user, Long propertyId) {
