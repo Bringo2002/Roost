@@ -49,7 +49,7 @@ public class AuthController {
 
     @PostMapping({"/signup", "/register"})
     public ResponseEntity<AuthResponse> signup(@RequestBody SignupRequest request, HttpServletRequest httpRequest) {
-        String ipKey = "signup:ip:" + clientIp(httpRequest);
+        String ipKey = "signup:ip:" + httpRequest.getRemoteAddr();
         if (rateLimiterService.isBlocked(ipKey, SIGNUP_MAX_ACCOUNTS, SIGNUP_WINDOW)) {
             throw ApiException.tooManyRequests("Too many accounts created from this network recently. Please try again later.");
         }
@@ -60,7 +60,7 @@ public class AuthController {
 
     @PostMapping("/login")
     public ResponseEntity<AuthResponse> login(@RequestBody AuthRequest request, HttpServletRequest httpRequest) {
-        String ipKey = "login:ip:" + clientIp(httpRequest);
+        String ipKey = "login:ip:" + httpRequest.getRemoteAddr();
         String normalizedEmail = request.getEmail() != null ? request.getEmail().trim().toLowerCase() : "";
         String emailKey = "login:email:" + normalizedEmail;
         if (rateLimiterService.isBlocked(ipKey, LOGIN_MAX_ATTEMPTS, LOGIN_WINDOW)
@@ -85,16 +85,6 @@ public class AuthController {
         }
     }
 
-    /** Real client IP from the leftmost X-Forwarded-For entry -- Railway
-     *  sits in front of this app as a proxy, so request.getRemoteAddr()
-     *  would just return Railway's internal address, not the caller's. */
-    private String clientIp(HttpServletRequest request) {
-        String forwarded = request.getHeader("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank()) {
-            return forwarded.split(",")[0].trim();
-        }
-        return request.getRemoteAddr();
-    }
 
     @PostMapping("/google")
     public ResponseEntity<AuthResponse> google(@RequestBody com.roost.dto.GoogleAuthRequest request) {

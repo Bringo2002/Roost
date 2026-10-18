@@ -50,7 +50,7 @@ public class SearchController {
 
     @PostMapping("/parse-intent")
     public ResponseEntity<?> parseIntent(@RequestBody Map<String, String> payload, HttpServletRequest httpRequest) {
-        String ipKey = "search-intent:ip:" + clientIp(httpRequest);
+        String ipKey = "search-intent:ip:" + httpRequest.getRemoteAddr();
         if (rateLimiterService.isBlocked(ipKey, MAX_REQUESTS, WINDOW)) {
             throw ApiException.tooManyRequests("Too many search requests. Please try again shortly.");
         }
@@ -74,15 +74,5 @@ public class SearchController {
         result.put("available", true);
         return ResponseEntity.ok(result);
     }
-
-    /** Same X-Forwarded-For extraction AuthController uses -- Railway
-     *  sits in front of this app as a proxy, so request.getRemoteAddr()
-     *  would just return Railway's internal address, not the caller's. */
-    private String clientIp(HttpServletRequest request) {
-        String forwarded = request.getHeader("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank()) {
-            return forwarded.split(",")[0].trim();
-        }
-        return request.getRemoteAddr();
-    }
 }
+
