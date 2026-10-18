@@ -11,7 +11,9 @@ import com.roost.service.AppleLoginService;
 import com.roost.service.AuthService;
 import com.roost.service.RateLimiterService;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
+
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
@@ -48,7 +50,7 @@ public class AuthController {
     }
 
     @PostMapping({"/signup", "/register"})
-    public ResponseEntity<AuthResponse> signup(@RequestBody SignupRequest request, HttpServletRequest httpRequest) {
+    public ResponseEntity<AuthResponse> signup(@Valid @RequestBody SignupRequest request, HttpServletRequest httpRequest) {
         String ipKey = "signup:ip:" + httpRequest.getRemoteAddr();
         if (rateLimiterService.isBlocked(ipKey, SIGNUP_MAX_ACCOUNTS, SIGNUP_WINDOW)) {
             throw ApiException.tooManyRequests("Too many accounts created from this network recently. Please try again later.");
@@ -59,7 +61,7 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public ResponseEntity<AuthResponse> login(@RequestBody AuthRequest request, HttpServletRequest httpRequest) {
+    public ResponseEntity<AuthResponse> login(@Valid @RequestBody AuthRequest request, HttpServletRequest httpRequest) {
         String ipKey = "login:ip:" + httpRequest.getRemoteAddr();
         String normalizedEmail = request.getEmail() != null ? request.getEmail().trim().toLowerCase() : "";
         String emailKey = "login:email:" + normalizedEmail;
@@ -87,7 +89,7 @@ public class AuthController {
 
 
     @PostMapping("/google")
-    public ResponseEntity<AuthResponse> google(@RequestBody com.roost.dto.GoogleAuthRequest request) {
+    public ResponseEntity<AuthResponse> google(@Valid @RequestBody com.roost.dto.GoogleAuthRequest request) {
         return ResponseEntity.ok(authService.loginWithGoogle(request));
     }
 
@@ -95,7 +97,7 @@ public class AuthController {
      *  service validates the Firebase ID token and creates or links
      *  the account. */
     @PostMapping("/apple")
-    public ResponseEntity<AuthResponse> apple(@RequestBody AppleAuthRequest request) {
+    public ResponseEntity<AuthResponse> apple(@Valid @RequestBody AppleAuthRequest request) {
         return ResponseEntity.ok(appleLoginService.loginWithApple(request));
     }
 
