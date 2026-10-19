@@ -49,6 +49,16 @@ public class User implements UserDetails {
      *  silently merge into an unverified password account with the same address. */
     private Boolean emailVerified = false;
 
+    /** Whether this account is active. False = soft-deleted or banned.
+     *  Wired into Spring Security's {@link #isEnabled()} so any request
+     *  carrying a JWT for a disabled account is rejected at the filter layer. */
+    private Boolean enabled = true;
+
+    /** Whether the account is unlocked. False = temporarily suspended
+     *  (e.g., after too many failed attempts or admin action). Wired into
+     *  Spring Security's {@link #isAccountNonLocked()}. */
+    private Boolean accountNonLocked = true;
+
     /** FCM device registration token for push notifications. Null until
      *  the app registers one; overwritten on refresh/re-login. Never
      *  serialized -- Message.sender/recipient embed the full User, so
@@ -154,6 +164,22 @@ public class User implements UserDetails {
         this.emailVerified = emailVerified;
     }
 
+    public boolean getEnabled() {
+        return enabled == null || enabled;
+    }
+
+    public void setEnabled(Boolean enabled) {
+        this.enabled = enabled;
+    }
+
+    public boolean getAccountNonLocked() {
+        return accountNonLocked == null || accountNonLocked;
+    }
+
+    public void setAccountNonLocked(Boolean accountNonLocked) {
+        this.accountNonLocked = accountNonLocked;
+    }
+
     public String getAvatarUrl() {
         return avatarUrl;
     }
@@ -196,7 +222,7 @@ public class User implements UserDetails {
 
     @Override
     public boolean isAccountNonLocked() {
-        return true;
+        return accountNonLocked == null || accountNonLocked;
     }
 
     @Override
@@ -206,6 +232,6 @@ public class User implements UserDetails {
 
     @Override
     public boolean isEnabled() {
-        return true;
+        return enabled == null || enabled;
     }
 }
