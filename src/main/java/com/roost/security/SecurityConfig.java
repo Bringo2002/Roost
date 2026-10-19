@@ -65,7 +65,26 @@ public class SecurityConfig {
             .exceptionHandling(ex -> ex.authenticationEntryPoint(authenticationEntryPoint))
             .sessionManagement(sess -> sess.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authenticationProvider(authenticationProvider)
-            .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
+            .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
+            // ── Security response headers ───────────────────────────────
+            .headers(headers -> headers
+                // Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
+                // Tells browsers to only connect over HTTPS for 1 year.
+                // Only sent over HTTPS (Railway TLS termination), so local
+                // dev over plain HTTP is unaffected.
+                .httpStrictTransportSecurity(hsts -> hsts
+                        .maxAgeInSeconds(31_536_000)  // 1 year
+                        .includeSubDomains(true)
+                        .preload(true))
+                // X-Content-Type-Options: nosniff — prevents MIME-sniffing attacks
+                .contentTypeOptions(cto -> {})
+                // X-Frame-Options: DENY — blocks clickjacking via iframes
+                .frameOptions(frame -> frame.deny())
+                // Content-Security-Policy: frame-ancestors 'none' — CSP-level
+                // clickjacking prevention (modern browsers prefer this over X-Frame-Options)
+                .contentSecurityPolicy(csp ->
+                        csp.policyDirectives("frame-ancestors 'none'"))
+            );
 
         return http.build();
     }
