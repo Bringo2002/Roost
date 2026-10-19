@@ -1,7 +1,11 @@
 package com.roost.dto;
 
+import jakarta.validation.constraints.NotBlank;
+
 public class AuthRequest {
+    @NotBlank
     private String email;
+    @NotBlank
     private String password;
 
     public AuthRequest() {}

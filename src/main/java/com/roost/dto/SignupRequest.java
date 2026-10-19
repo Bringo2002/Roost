@@ -1,9 +1,18 @@
 package com.roost.dto;
 
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
+
 public class SignupRequest {
+    @NotBlank
+    @Size(max = 100)
     private String name;
+    @NotBlank
     private String email;
+    // phone is optional — some users sign up email-only
     private String phone;
+    @NotBlank
+    @Size(min = 8, message = "Password must be at least 8 characters")
     private String password;
 
     public SignupRequest() {}
