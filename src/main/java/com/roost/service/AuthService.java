@@ -52,6 +52,7 @@ public class AuthService {
         user.setPhone(request.getPhone());
         user.setPassword(passwordEncoder.encode(request.getPassword()));
         user.setRole(Role.TENANT);
+        user.setEmailVerified(false); // must be verified via social login; never pre-trust a password signup
         userRepository.save(user);
 
         return AuthResponse.builder().token(jwtService.generateToken(user)).build();
@@ -87,16 +88,29 @@ public class AuthService {
         }
 
         return userRepository.findByEmail(identity.email())
-                .map(existing -> AuthResponse.builder()
-                        .token(jwtService.generateToken(existing))
-                        .isNewUser(false)
-                        .build())
+                .map(existing -> {
+                    // Block the email pre-hijacking attack: if a password-signup
+                    // account exists for this email but was never verified by a
+                    // trusted provider, refuse to merge. The real owner can
+                    // create a new social-login account; the attacker's dead
+                    // account cannot be reused.
+                    if (!existing.isEmailVerified()) {
+                        throw ApiException.conflict(
+                                "An account with this email already exists. " +
+                                "Please log in with your password, or contact support.");
+                    }
+                    return AuthResponse.builder()
+                            .token(jwtService.generateToken(existing))
+                            .isNewUser(false)
+                            .build();
+                })
                 .orElseGet(() -> {
                     User user = new User();
                     user.setName(identity.name());
                     user.setEmail(identity.email());
                     user.setPassword(passwordEncoder.encode(java.util.UUID.randomUUID().toString()));
                     user.setRole(Role.TENANT);
+                    user.setEmailVerified(true); // Google has cryptographically verified this email
                     userRepository.save(user);
                     return AuthResponse.builder()
                             .token(jwtService.generateToken(user))

@@ -7,6 +7,7 @@ import com.roost.exception.ApiException;
 import com.roost.model.Role;
 import com.roost.model.User;
 import com.roost.repository.UserRepository;
+import com.roost.security.JwtService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
