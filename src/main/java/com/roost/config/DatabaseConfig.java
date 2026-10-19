@@ -1,5 +1,7 @@
 package com.roost.config;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
@@ -10,6 +12,8 @@ import java.net.URISyntaxException;
 
 @Configuration
 public class DatabaseConfig {
+
+    private static final Logger log = LoggerFactory.getLogger(DatabaseConfig.class);
 
     @Bean
     @Primary
@@ -36,7 +40,7 @@ public class DatabaseConfig {
                     password = System.getenv("PGPASSWORD");
                 }
 
-                System.out.println("JDBC URL detected. Configuring datasource directly.");
+                log.info("JDBC URL detected. Configuring datasource directly.");
                 return DataSourceBuilder.create()
                         .url(databaseUrl)
                         .username(username)
@@ -46,7 +50,7 @@ public class DatabaseConfig {
             }
 
             try {
-                System.out.println("Standard connection URL detected (postgresql:// format). Parsing: " + databaseUrl.replaceAll(":([^@]+)@", ":****@"));
+                log.info("Standard connection URL detected (postgresql:// format). Parsing redacted URL.");
                 
                 // Clean up the URL format if it contains "postgresql://" or "postgres://"
                 URI dbUri = new URI(databaseUrl);
@@ -68,7 +72,7 @@ public class DatabaseConfig {
                     jdbcUrl += "?" + dbUri.getQuery();
                 }
 
-                System.out.println("Programmatic datasource configured successfully from parsed URL.");
+                log.info("Programmatic datasource configured successfully from parsed URL.");
 
                 return DataSourceBuilder.create()
                         .url(jdbcUrl)
@@ -91,14 +95,14 @@ public class DatabaseConfig {
         // Detect if we are in Railway/Cloud production but have no configuration
         boolean isProduction = System.getenv("PORT") != null || System.getenv("RAILWAY_ENVIRONMENT") != null;
         if (isProduction && (host == null || host.trim().isEmpty())) {
-            System.err.println("=========================================================================");
-            System.err.println("CRITICAL ERROR: Running in Production/Railway but database is not configured!");
-            System.err.println("No DATABASE_URL, DATABASE_PRIVATE_URL, or PGHOST environment variables were found.");
-            System.err.println("Please make sure to link your PostgreSQL database to this service in the Railway UI:");
-            System.err.println("  1. Go to your Spring Boot service in Railway.");
-            System.err.println("  2. Click on 'Variables'.");
-            System.err.println("  3. Click 'New Variable', select 'DATABASE_URL' and reference the Postgres service.");
-            System.err.println("=========================================================================");
+            log.error("=========================================================================");
+            log.error("CRITICAL ERROR: Running in Production/Railway but database is not configured!");
+            log.error("No DATABASE_URL, DATABASE_PRIVATE_URL, or PGHOST environment variables were found.");
+            log.error("Please make sure to link your PostgreSQL database to this service in the Railway UI:");
+            log.error("  1. Go to your Spring Boot service in Railway.");
+            log.error("  2. Click on 'Variables'.");
+            log.error("  3. Click 'New Variable', select 'DATABASE_URL' and reference the Postgres service.");
+            log.error("=========================================================================");
         }
 
         if (host == null || host.trim().isEmpty()) {
@@ -117,11 +121,11 @@ public class DatabaseConfig {
             password = "postgres";
         }
         
-        String jdbcUrl = "jdbc:postgresql://" + host + ":" + port + "/" + database;
-        System.out.println("Configuring datasource dynamically using PG* variables or local defaults.");
+        log.info("Configuring datasource using PG* variables or local defaults (host={}, port={}, db={}).",
+                host, port, database);
         
         return DataSourceBuilder.create()
-                .url(jdbcUrl)
+                .url("jdbc:postgresql://" + host + ":" + port + "/" + database)
                 .username(username)
                 .password(password)
                 .driverClassName("org.postgresql.Driver")
