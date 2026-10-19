@@ -43,6 +43,12 @@ public class User implements UserDetails {
 
     private Boolean phoneVerified = false;
 
+    /** True when email ownership has been confirmed by a trusted provider
+     *  (Google or Apple sign-in). Password-signup accounts start as false.
+     *  Used to block the email pre-hijacking attack: a social login must not
+     *  silently merge into an unverified password account with the same address. */
+    private Boolean emailVerified = false;
+
     /** FCM device registration token for push notifications. Null until
      *  the app registers one; overwritten on refresh/re-login. Never
      *  serialized -- Message.sender/recipient embed the full User, so
@@ -138,6 +144,14 @@ public class User implements UserDetails {
 
     public void setPhoneVerified(Boolean phoneVerified) {
         this.phoneVerified = phoneVerified;
+    }
+
+    public boolean isEmailVerified() {
+        return emailVerified != null && emailVerified;
+    }
+
+    public void setEmailVerified(Boolean emailVerified) {
+        this.emailVerified = emailVerified;
     }
 
     public String getAvatarUrl() {
