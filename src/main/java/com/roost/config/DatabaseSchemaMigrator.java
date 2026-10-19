@@ -25,6 +25,8 @@ public class DatabaseSchemaMigrator implements CommandLineRunner {
             // User table columns
             jdbcTemplate.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_verified BOOLEAN DEFAULT FALSE;");
             jdbcTemplate.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT FALSE;");
+            jdbcTemplate.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS enabled BOOLEAN DEFAULT TRUE;");
+            jdbcTemplate.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS account_non_locked BOOLEAN DEFAULT TRUE;");
             jdbcTemplate.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS public_key TEXT;");
             jdbcTemplate.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMP;");
 
@@ -168,6 +170,8 @@ public class DatabaseSchemaMigrator implements CommandLineRunner {
         enforceNotNull("properties", "save_count", "0");
         enforceNotNull("users", "phone_verified", "FALSE");
         enforceNotNull("users", "email_verified", "FALSE");
+        enforceNotNull("users", "enabled", "TRUE");
+        enforceNotNull("users", "account_non_locked", "TRUE");
         // Unlike the primitive boolean/int columns above, `status` is a
         // String field in the entity, so Hibernate never tried (and
         // failed) to enforce NOT NULL on it -- which is exactly why this
