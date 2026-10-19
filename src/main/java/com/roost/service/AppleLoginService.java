@@ -56,16 +56,26 @@ public class AppleLoginService {
         }
 
         return userRepository.findByEmail(identity.email())
-                .map(existing -> AuthResponse.builder()
-                        .token(jwtService.generateToken(existing))
-                        .isNewUser(false)
-                        .build())
+                .map(existing -> {
+                    // Block the email pre-hijacking attack: refuse to merge into
+                    // a password account that has never been provider-verified.
+                    if (!existing.isEmailVerified()) {
+                        throw ApiException.conflict(
+                                "An account with this email already exists. " +
+                                "Please log in with your password, or contact support.");
+                    }
+                    return AuthResponse.builder()
+                            .token(jwtService.generateToken(existing))
+                            .isNewUser(false)
+                            .build();
+                })
                 .orElseGet(() -> {
                     User user = new User();
                     user.setName(resolveName(identity, request));
                     user.setEmail(identity.email());
                     user.setPassword(passwordEncoder.encode(UUID.randomUUID().toString()));
                     user.setRole(Role.TENANT);
+                    user.setEmailVerified(true); // Apple has cryptographically verified this email
                     userRepository.save(user);
                     return AuthResponse.builder()
                             .token(jwtService.generateToken(user))

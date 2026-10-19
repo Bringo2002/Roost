@@ -72,6 +72,7 @@ class AppleLoginServiceTest {
     void existingUserLogsIn() {
         User existing = new User();
         existing.setEmail("a@b.com");
+        existing.setEmailVerified(true); // returning social-login account; provider already verified this email
         when(appleAuthService.verifyAppleToken("firebase-token"))
                 .thenReturn(new AppleAuthService.AppleIdentity("a@b.com", "Ada"));
         when(userRepository.findByEmail("a@b.com")).thenReturn(Optional.of(existing));
