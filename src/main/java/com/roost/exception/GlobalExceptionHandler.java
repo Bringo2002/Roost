@@ -6,6 +6,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -39,6 +40,23 @@ public class GlobalExceptionHandler {
                 .collect(Collectors.joining("; "));
         Map<String, String> errorResponse = new HashMap<>();
         errorResponse.put("error", msg.isBlank() ? "Invalid request" : msg);
+        return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
+    }
+
+    /**
+     * A path or query parameter that cannot be converted to its declared type
+     * (e.g. {@code /api/properties/abc} for a {@code Long id}) is the client's
+     * mistake. Spring's own message names the Java types involved ("Failed to
+     * convert value of type 'java.lang.String' to required type ..."), which
+     * is an internal detail, so respond with a fixed message that only names
+     * the parameter. The parameter name comes from the method signature, not
+     * from user input, and the offending value is deliberately not echoed.
+     */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<Map<String, String>> handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
+        log.warn("Type mismatch for parameter '{}' (required type {})", ex.getName(), ex.getRequiredType());
+        Map<String, String> errorResponse = new HashMap<>();
+        errorResponse.put("error", "Invalid value for parameter '" + ex.getName() + "'");
         return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
     }
 
