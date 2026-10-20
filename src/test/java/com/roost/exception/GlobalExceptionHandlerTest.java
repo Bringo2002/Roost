@@ -3,6 +3,7 @@ package com.roost.exception;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.MediaType;
 import org.springframework.http.converter.json.JacksonJsonHttpMessageConverter;
 import org.springframework.test.web.servlet.MockMvc;
@@ -58,6 +59,35 @@ class GlobalExceptionHandlerTest {
         @PostMapping("/items")
         Map<String, String> create(@RequestBody Payload payload) {
             return Map.of("status", "created");
+        }
+
+        @GetMapping("/boom/db")
+        String dbError() {
+            throw new DataIntegrityViolationException(
+                    "could not execute statement [ERROR: duplicate key value violates unique "
+                            + "constraint \"uk_users_email\" Detail: Key (email)=(victim@example.com) "
+                            + "already exists.]");
+        }
+
+        @GetMapping("/boom/npe")
+        String npe() {
+            throw new NullPointerException(
+                    "Cannot invoke \"Object.toString()\" because \"internalField\" is null");
+        }
+
+        @GetMapping("/boom/cause")
+        String causeOnly() {
+            throw new RuntimeException(new IllegalStateException("secret-cause-detail"));
+        }
+
+        @GetMapping("/boom/checked")
+        String checked() throws Exception {
+            throw new Exception("jdbc:postgresql://db.internal:5432/roost?password=hunter2");
+        }
+
+        @GetMapping("/boom/api")
+        String api() {
+            throw ApiException.notFound("Property not found");
         }
     }
 
@@ -140,5 +170,53 @@ class GlobalExceptionHandlerTest {
                         .content("{\"count\":5}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("created"));
+    }
+
+    @Test
+    @DisplayName("a database error returns a fixed 400 body, with no SQL, constraint or user data")
+    void databaseError_doesNotLeakSqlOrData() throws Exception {
+        String body = mockMvc.perform(get("/test/boom/db"))
+                .andExpect(status().isBadRequest())
+                .andReturn().getResponse().getContentAsString();
+
+        assertEquals("{\"error\":\"Invalid request\"}", body);
+    }
+
+    @Test
+    @DisplayName("a NullPointerException returns a fixed 400 body, with no variable names")
+    void nullPointer_doesNotLeakInternalNames() throws Exception {
+        String body = mockMvc.perform(get("/test/boom/npe"))
+                .andExpect(status().isBadRequest())
+                .andReturn().getResponse().getContentAsString();
+
+        assertEquals("{\"error\":\"Invalid request\"}", body);
+    }
+
+    @Test
+    @DisplayName("a wrapped cause is not surfaced, including its class name")
+    void wrappedCause_doesNotLeak() throws Exception {
+        String body = mockMvc.perform(get("/test/boom/cause"))
+                .andExpect(status().isBadRequest())
+                .andReturn().getResponse().getContentAsString();
+
+        assertEquals("{\"error\":\"Invalid request\"}", body);
+    }
+
+    @Test
+    @DisplayName("an unexpected checked exception returns a fixed 500 body")
+    void unexpectedException_returnsFixedServerError() throws Exception {
+        String body = mockMvc.perform(get("/test/boom/checked"))
+                .andExpect(status().isInternalServerError())
+                .andReturn().getResponse().getContentAsString();
+
+        assertEquals("{\"error\":\"An unexpected error occurred. Please try again.\"}", body);
+    }
+
+    @Test
+    @DisplayName("deliberate ApiException messages still reach the client unchanged")
+    void apiException_messageIsStillReturned() throws Exception {
+        mockMvc.perform(get("/test/boom/api"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error").value("Property not found"));
     }
 }
