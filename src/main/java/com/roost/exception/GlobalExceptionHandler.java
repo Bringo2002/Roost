@@ -64,8 +64,9 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Map<String, String>> handleHttpMessageNotReadable(org.springframework.http.converter.HttpMessageNotReadableException ex) {
         log.warn("HttpMessageNotReadableException: {}", ex.getMessage());
         Map<String, String> errorResponse = new HashMap<>();
-        String msg = ex.getMostSpecificCause() != null ? ex.getMostSpecificCause().getMessage() : "Invalid JSON payload format";
-        errorResponse.put("error", msg);
+        // Jackson's cause text names internal classes, field paths and enum
+        // constants, so it stays in the log and the client gets a fixed message.
+        errorResponse.put("error", "Malformed or invalid request body");
         return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
     }
 
