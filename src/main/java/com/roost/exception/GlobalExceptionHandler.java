@@ -73,24 +73,21 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(RuntimeException.class)
     public ResponseEntity<Map<String, String>> handleRuntimeException(RuntimeException ex) {
         log.warn("Unhandled RuntimeException on {}", ex.getClass().getSimpleName(), ex);
+        // Anything reaching here was not thrown deliberately for a client (that
+        // is what ApiException is for). Framework and database messages can
+        // carry SQL, constraint names, class names and user data, so they stay
+        // in the log above and the client gets a fixed message.
         Map<String, String> errorResponse = new HashMap<>();
-        String msg = ex.getMessage();
-        if (msg == null || msg.isBlank()) {
-            Throwable cause = ex.getCause();
-            if (cause != null && cause.getMessage() != null && !cause.getMessage().isBlank()) {
-                msg = cause.getMessage();
-            }
-        }
-        errorResponse.put("error", (msg != null && !msg.isBlank()) ? msg : "Invalid request");
+        errorResponse.put("error", "Invalid request");
         return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
     }
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, String>> handleGeneralException(Exception ex) {
         log.error("Unhandled exception", ex);
+        // The message of an unexpected server fault is never echoed; it is in the log above.
         Map<String, String> errorResponse = new HashMap<>();
-        String msg = ex.getMessage();
-        errorResponse.put("error", (msg != null && !msg.isBlank()) ? msg : "An unexpected error occurred. Please try again.");
+        errorResponse.put("error", "An unexpected error occurred. Please try again.");
         return new ResponseEntity<>(errorResponse, HttpStatus.INTERNAL_SERVER_ERROR);
     }
 }
