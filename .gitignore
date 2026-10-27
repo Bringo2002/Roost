@@ -35,3 +35,4 @@ build/
 # Applied-patch files should never be committed
 *.diff
 *.patch
+deploy/aws/env.production

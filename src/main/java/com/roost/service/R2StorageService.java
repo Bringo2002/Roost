@@ -1,5 +1,6 @@
 package com.roost.service;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
@@ -21,21 +22,30 @@ import java.time.Duration;
 import java.util.UUID;
 
 /**
- * Stores and retrieves files in Cloudflare R2 (S3-compatible object
- * storage). Used for two distinct purposes:
+ * Stores and retrieves files in Cloudflare R2 or AWS S3 (S3-compatible object
+ * storage). Supports both Cloudflare R2 and AWS S3 depending on configuration:
+ *
+ *  - Cloudflare R2: Uses custom R2 endpoint (https://<accountId>.r2.cloudflarestorage.com),
+ *    region "auto", and path-style access.
+ *  - AWS S3: Uses standard AWS S3 endpoint, specified AWS region (e.g. us-east-1),
+ *    and virtual-hosted style access.
+ *
+ * Used for two distinct purposes:
  *
  *  - Encrypted chat attachments: opaque ciphertext, stored under
  *    "attachments/", only ever fetched through the authenticated
  *    download proxy -- the server never has the keys to read them.
  *  - Property photos: plain public content, stored under "properties/",
  *    returned as a direct public URL so the app can load them straight
- *    from R2/CDN without proxying every image view through this backend.
+ *    from S3/R2/CDN without proxying every image view through this backend.
  *
- * Configured via env vars: R2_ACCOUNT_ID, R2_ACCESS_KEY_ID,
- * R2_SECRET_ACCESS_KEY, R2_BUCKET, and (for public uploads only)
- * R2_PUBLIC_BASE_URL -- the public r2.dev subdomain or custom domain
- * Cloudflare gives the bucket once public access is enabled on it. If
- * any required var is unset, the service stays inert (rather than
+ * Configured via env vars:
+ *  - R2: R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET,
+ *    and R2_PUBLIC_BASE_URL.
+ *  - AWS S3: S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, S3_BUCKET,
+ *    S3_PUBLIC_BASE_URL, and S3_REGION (defaults to us-east-1).
+ *
+ * If any required var is unset, the service stays inert (rather than
  * failing app startup) and throws a clear error only when an
  * upload/download is actually attempted.
  */
@@ -64,64 +74,89 @@ public class R2StorageService {
     private final boolean configured;
     private final boolean publicUploadConfigured;
 
-    /** Returns the configured R2 public base URL (no trailing slash), or
+    /** Returns the configured S3/R2 public base URL (no trailing slash), or
      *  empty string if not configured. Used by confirm-upload to validate
      *  that a client-supplied URL points to our own bucket. */
     public String getPublicBaseUrl() {
         return publicBaseUrl;
     }
 
+    @Autowired
     public R2StorageService(
             @Value("${r2.account-id:}") String accountId,
             @Value("${r2.access-key-id:}") String accessKeyId,
             @Value("${r2.secret-access-key:}") String secretAccessKey,
             @Value("${r2.bucket:}") String bucket,
-            @Value("${r2.public-base-url:}") String publicBaseUrl
+            @Value("${r2.public-base-url:}") String publicBaseUrl,
+            @Value("${s3.region:auto}") String region
     ) {
         this.bucket = bucket;
         this.publicBaseUrl = publicBaseUrl.endsWith("/")
                 ? publicBaseUrl.substring(0, publicBaseUrl.length() - 1)
                 : publicBaseUrl;
-        this.configured = !accountId.isBlank() && !accessKeyId.isBlank()
-                && !secretAccessKey.isBlank() && !bucket.isBlank();
+
+        boolean useAwsS3 = accountId.isBlank() || "not-used-on-aws".equals(accountId);
+
+        this.configured = (useAwsS3 || !accountId.isBlank())
+                && !accessKeyId.isBlank()
+                && !secretAccessKey.isBlank()
+                && !bucket.isBlank();
         this.publicUploadConfigured = configured && !publicBaseUrl.isBlank();
 
-        // Both clients share the same endpoint and credentials. They are built
+        // Both clients share the same credentials. They are built
         // separately because S3Client and S3Presigner are distinct SDK types with
         // different builders, even when connecting to the same bucket.
-        URI endpoint = configured
-                ? URI.create("https://" + accountId + ".r2.cloudflarestorage.com")
-                : null;
         StaticCredentialsProvider credentials = configured
                 ? StaticCredentialsProvider.create(
                         AwsBasicCredentials.create(accessKeyId, secretAccessKey))
                 : null;
 
-        this.s3Client = configured
-                ? S3Client.builder()
-                        .endpointOverride(endpoint)
-                        .credentialsProvider(credentials)
-                        .region(Region.of("auto"))
-                        .serviceConfiguration(S3Configuration.builder()
-                                .pathStyleAccessEnabled(true)
-                                .build())
-                        .build()
-                : null;
+        if (!configured) {
+            this.s3Client = null;
+            this.s3Presigner = null;
+        } else if (useAwsS3) {
+            Region s3Region = Region.of(region);
+            this.s3Client = S3Client.builder()
+                    .credentialsProvider(credentials)
+                    .region(s3Region)
+                    .build();
+            this.s3Presigner = S3Presigner.builder()
+                    .credentialsProvider(credentials)
+                    .region(s3Region)
+                    .build();
+        } else {
+            URI endpoint = URI.create("https://" + accountId + ".r2.cloudflarestorage.com");
+            this.s3Client = S3Client.builder()
+                    .endpointOverride(endpoint)
+                    .credentialsProvider(credentials)
+                    .region(Region.of("auto"))
+                    .serviceConfiguration(S3Configuration.builder()
+                            .pathStyleAccessEnabled(true)
+                            .build())
+                    .build();
+            this.s3Presigner = S3Presigner.builder()
+                    .endpointOverride(endpoint)
+                    .credentialsProvider(credentials)
+                    .region(Region.of("auto"))
+                    .serviceConfiguration(S3Configuration.builder()
+                            .pathStyleAccessEnabled(true)
+                            .build())
+                    .build();
+        }
+    }
 
-        this.s3Presigner = configured
-                ? S3Presigner.builder()
-                        .endpointOverride(endpoint)
-                        .credentialsProvider(credentials)
-                        .region(Region.of("auto"))
-                        .serviceConfiguration(S3Configuration.builder()
-                                .pathStyleAccessEnabled(true)
-                                .build())
-                        .build()
-                : null;
+    public R2StorageService(
+            String accountId,
+            String accessKeyId,
+            String secretAccessKey,
+            String bucket,
+            String publicBaseUrl
+    ) {
+        this(accountId, accessKeyId, secretAccessKey, bucket, publicBaseUrl, "auto");
     }
 
     /**
-     * Generates a short-lived presigned PUT URL for direct client-to-R2 uploads.
+     * Generates a short-lived presigned PUT URL for direct client-to-S3/R2 uploads.
      * The client PUTs raw file bytes directly to {@link PresignedUpload#uploadUrl()};
      * this backend is not involved in the actual file transfer. The file is
      * immediately accessible at {@link PresignedUpload#publicUrl()} after the PUT
@@ -129,7 +164,7 @@ public class R2StorageService {
      *
      * <p>The client <em>must</em> send a {@code Content-Type: <contentType>} header
      * matching the value embedded in the presigned URL signature. A mismatch causes
-     * R2 to reject the request with HTTP 403.
+     * S3/R2 to reject the request with HTTP 403.
      *
      * @param keyPrefix   Object key prefix, e.g. {@code "properties/"}.
      * @param contentType MIME type, e.g. {@code "image/jpeg"} or {@code "video/mp4"}.
@@ -137,7 +172,7 @@ public class R2StorageService {
      * @param ttlMinutes  Validity window for the presigned URL. Use 15 for photos
      *                    and 60 for large videos to allow enough upload time.
      * @return {@link PresignedUpload} containing the upload URL, public URL, and key.
-     * @throws IllegalStateException if R2 is not fully configured.
+     * @throws IllegalStateException if S3/R2 is not fully configured.
      */
     public PresignedUpload generatePresignedPut(
             String keyPrefix, String contentType, String extension, int ttlMinutes) {
@@ -204,7 +239,7 @@ public class R2StorageService {
                 GetObjectRequest.builder().bucket(bucket).key(key).build())) {
             return stream.readAllBytes();
         } catch (IOException e) {
-            throw new UncheckedIOException("Failed to read attachment from R2", e);
+            throw new UncheckedIOException("Failed to read attachment from S3/R2", e);
         }
     }
 
@@ -216,8 +251,8 @@ public class R2StorageService {
     private void requireConfigured() {
         if (!configured) {
             throw new IllegalStateException(
-                    "R2 storage is not configured. Set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, " +
-                    "R2_SECRET_ACCESS_KEY, and R2_BUCKET environment variables."
+                    "S3/R2 storage is not configured. Set R2_ACCOUNT_ID (for R2) or S3_REGION (for AWS S3), " +
+                    "access key, secret key, and bucket environment variables."
             );
         }
     }
@@ -226,9 +261,9 @@ public class R2StorageService {
         requireConfigured();
         if (!publicUploadConfigured) {
             throw new IllegalStateException(
-                    "R2 public uploads are not configured. Enable public access on the R2 " +
-                    "bucket and set the R2_PUBLIC_BASE_URL environment variable to the " +
-                    "resulting r2.dev (or custom domain) URL."
+                    "S3/R2 public uploads are not configured. Enable public access on the S3/R2 " +
+                    "bucket and set the S3_PUBLIC_BASE_URL (or R2_PUBLIC_BASE_URL) environment variable to the " +
+                    "resulting public domain URL."
             );
         }
     }

@@ -630,4 +630,116 @@ class PropertyRepositoryTest {
         assertEquals(List.of(c.getId()), page1.stream().map(Property::getId).toList());
         assertFalse(page0.stream().anyMatch(x -> x.getId().equals(draft.getId())));
     }
+
+    // ── filterPropertiesSortedByDistance + bounding-box tests ───────────────
+
+    /** Helper: calls filterPropertiesSortedByDistance with bounding-box params
+     *  computed around Nairobi CBD at the given radius. All typed filters and
+     *  search tokens are null (match-everything). */
+    private List<Property> filterSortedByDistanceNairobi(double bboxRadiusKm, Pageable pageable) {
+        double lat = -1.2921, lng = 36.8219;
+        double latDelta = bboxRadiusKm / 111.0;
+        double lngDelta = bboxRadiusKm / (111.0 * Math.cos(Math.toRadians(lat)));
+        return propertyRepository.filterPropertiesSortedByDistance(
+                null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null,
+                lat, lng,
+                lat - latDelta, lat + latDelta,
+                lng - lngDelta, lng + lngDelta,
+                pageable);
+    }
+
+    /** Same but with null bounding box (unbounded). */
+    private List<Property> filterSortedByDistanceNairobiUnbounded(Pageable pageable) {
+        double lat = -1.2921, lng = 36.8219;
+        return propertyRepository.filterPropertiesSortedByDistance(
+                null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null,
+                lat, lng,
+                null, null, null, null,
+                pageable);
+    }
+
+    @Test
+    @DisplayName("filterSortedByDistance + bbox: includes nearby, excludes distant, distance-ordered")
+    void filterSortedByDistance_boundingBox_includesNearbyExcludesFar() {
+        // ~1km north -- inside a 5km bbox
+        publishedListingNearNairobi(owner, "close-one", 0.009, 0);
+        // ~2km north -- inside a 5km bbox
+        publishedListingNearNairobi(owner, "close-two", 0.018, 0);
+        // ~50km away -- outside a 5km bbox
+        publishedListingNearNairobi(owner, "far", 0.45, 0);
+        flushAndClear();
+
+        List<Property> results = filterSortedByDistanceNairobi(5, PageRequest.of(0, 50));
+
+        assertEquals(List.of("close-one", "close-two"), titles(results),
+                "bounding box should exclude the distant listing and sort nearest-first");
+    }
+
+    @Test
+    @DisplayName("filterSortedByDistance + null bbox: includes all geocoded listings (unbounded)")
+    void filterSortedByDistance_nullBBox_includesAll() {
+        publishedListingNearNairobi(owner, "near", 0.009, 0);
+        publishedListingNearNairobi(owner, "far", 0.45, 0);
+        flushAndClear();
+
+        List<Property> results = filterSortedByDistanceNairobiUnbounded(PageRequest.of(0, 50));
+
+        assertEquals(List.of("near", "far"), titles(results),
+                "null bounding box should include all geocoded listings, nearest-first");
+    }
+
+    @Test
+    @DisplayName("filterSortedByDistance + bbox: stable pagination -- no repeats or skips across pages")
+    void filterSortedByDistance_boundingBox_stablePagination() {
+        // Three listings at increasing distances, all inside a generous bbox
+        publishedListingNearNairobi(owner, "one-km", 0.009, 0);
+        publishedListingNearNairobi(owner, "two-km", 0.018, 0);
+        publishedListingNearNairobi(owner, "three-km", 0.027, 0);
+        flushAndClear();
+
+        assertEquals(List.of("one-km", "two-km"),
+                titles(filterSortedByDistanceNairobi(50, PageRequest.of(0, 2))));
+        assertEquals(List.of("three-km"),
+                titles(filterSortedByDistanceNairobi(50, PageRequest.of(1, 2))));
+        assertEquals(List.<String>of(),
+                titles(filterSortedByDistanceNairobi(50, PageRequest.of(2, 2))));
+    }
+
+    @Test
+    @DisplayName("filterSortedByDistance + bbox: text search tokens still filter correctly")
+    void filterSortedByDistance_boundingBox_textSearchWorks() {
+        Property match = publishedListingNearNairobi(owner, "sunny kilimani studio", 0.009, 0);
+        publishedListingNearNairobi(owner, "dark westlands flat", 0.009, 0);
+        flushAndClear();
+
+        double lat = -1.2921, lng = 36.8219;
+        double latDelta = 50.0 / 111.0;
+        double lngDelta = 50.0 / (111.0 * Math.cos(Math.toRadians(lat)));
+        List<Property> results = propertyRepository.filterPropertiesSortedByDistance(
+                null, null, null, null, null, null, null, null, null, null,
+                "kilimani", null, null, null, null, null,
+                lat, lng,
+                lat - latDelta, lat + latDelta,
+                lng - lngDelta, lng + lngDelta,
+                PageRequest.of(0, 50));
+
+        assertEquals(List.of(match.getId()), results.stream().map(Property::getId).toList(),
+                "text search token should still filter within bounding-box results");
+    }
+
+    @Test
+    @DisplayName("filterSortedByDistance + bbox: does not N+1 (statement count bounded)")
+    void filterSortedByDistance_boundingBox_doesNotN1() {
+        for (int i = 0; i < 6; i++) {
+            publishedListingNearNairobi(owner, "d-" + i, 0.001 * (i + 1), 0);
+        }
+        flushAndClear();
+
+        long statements = statementsFor(() -> filterSortedByDistanceNairobi(50, PageRequest.of(0, 6)));
+
+        assertTrue(statements <= 6,
+                "expected a small, row-count-independent number of statements, got " + statements);
+    }
 }

@@ -1,0 +1,23 @@
+[Unit]
+Description=Roost Spring Boot Backend
+After=network.target
+
+[Service]
+Type=simple
+User=roost
+Group=roost
+WorkingDirectory=/opt/roost
+ExecStart=/usr/bin/java -Xms256m -Xmx768m -Dserver.port=8080 -Dspring.profiles.active=aws -jar /opt/roost/app.jar
+EnvironmentFile=/etc/roost/env
+Restart=always
+RestartSec=10
+StandardOutput=append:/var/log/roost/app.log
+StandardError=append:/var/log/roost/app.log
+SuccessExitStatus=143
+
+# Security hardening and process isolation
+LimitNOFILE=65536
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

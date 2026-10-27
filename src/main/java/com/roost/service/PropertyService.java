@@ -301,20 +301,48 @@ public class PropertyService {
 
     /** 1 degree of latitude is ~111.32km everywhere; 1 degree of
      *  longitude shrinks toward the poles by a factor of cos(latitude).
-     *  Used only to build a cheap bounding box for findNearby -- see the
-     *  comment on that query for why. */
+     *  Used to build a cheap bounding box for spatial queries -- see the
+     *  comment on findNearby for why. */
     private static final double KM_PER_DEGREE_LATITUDE = 111.32;
 
+    /**
+     * Maximum radius (km) used for the distance-sorted filter's
+     * bounding-box pre-filter. This caps which rows pay for the
+     * expensive trig distance calculation — listings beyond this box
+     * are excluded from the result set entirely.  200km is generous
+     * enough to cover a large metropolitan area and its suburbs in
+     * any geography; a user searching for nearby apartments does not
+     * need distance-sorted results from 300km+ away.  Configurable
+     * here rather than buried in a query string so it can be tuned
+     * without touching SQL.
+     */
+    private static final double FILTER_DISTANCE_SORT_BBOX_KM = 200.0;
+
+    /** Pre-computed lat/lng bounds for a cheap rectangular pre-filter. */
+    record BoundingBox(double minLat, double maxLat, double minLng, double maxLng) {
+
+        /** Computes a bounding box around (lat, lng) with the given
+         *  radius in km.  Always a superset of the true circle, so
+         *  it never excludes a row that a subsequent trig distance
+         *  check would accept. */
+        static BoundingBox around(double lat, double lng, double radiusKm) {
+            double latDelta = radiusKm / KM_PER_DEGREE_LATITUDE;
+            // Clamp so a search near the poles can't divide by ~0
+            // and blow the longitude bound out to infinity.
+            double cosLat = Math.max(Math.cos(Math.toRadians(lat)), 0.01);
+            double lngDelta = radiusKm / (KM_PER_DEGREE_LATITUDE * cosLat);
+            return new BoundingBox(
+                    lat - latDelta, lat + latDelta,
+                    lng - lngDelta, lng + lngDelta);
+        }
+    }
+
     public List<Property> getNearby(double lat, double lng, double radiusKm, Pageable pageable) {
-        double latDeltaDeg = radiusKm / KM_PER_DEGREE_LATITUDE;
-        // Clamp so a search near the poles (or a lat of exactly +-90)
-        // can't divide by ~0 and blow the longitude bound out to infinity.
-        double cosLat = Math.max(Math.cos(Math.toRadians(lat)), 0.01);
-        double lngDeltaDeg = radiusKm / (KM_PER_DEGREE_LATITUDE * cosLat);
+        BoundingBox bb = BoundingBox.around(lat, lng, radiusKm);
         return populateRatings(propertyRepository.findNearby(
                 lat, lng, radiusKm,
-                lat - latDeltaDeg, lat + latDeltaDeg,
-                lng - lngDeltaDeg, lng + lngDeltaDeg,
+                bb.minLat(), bb.maxLat(),
+                bb.minLng(), bb.maxLng(),
                 pageable));
     }
 
@@ -380,7 +408,13 @@ public class PropertyService {
      * Sorts by distance from (lat, lng) when both are provided, otherwise
      * newest-first -- see the two repository queries this dispatches to.
      *
-     * [q] is the free-text remainder of the user's search box (after the
+     * <p>When distance-sorting, a bounding box of
+     * {@link #FILTER_DISTANCE_SORT_BBOX_KM} km is applied around the
+     * user's position so the expensive trig distance calculation only
+     * runs on listings within a relevant geographic area, not every
+     * geocoded row in the database.
+     *
+     * <p>[q] is the free-text remainder of the user's search box (after the
      * client already pulled out price/house-type/etc. into the typed
      * params above) -- see PropertyRepository for what it matches
      * against and tokenizeSearchQuery for how it's split up.
@@ -390,13 +424,19 @@ public class PropertyService {
                                  Boolean security, Boolean verified, String q,
                                  Double lat, Double lng, Pageable pageable) {
         String[] t = tokenizeSearchQuery(q);
-        List<Property> results = (lat != null && lng != null)
-                ? propertyRepository.filterPropertiesSortedByDistance(houseType, minPrice, maxPrice, bedrooms,
-                        furnished, parking, wifi, water, security, verified,
-                        t[0], t[1], t[2], t[3], t[4], t[5], lat, lng, pageable)
-                : propertyRepository.filterProperties(houseType, minPrice, maxPrice, bedrooms,
-                        furnished, parking, wifi, water, security, verified,
-                        t[0], t[1], t[2], t[3], t[4], t[5], pageable);
+        List<Property> results;
+        if (lat != null && lng != null) {
+            BoundingBox bb = BoundingBox.around(lat, lng, FILTER_DISTANCE_SORT_BBOX_KM);
+            results = propertyRepository.filterPropertiesSortedByDistance(houseType, minPrice, maxPrice, bedrooms,
+                    furnished, parking, wifi, water, security, verified,
+                    t[0], t[1], t[2], t[3], t[4], t[5], lat, lng,
+                    bb.minLat(), bb.maxLat(), bb.minLng(), bb.maxLng(),
+                    pageable);
+        } else {
+            results = propertyRepository.filterProperties(houseType, minPrice, maxPrice, bedrooms,
+                    furnished, parking, wifi, water, security, verified,
+                    t[0], t[1], t[2], t[3], t[4], t[5], pageable);
+        }
         return populateRatings(results);
     }
 

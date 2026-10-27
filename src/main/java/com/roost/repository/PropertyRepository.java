@@ -603,6 +603,18 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
     /**
      * Same as the paginated filterProperties above but distance-sorted;
      * see that method's doc for the `q`/token parameters.
+     *
+     * The optional bounding-box params (minLat/maxLat/minLng/maxLng)
+     * work exactly like findNearby's: a cheap rectangular pre-filter
+     * (computed in PropertyService from the user's position and a
+     * generous radius) that eliminates rows far outside the search
+     * area before the expensive trig distance calculation runs. When
+     * all four are null the BETWEEN clauses reduce to TRUE and every
+     * geocoded row is evaluated, matching the previous behaviour.
+     *
+     * The ORDER BY now includes p.id ASC as a tie-breaker so listings
+     * at the same distance keep a stable order across pages -- without
+     * it, equal-distance rows could repeat or skip on a page boundary.
      */
     @Query("""
           SELECT p FROM Property p LEFT JOIN FETCH p.owner WHERE
@@ -618,7 +630,11 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
           (:water IS NULL OR p.water = :water) AND
           (:security IS NULL OR p.security = :security) AND
           (:verified IS NULL OR p.verified = :verified) AND
-          p.latitude IS NOT NULL AND p.longitude IS NOT NULL
+          p.latitude IS NOT NULL AND p.longitude IS NOT NULL AND
+          (:minLat IS NULL OR p.latitude >= :minLat) AND
+          (:maxLat IS NULL OR p.latitude <= :maxLat) AND
+          (:minLng IS NULL OR p.longitude >= :minLng) AND
+          (:maxLng IS NULL OR p.longitude <= :maxLng)
           AND (CAST(:token1 AS string) IS NULL OR (
               LOWER(p.title) LIKE CONCAT('%', CAST(:token1 AS string), '%') OR
               LOWER(COALESCE(p.buildingName, '')) LIKE CONCAT('%', CAST(:token1 AS string), '%') OR
@@ -675,7 +691,7 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
           ))
           ORDER BY (6371 * acos(cos(radians(:lat)) * cos(radians(p.latitude)) *
           cos(radians(p.longitude) - radians(:lng)) +
-          sin(radians(:lat)) * sin(radians(p.latitude)))) ASC
+          sin(radians(:lat)) * sin(radians(p.latitude)))) ASC, p.id ASC
           """)
     List<Property> filterPropertiesSortedByDistance(
             @Param("houseType") String houseType,
@@ -696,6 +712,10 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
             @Param("token6") String token6,
             @Param("lat") double lat,
             @Param("lng") double lng,
+            @Param("minLat") Double minLat,
+            @Param("maxLat") Double maxLat,
+            @Param("minLng") Double minLng,
+            @Param("maxLng") Double maxLng,
             Pageable pageable);
 
     /** Just what the nearby-facilities backfill needs, so it never loads whole entities. */
