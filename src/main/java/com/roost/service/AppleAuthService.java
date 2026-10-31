@@ -29,21 +29,11 @@ public class AppleAuthService {
     private static final String APPLE_PROVIDER = "apple.com";
     private final boolean configured;
 
-    public AppleAuthService(@Value("${firebase.service-account-json:}") String serviceAccountJson) {
-        boolean ok = false;
-        if (serviceAccountJson != null && !serviceAccountJson.isBlank()) {
-            try {
-                if (FirebaseApp.getApps().isEmpty()) {
-                    GoogleCredentials credentials = GoogleCredentials.fromStream(
-                            new ByteArrayInputStream(serviceAccountJson.getBytes(StandardCharsets.UTF_8)));
-                    FirebaseApp.initializeApp(FirebaseOptions.builder().setCredentials(credentials).build());
-                }
-                ok = true;
-            } catch (IOException e) {
-                log.log(Level.WARNING, "Apple sign-in disabled -- invalid FIREBASE_SERVICE_ACCOUNT_JSON", e);
-            }
+    public AppleAuthService() {
+        this.configured = !FirebaseApp.getApps().isEmpty();
+        if (!configured) {
+            log.warning("Apple sign-in disabled: FirebaseApp not initialized");
         }
-        this.configured = ok;
     }
 
     /** @return true when Firebase credentials loaded and tokens can be verified. */

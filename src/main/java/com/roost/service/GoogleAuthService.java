@@ -29,21 +29,11 @@ public class GoogleAuthService {
     private static final Logger log = Logger.getLogger(GoogleAuthService.class.getName());
     private final boolean configured;
 
-    public GoogleAuthService(@Value("${firebase.service-account-json:}") String serviceAccountJson) {
-        boolean ok = false;
-        if (serviceAccountJson != null && !serviceAccountJson.isBlank()) {
-            try {
-                if (FirebaseApp.getApps().isEmpty()) {
-                    GoogleCredentials credentials = GoogleCredentials.fromStream(
-                            new ByteArrayInputStream(serviceAccountJson.getBytes(StandardCharsets.UTF_8)));
-                    FirebaseApp.initializeApp(FirebaseOptions.builder().setCredentials(credentials).build());
-                }
-                ok = true;
-            } catch (IOException e) {
-                log.log(Level.WARNING, "Google sign-in disabled -- invalid FIREBASE_SERVICE_ACCOUNT_JSON", e);
-            }
+    public GoogleAuthService() {
+        this.configured = !FirebaseApp.getApps().isEmpty();
+        if (!configured) {
+            log.warning("Google sign-in disabled: FirebaseApp not initialized");
         }
-        this.configured = ok;
     }
 
     public boolean isConfigured() {

@@ -42,24 +42,11 @@ public class FirebasePushService {
 
     private final boolean configured;
 
-    public FirebasePushService(@Value("${firebase.service-account-json:}") String serviceAccountJson) {
-        boolean ok = false;
-        if (serviceAccountJson != null && !serviceAccountJson.isBlank()) {
-            try {
-                GoogleCredentials credentials = GoogleCredentials.fromStream(
-                        new ByteArrayInputStream(serviceAccountJson.getBytes(StandardCharsets.UTF_8)));
-                FirebaseOptions options = FirebaseOptions.builder()
-                        .setCredentials(credentials)
-                        .build();
-                if (FirebaseApp.getApps().isEmpty()) {
-                    FirebaseApp.initializeApp(options);
-                }
-                ok = true;
-            } catch (IOException e) {
-                log.log(Level.WARNING, "Firebase push disabled -- invalid FIREBASE_SERVICE_ACCOUNT_JSON", e);
-            }
+    public FirebasePushService() {
+        this.configured = !FirebaseApp.getApps().isEmpty();
+        if (!configured) {
+            log.warning("Firebase push disabled: FirebaseApp not initialized");
         }
-        this.configured = ok;
     }
 
     /** True once a valid service account credential has been loaded. */
