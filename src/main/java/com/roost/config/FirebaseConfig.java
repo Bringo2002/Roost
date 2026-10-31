@@ -57,7 +57,7 @@ public class FirebaseConfig {
                     .setProjectId(node.get("project_id").asText())
                     .build());
             log.info("Firebase initialized for project: " + node.get("project_id").asText());
-        } catch (IOException e) {
+        } catch (IOException | RuntimeException e) {
             log.log(Level.WARNING, "Firebase init failed", e);
         }
     }
