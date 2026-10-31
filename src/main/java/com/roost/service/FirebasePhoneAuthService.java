@@ -28,21 +28,11 @@ public class FirebasePhoneAuthService {
     private static final Logger log = Logger.getLogger(FirebasePhoneAuthService.class.getName());
     private final boolean configured;
 
-    public FirebasePhoneAuthService(@Value("${firebase.service-account-json:}") String serviceAccountJson) {
-        boolean ok = false;
-        if (serviceAccountJson != null && !serviceAccountJson.isBlank()) {
-            try {
-                if (FirebaseApp.getApps().isEmpty()) {
-                    GoogleCredentials credentials = GoogleCredentials.fromStream(
-                            new ByteArrayInputStream(serviceAccountJson.getBytes(StandardCharsets.UTF_8)));
-                    FirebaseApp.initializeApp(FirebaseOptions.builder().setCredentials(credentials).build());
-                }
-                ok = true;
-            } catch (IOException e) {
-                log.log(Level.WARNING, "Firebase phone auth disabled -- invalid FIREBASE_SERVICE_ACCOUNT_JSON", e);
-            }
+    public FirebasePhoneAuthService() {
+        this.configured = !FirebaseApp.getApps().isEmpty();
+        if (!configured) {
+            log.warning("Firebase phone auth disabled: FirebaseApp not initialized");
         }
-        this.configured = ok;
     }
 
     public boolean isConfigured() {

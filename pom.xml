@@ -31,6 +31,8 @@
 		<!-- Override Spring Boot-managed versions to patch CVEs -->
 		<tomcat.version>11.0.26</tomcat.version>
 		<jackson-bom.version>3.2.3</jackson-bom.version>
+		<!-- Gson 2.11+ defaults to STRICT mode, breaking google-http-client-gson -->
+		<gson.version>2.10.1</gson.version>
 	</properties>
 	<!-- Override transitive dependency versions still lagging behind -->
 	<dependencyManagement>
@@ -146,6 +148,14 @@
 			<groupId>software.amazon.awssdk</groupId>
 			<artifactId>s3</artifactId>
 			<version>2.55.10</version>
+		</dependency>
+		<!-- Pin Gson to 2.10.1: firebase-admin 9.11.0 pulls in
+		     google-http-client-gson 2.2.0 which does not set lenient mode,
+		     and Gson 2.11+ defaults to STRICT, breaking JSON parsing. -->
+		<dependency>
+			<groupId>com.google.code.gson</groupId>
+			<artifactId>gson</artifactId>
+			<version>2.10.1</version>
 		</dependency>
 		<!-- Firebase Admin SDK, used server-side to send push notifications
 		     via FCM to registered device tokens. -->

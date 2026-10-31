@@ -64,7 +64,7 @@ class AppleAuthServiceTest {
     @Test
     @DisplayName("unconfigured service never verifies anything and never throws")
     void unconfiguredReturnsNull() {
-        AppleAuthService service = new AppleAuthService("");
+        AppleAuthService service = new AppleAuthService();
 
         assertFalse(service.isConfigured());
         assertNull(service.verifyAppleToken("any-token"));
