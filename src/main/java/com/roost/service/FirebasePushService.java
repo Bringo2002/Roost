@@ -12,6 +12,7 @@ import com.google.firebase.messaging.Message;
 import com.google.firebase.messaging.Notification;
 import com.roost.model.User;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.DependsOn;
 import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayInputStream;
@@ -36,6 +37,7 @@ import java.util.logging.Logger;
  * generic ("New message from X") -- never plaintext message content.
  */
 @Service
+@DependsOn("firebaseConfig")
 public class FirebasePushService {
 
     private static final Logger log = Logger.getLogger(FirebasePushService.class.getName());

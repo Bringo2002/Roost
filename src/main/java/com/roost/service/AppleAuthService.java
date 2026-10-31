@@ -6,6 +6,7 @@ import com.google.firebase.FirebaseOptions;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseToken;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.DependsOn;
 import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayInputStream;
@@ -23,6 +24,7 @@ import java.util.logging.Logger;
  * credential and FirebaseApp instance (same isEmpty() guard pattern).
  */
 @Service
+@DependsOn("firebaseConfig")
 public class AppleAuthService {
 
     private static final Logger log = Logger.getLogger(AppleAuthService.class.getName());

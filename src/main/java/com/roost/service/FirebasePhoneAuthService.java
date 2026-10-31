@@ -6,6 +6,7 @@ import com.google.firebase.FirebaseOptions;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseToken;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.DependsOn;
 import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayInputStream;
@@ -23,6 +24,7 @@ import java.util.logging.Logger;
  * other just reuses it (same isEmpty() guard pattern both ways).
  */
 @Service
+@DependsOn("firebaseConfig")
 public class FirebasePhoneAuthService {
 
     private static final Logger log = Logger.getLogger(FirebasePhoneAuthService.class.getName());
