@@ -1,5 +1,7 @@
 package com.roost.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 public class AuthResponse {
     private String token;
 
@@ -28,6 +30,10 @@ public class AuthResponse {
         this.token = token;
     }
 
+    /** Serialized as {@code isNewUser}. Without the annotation Jackson derives
+     *  the name from the getter and emits {@code newUser}, which is not the key
+     *  clients read. */
+    @JsonProperty("isNewUser")
     public boolean isNewUser() {
         return isNewUser;
     }
