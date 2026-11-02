@@ -40,6 +40,7 @@ public class NearbyFacilitiesService {
     private static final String OVERPASS_ENDPOINT = "https://overpass-api.de/api/interpreter";
     private static final int SEARCH_RADIUS_METERS = 3000;
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(10);
+    private static final String USER_AGENT = "roost-backend/1.0 (+https://github.com/Bringo2002/Roost)";
 
     /** Total tries per lookup (1 initial + 2 retries). */
     static final int MAX_ATTEMPTS = 3;
@@ -107,6 +108,10 @@ public class NearbyFacilitiesService {
                     .uri(URI.create(OVERPASS_ENDPOINT))
                     .timeout(REQUEST_TIMEOUT)
                     .header("Content-Type", "application/x-www-form-urlencoded")
+                    // Overpass's fair-use policy asks clients to identify themselves;
+                    // anonymous default-agent traffic from cloud IPs is the first to
+                    // be rate limited.
+                    .header("User-Agent", USER_AGENT)
                     .POST(HttpRequest.BodyPublishers.ofString(formBody))
                     .build();
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
@@ -171,7 +176,7 @@ public class NearbyFacilitiesService {
                 return Optional.empty();
             } catch (Exception e) {
                 retryable = true; // timeout / connection reset / bad JSON
-                log.debug("Overpass attempt {} failed: {}", attempt, e.toString());
+                log.warn("Overpass attempt {}/{} failed: {}", attempt, MAX_ATTEMPTS, e.toString());
             }
 
             if (retryable && attempt < MAX_ATTEMPTS) {
@@ -211,7 +216,7 @@ public class NearbyFacilitiesService {
             JsonNode root = objectMapper.readTree(body);
             String remark = root.path("remark").asText("");
             if (remark.startsWith("runtime error")) {
-                log.debug("Overpass runtime error: {}", remark);
+                log.warn("Overpass runtime error: {}", remark);
                 return Optional.empty();
             }
             if (!root.has("elements")) return Optional.empty();
