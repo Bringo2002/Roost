@@ -8,6 +8,9 @@ import com.nimbusds.jose.crypto.MACSigner;
 import com.nimbusds.jose.crypto.MACVerifier;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
+import jakarta.annotation.PostConstruct;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
@@ -20,6 +23,11 @@ import java.util.Map;
 @Service
 public class JwtService {
 
+    private static final Logger log = LoggerFactory.getLogger(JwtService.class);
+
+    /** HS256 needs a key of at least 256 bits. */
+    private static final int MIN_KEY_BYTES = 32;
+
     // No hardcoded fallback here on purpose -- a default checked into a
     // public repo stops being a secret. jwt.secret must come from
     // application.properties (local dev only) or the JWT_SECRET env var
@@ -27,6 +35,47 @@ public class JwtService {
     // silently signing tokens with a well-known key.
     @Value("${jwt.secret}")
     private String secretKey;
+
+    private volatile byte[] keyBytes;
+
+    /**
+     * Decode and validate the secret once at startup so a malformed
+     * JWT_SECRET fails the deploy instead of failing every login at
+     * runtime (a stray trailing newline in the env var previously
+     * surfaced as "Input byte array has incorrect ending byte").
+     */
+    @PostConstruct
+    void initKey() {
+        keyBytes = decodeSecret(secretKey);
+    }
+
+    /**
+     * Strips surrounding whitespace (the usual copy/paste damage), decodes
+     * base64, and enforces the minimum key length. Error messages report
+     * lengths only -- never the secret itself.
+     */
+    static byte[] decodeSecret(String raw) {
+        if (raw == null || raw.isBlank()) {
+            throw new IllegalStateException("jwt.secret is not set");
+        }
+        String cleaned = raw.strip();
+        if (cleaned.length() != raw.length()) {
+            log.warn("jwt.secret contained {} surrounding whitespace character(s); trimmed. "
+                    + "Re-save the JWT_SECRET variable without them.", raw.length() - cleaned.length());
+        }
+        byte[] bytes;
+        try {
+            bytes = Base64.getDecoder().decode(cleaned);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalStateException(
+                    "jwt.secret is not valid base64 (length=" + cleaned.length() + ")", e);
+        }
+        if (bytes.length < MIN_KEY_BYTES) {
+            throw new IllegalStateException(
+                    "jwt.secret must decode to at least " + MIN_KEY_BYTES + " bytes (got " + bytes.length + ")");
+        }
+        return bytes;
+    }
 
     public String extractUsername(String token) {
         try {
@@ -84,6 +133,13 @@ public class JwtService {
     }
 
     private byte[] getSecretKeyBytes() {
-        return Base64.getDecoder().decode(secretKey);
+        // Normally set by initKey() at startup. Decode on first use when a
+        // JwtService is built by hand (tests) and initKey() was never called.
+        byte[] bytes = keyBytes;
+        if (bytes == null) {
+            bytes = decodeSecret(secretKey);
+            keyBytes = bytes;
+        }
+        return bytes;
     }
 }
