@@ -4,6 +4,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.regions.Region;
@@ -42,8 +44,10 @@ import java.util.UUID;
  * Configured via env vars:
  *  - R2: R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET,
  *    and R2_PUBLIC_BASE_URL.
- *  - AWS S3: S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, S3_BUCKET,
- *    S3_PUBLIC_BASE_URL, and S3_REGION (defaults to us-east-1).
+ *  - AWS S3: S3_BUCKET, S3_PUBLIC_BASE_URL, and S3_REGION (defaults to
+ *    us-east-1), plus either S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY, or
+ *    both left blank to use the AWS default credential chain (for example an
+ *    EC2 instance role). Setting only one of the two keys fails startup.
  *
  * If any required var is unset, the service stays inert (rather than
  * failing app startup) and throws a clear error only when an
@@ -66,6 +70,9 @@ public class R2StorageService {
      *                  by the backend for deletion and future deduplication support.
      */
     public record PresignedUpload(String uploadUrl, String publicUrl, String key) {}
+
+    /** {@code r2.account-id} value that marks AWS S3 mode (set by the {@code aws} profile). */
+    private static final String AWS_ACCOUNT_MARKER = "not-used-on-aws";
 
     private final S3Client s3Client;
     private final S3Presigner s3Presigner;
@@ -95,21 +102,36 @@ public class R2StorageService {
                 ? publicBaseUrl.substring(0, publicBaseUrl.length() - 1)
                 : publicBaseUrl;
 
-        boolean useAwsS3 = accountId.isBlank() || "not-used-on-aws".equals(accountId);
+        boolean awsMarker = AWS_ACCOUNT_MARKER.equals(accountId);
+        boolean useAwsS3 = accountId.isBlank() || awsMarker;
+        boolean hasAccessKeyId = !accessKeyId.isBlank();
+        boolean hasSecretAccessKey = !secretAccessKey.isBlank();
 
-        this.configured = (useAwsS3 || !accountId.isBlank())
-                && !accessKeyId.isBlank()
-                && !secretAccessKey.isBlank()
-                && !bucket.isBlank();
+        // A half-set key pair is a deployment mistake. Fail at startup rather than
+        // silently falling back to the instance role and masking it.
+        if (awsMarker && hasAccessKeyId != hasSecretAccessKey) {
+            throw new IllegalArgumentException(
+                    "S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY must both be set or both be blank.");
+        }
+
+        // Explicit AWS mode with no keys means "use the instance role". This is
+        // keyed on the marker, not on a blank account id, so a bare local run
+        // never picks up ambient ~/.aws credentials by accident.
+        boolean useDefaultCredentialChain = awsMarker && !hasAccessKeyId && !hasSecretAccessKey;
+
+        this.configured = !bucket.isBlank()
+                && ((hasAccessKeyId && hasSecretAccessKey) || useDefaultCredentialChain);
         this.publicUploadConfigured = configured && !publicBaseUrl.isBlank();
 
         // Both clients share the same credentials. They are built
         // separately because S3Client and S3Presigner are distinct SDK types with
         // different builders, even when connecting to the same bucket.
-        StaticCredentialsProvider credentials = configured
-                ? StaticCredentialsProvider.create(
-                        AwsBasicCredentials.create(accessKeyId, secretAccessKey))
-                : null;
+        AwsCredentialsProvider credentials = !configured
+                ? null
+                : useDefaultCredentialChain
+                        ? DefaultCredentialsProvider.create()
+                        : StaticCredentialsProvider.create(
+                                AwsBasicCredentials.create(accessKeyId, secretAccessKey));
 
         if (!configured) {
             this.s3Client = null;
