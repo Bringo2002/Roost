@@ -157,5 +157,7 @@ Not implemented yet:
   key fails the deploy instead of failing uploads.
 - Have the app log S3's `<Code>` for a failed upload, and reword the "R2" message.
 - Give the instance an IAM role instead of long-lived keys in the env file. The
-  backend currently builds its S3 credentials only from the env keys, so this
-  needs a code change.
+  backend uses the instance role when `S3_ACCESS_KEY_ID` and
+  `S3_SECRET_ACCESS_KEY` are both blank under the `aws` profile. Attach the role
+  with the policy above, confirm an upload works, then remove the keys from the
+  env file. Setting only one of the two keys stops the app at startup.
