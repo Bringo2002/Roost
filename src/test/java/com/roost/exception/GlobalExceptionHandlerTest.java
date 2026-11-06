@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -88,6 +89,13 @@ class GlobalExceptionHandlerTest {
         @GetMapping("/boom/api")
         String api() {
             throw ApiException.notFound("Property not found");
+        }
+
+        @GetMapping("/boom/publication")
+        String publication() {
+            throw new PublicationPolicyException(List.of(
+                    new PublicationViolation("title", "TITLE_REQUIRED", "Give your listing a title."),
+                    new PublicationViolation("price", "PRICE_INVALID", "Enter a valid monthly rent.")));
         }
     }
 
@@ -218,5 +226,18 @@ class GlobalExceptionHandlerTest {
         mockMvc.perform(get("/test/boom/api"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error").value("Property not found"));
+    }
+
+    @Test
+    @DisplayName("publication policy failure returns 400 with the message and structured violations")
+    void publicationPolicyFailure_returnsViolations() throws Exception {
+        mockMvc.perform(get("/test/boom/publication"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error")
+                        .value("Give your listing a title. Enter a valid monthly rent."))
+                .andExpect(jsonPath("$.violations.length()").value(2))
+                .andExpect(jsonPath("$.violations[0].field").value("title"))
+                .andExpect(jsonPath("$.violations[0].code").value("TITLE_REQUIRED"))
+                .andExpect(jsonPath("$.violations[1].code").value("PRICE_INVALID"));
     }
 }
