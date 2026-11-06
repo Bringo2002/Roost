@@ -211,4 +211,51 @@ class PropertyServiceSecurityTest {
         assertTrue(ex.getMessage().toLowerCase().contains("status"),
                 "Error message should mention status: " + ex.getMessage());
     }
+
+    // ── Published listings are never silently unpublished by an edit ──────
+
+    @Test
+    @DisplayName("updateProperty rejects PUBLISHED → DRAFT and leaves the listing live")
+    void updateProperty_rejectsPublishedToDraft() {
+        existingProperty.setStatus("PUBLISHED");
+        when(propertyRepository.findById(10L)).thenReturn(Optional.of(existingProperty));
+
+        Property updated = new Property();
+        updated.setStatus("DRAFT");
+
+        ApiException ex = assertThrows(ApiException.class,
+                () -> propertyService.updateProperty(10L, updated));
+        assertEquals(org.springframework.http.HttpStatus.CONFLICT, ex.getStatus());
+        verify(propertyRepository, never()).save(any(Property.class));
+    }
+
+    @Test
+    @DisplayName("updateProperty keeps a published listing PUBLISHED when status is unchanged")
+    void updateProperty_keepsPublishedWhenStatusUnchanged() {
+        existingProperty.setStatus("PUBLISHED");
+        when(propertyRepository.findById(10L)).thenReturn(Optional.of(existingProperty));
+        when(propertyRepository.save(any(Property.class)))
+                .thenAnswer(inv -> inv.getArgument(0));
+
+        Property updated = new Property();
+        updated.setStatus("PUBLISHED");
+
+        Property result = propertyService.updateProperty(10L, updated);
+        assertEquals("PUBLISHED", result.getStatus());
+    }
+
+    @Test
+    @DisplayName("updateProperty keeps a draft a DRAFT when saved as DRAFT")
+    void updateProperty_keepsDraftWhenSavedAsDraft() {
+        existingProperty.setStatus("DRAFT");
+        when(propertyRepository.findById(10L)).thenReturn(Optional.of(existingProperty));
+        when(propertyRepository.save(any(Property.class)))
+                .thenAnswer(inv -> inv.getArgument(0));
+
+        Property updated = new Property();
+        updated.setStatus("DRAFT");
+
+        Property result = propertyService.updateProperty(10L, updated);
+        assertEquals("DRAFT", result.getStatus());
+    }
 }
