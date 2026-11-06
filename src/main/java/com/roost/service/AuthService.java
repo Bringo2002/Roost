@@ -21,8 +21,6 @@ import java.util.Map;
 @Transactional
 public class AuthService {
 
-    private static final int MIN_PASSWORD_LENGTH = 6;
-
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
@@ -189,8 +187,8 @@ public class AuthService {
         if (newPassword == null || newPassword.isBlank()) {
             throw ApiException.badRequest("New password is required");
         }
-        if (newPassword.length() < MIN_PASSWORD_LENGTH) {
-            throw ApiException.badRequest("New password must be at least " + MIN_PASSWORD_LENGTH + " characters long");
+        if (newPassword.length() < SignupRequest.MIN_PASSWORD_LENGTH) {
+            throw ApiException.badRequest("New password must be at least " + SignupRequest.MIN_PASSWORD_LENGTH + " characters long");
         }
         if (!passwordEncoder.matches(currentPassword, user.getPassword())) {
             throw ApiException.badRequest("Current password is incorrect");
