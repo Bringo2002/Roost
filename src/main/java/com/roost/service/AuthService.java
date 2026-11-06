@@ -9,6 +9,7 @@ import com.roost.model.Role;
 import com.roost.model.User;
 import com.roost.repository.UserRepository;
 import com.roost.security.JwtService;
+import com.roost.util.EmailNormalizer;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -40,13 +41,14 @@ public class AuthService {
     }
 
     public AuthResponse signup(SignupRequest request) {
-        if (userRepository.findByEmail(request.getEmail()).isPresent()) {
+        String email = EmailNormalizer.normalize(request.getEmail());
+        if (userRepository.findByEmail(email).isPresent()) {
             throw ApiException.badRequest("Email is already in use.");
         }
 
         User user = new User();
         user.setName(request.getName());
-        user.setEmail(request.getEmail());
+        user.setEmail(email);
         user.setPhone(request.getPhone());
         user.setPassword(passwordEncoder.encode(request.getPassword()));
         user.setRole(Role.TENANT);
@@ -56,7 +58,8 @@ public class AuthService {
         return AuthResponse.builder().token(jwtService.generateToken(user)).build();
     }
 
-    public AuthResponse login(String email, String password) {
+    public AuthResponse login(String rawEmail, String password) {
+        String email = EmailNormalizer.normalize(rawEmail);
         // Throws AuthenticationException (a RuntimeException) on bad
         // credentials, which GlobalExceptionHandler already maps to a
         // 400 with the underlying message.
@@ -85,7 +88,8 @@ public class AuthService {
             throw ApiException.badRequest("Google sign-in could not be verified. Please try again.");
         }
 
-        return userRepository.findByEmail(identity.email())
+        String email = EmailNormalizer.normalize(identity.email());
+        return userRepository.findByEmail(email)
                 .map(existing -> {
                     // Block the email pre-hijacking attack: if a password-signup
                     // account exists for this email but was never verified by a
@@ -105,7 +109,7 @@ public class AuthService {
                 .orElseGet(() -> {
                     User user = new User();
                     user.setName(identity.name());
-                    user.setEmail(identity.email());
+                    user.setEmail(email);
                     user.setPassword(passwordEncoder.encode(java.util.UUID.randomUUID().toString()));
                     user.setRole(Role.TENANT);
                     user.setEmailVerified(true); // Google has cryptographically verified this email

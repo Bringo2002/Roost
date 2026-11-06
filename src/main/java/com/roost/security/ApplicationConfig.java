@@ -1,6 +1,7 @@
 package com.roost.security;
 
 import com.roost.repository.UserRepository;
+import com.roost.util.EmailNormalizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -23,7 +24,7 @@ public class ApplicationConfig {
 
     @Bean
     public UserDetailsService userDetailsService() {
-        return username -> userRepository.findByEmail(username)
+        return username -> userRepository.findByEmail(EmailNormalizer.normalize(username))
                 .orElseThrow(() -> new UsernameNotFoundException("User not found"));
     }
 

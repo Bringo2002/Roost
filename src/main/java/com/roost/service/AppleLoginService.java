@@ -7,6 +7,7 @@ import com.roost.model.Role;
 import com.roost.model.User;
 import com.roost.repository.UserRepository;
 import com.roost.security.JwtService;
+import com.roost.util.EmailNormalizer;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -55,7 +56,8 @@ public class AppleLoginService {
             throw ApiException.badRequest("Apple sign-in could not be verified. Please try again.");
         }
 
-        return userRepository.findByEmail(identity.email())
+        String email = EmailNormalizer.normalize(identity.email());
+        return userRepository.findByEmail(email)
                 .map(existing -> {
                     // Block the email pre-hijacking attack: refuse to merge into
                     // a password account that has never been provider-verified.
@@ -72,7 +74,7 @@ public class AppleLoginService {
                 .orElseGet(() -> {
                     User user = new User();
                     user.setName(resolveName(identity, request));
-                    user.setEmail(identity.email());
+                    user.setEmail(email);
                     user.setPassword(passwordEncoder.encode(UUID.randomUUID().toString()));
                     user.setRole(Role.TENANT);
                     user.setEmailVerified(true); // Apple has cryptographically verified this email
