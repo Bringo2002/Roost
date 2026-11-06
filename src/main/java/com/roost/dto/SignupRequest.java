@@ -4,6 +4,11 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
 public class SignupRequest {
+    /** Single source of truth for the password minimum: signup validation
+     *  and {@code AuthService.changePassword} both use it, so the two can't
+     *  drift apart again. */
+    public static final int MIN_PASSWORD_LENGTH = 8;
+
     @NotBlank
     @Size(max = 100)
     private String name;
@@ -12,7 +17,8 @@ public class SignupRequest {
     // phone is optional — some users sign up email-only
     private String phone;
     @NotBlank
-    @Size(min = 8, message = "Password must be at least 8 characters")
+    @Size(min = MIN_PASSWORD_LENGTH,
+          message = "Password must be at least " + MIN_PASSWORD_LENGTH + " characters")
     private String password;
 
     public SignupRequest() {}
