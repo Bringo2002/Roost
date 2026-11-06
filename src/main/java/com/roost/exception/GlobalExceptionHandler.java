@@ -27,6 +27,19 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * A listing that fails the publication policy. Same {@code error} key as
+     * every other API error, plus the structured {@code violations} so the
+     * client can point at each field that needs fixing.
+     */
+    @ExceptionHandler(PublicationPolicyException.class)
+    public ResponseEntity<Map<String, Object>> handlePublicationPolicy(PublicationPolicyException ex) {
+        Map<String, Object> errorResponse = new HashMap<>();
+        errorResponse.put("error", ex.getMessage());
+        errorResponse.put("violations", ex.getViolations());
+        return new ResponseEntity<>(errorResponse, ex.getStatus());
+    }
+
+    /**
      * Bean Validation failures on a {@code @Valid @RequestBody} are the
      * client's mistake, not a server fault. Without this they fall through
      * to the catch-all {@code Exception} handler below and surface as a
