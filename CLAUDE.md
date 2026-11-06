@@ -30,7 +30,7 @@ Schema migrations, JPA `@Entity` classes, Spring Data repositories.
 
 | Concern | Location |
 |---|---|
-| Schema migrations | `src/main/java/com/roost/config/DatabaseSchemaMigrator.java` |
+| Schema migrations | `src/main/resources/db/migration/` (Flyway, `V<n>__description.sql`) |
 | Data seeding | `src/main/java/com/roost/config/DataSeeder.java`, `src/main/resources/data.sql` |
 | Database config | `src/main/java/com/roost/config/DatabaseConfig.java` |
 | JPA entities | `src/main/java/com/roost/model/` |
@@ -55,7 +55,7 @@ Service classes, DTOs, REST controllers, security config, exception handling.
 
 **Permitted read/write for a Layer 2 task:** All files listed above, plus `pom.xml` if a new dependency is required, and application properties files. Layer 2 may **read** entity and repository files in `model/` and `repository/` but must not modify them unless the task explicitly spans both layers.
 
-**Out of scope for a Layer 2 task:** `DatabaseSchemaMigrator.java`, `data.sql`, entity field additions, new repository methods. These are Layer 1 changes. A Layer 2 branch must never introduce a schema change directly — that always belongs in a Layer 1 branch first.
+**Out of scope for a Layer 2 task:** Flyway migrations (`src/main/resources/db/migration/`), `data.sql`, entity field additions, new repository methods. These are Layer 1 changes. A Layer 2 branch must never introduce a schema change directly — that always belongs in a Layer 1 branch first.
 
 ### Dependency Rule
 
@@ -159,19 +159,12 @@ With a specific profile:
 
 ### Schema Migrations
 
-This project uses a custom `CommandLineRunner`-based migrator (`DatabaseSchemaMigrator.java`) rather than Flyway or Liquibase. Migrations are applied automatically on application startup.
+Schema changes are versioned Flyway migrations in `src/main/resources/db/migration/` (`V1__baseline_schema.sql`, `V2__…`, and so on). They run automatically on application startup, and in production Hibernate only validates the schema (`ddl-auto=validate`).
 
-```bash
-# To apply pending migrations, simply start the application:
-./mvnw spring-boot:run
-
-# There is no standalone migration command — migrations run as part of boot.
-```
-
-When adding a new column or constraint:
-1. Add the `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` statement to `DatabaseSchemaMigrator.run()`.
-2. Add the corresponding field to the JPA `@Entity` class in `src/main/java/com/roost/model/`.
-3. If the column has a non-null primitive type, add an `enforceNotNull()` call to backfill existing rows.
+When changing the schema:
+1. Add the next `V<n>__short_description.sql` file. Never edit a migration that has already been applied.
+2. Add or update the field on the JPA `@Entity` class in `src/main/java/com/roost/model/`.
+3. In the same migration, backfill existing rows before adding a NOT NULL or CHECK constraint. If the migration can fail on existing data, audit production data first.
 
 ### Dependency Checks
 
@@ -277,7 +270,7 @@ Do not write implementation code without a preceding failing test. The cycle is:
 
 | Layer | Required tests |
 |---|---|
-| **Layer 1 — Repositories** | Integration tests using `@DataJpaTest` with an embedded or containerized PostgreSQL (Testcontainers). Test all custom `@Query` methods. Test `DatabaseSchemaMigrator` migration logic against a real database — never mock JDBC for migration tests. |
+| **Layer 1 — Repositories** | Integration tests using `@DataJpaTest` with an embedded or containerized PostgreSQL (Testcontainers). Test all custom `@Query` methods. Test Flyway migrations against a real database — never mock JDBC for migration tests. |
 | **Layer 1 — Entities** | Unit tests for any non-trivial entity logic (computed fields, validation methods). |
 | **Layer 2 — Services** | Unit tests with mocked repositories (Mockito `@Mock` + `@InjectMocks`). Test business logic paths: success, validation failures, authorization failures, edge cases. Test every branch in methods like `recomputeVerification`, `reportProperty` (threshold crossing), `submitCommunityCheck`. |
 | **Layer 2 — Controllers** | Integration tests using `@SpringBootTest` + `MockMvc` for every controller endpoint. Test: correct HTTP status codes, response body structure, authorization enforcement (authenticated vs. unauthenticated, role-based access), and error responses. |
@@ -325,7 +318,7 @@ When producing code for this repository:
 ### Layer Boundary Enforcement
 
 - Never silently introduce a Layer 1 schema change (new column, new entity, migration statement) while working a Layer 2 task. If the Layer 2 work requires a schema change, **stop and state explicitly**: "This task requires a Layer 1 change first. Create a `feat/<name>-layer1-schema` branch before proceeding."
-- Never modify `DatabaseSchemaMigrator.java` from a Layer 2 branch.
+- Never add or edit a Flyway migration from a Layer 2 branch.
 
 ### Git Commit Hygiene — No AI Attribution
 
