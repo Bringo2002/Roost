@@ -1,6 +1,8 @@
 package com.roost.service;
 
 import com.roost.exception.ApiException;
+import com.roost.exception.PublicationPolicyException;
+import com.roost.exception.PublicationViolation;
 import com.roost.model.CommunityCheck;
 import com.roost.model.Property;
 import com.roost.model.PropertyReport;
@@ -149,7 +151,7 @@ public class PropertyService {
             property.setStatus("PUBLISHED");
         }
         if ("PUBLISHED".equals(property.getStatus())) {
-            assertCanPublish(property.getOwner());
+            assertPublishable(property);
         }
         if (property.getListedAt() == null) {
             property.setListedAt(LocalDateTime.now());
@@ -179,16 +181,18 @@ public class PropertyService {
     }
 
     /**
-     * Server-side enforcement that a listing can only go live once its
-     * owner has a verified phone -- mirrors the client-side gate in the
-     * Flutter wizard (add_property_page.dart), but doesn't rely on it.
-     * Same reasoning as removing `role` from signup requests earlier:
-     * a client-side check alone can always be bypassed by calling the
-     * API directly, so the rule has to also live here.
+     * Server-side enforcement of {@link PublicationPolicy}, called on every
+     * route that can leave a listing public (create, edit, dashboard
+     * publish). The client wizard validates the same rules for immediate
+     * feedback, but a client-side check alone can always be bypassed by
+     * calling the API directly, so the rules also have to be enforced here.
+     *
+     * @throws PublicationPolicyException listing every requirement that is not met
      */
-    private void assertCanPublish(User owner) {
-        if (owner == null || !owner.isPhoneVerified()) {
-            throw ApiException.badRequest("Verify your phone number before publishing a listing.");
+    private void assertPublishable(Property property) {
+        List<PublicationViolation> violations = PublicationPolicy.validate(property);
+        if (!violations.isEmpty()) {
+            throw new PublicationPolicyException(violations);
         }
     }
 
@@ -628,12 +632,15 @@ public class PropertyService {
             throw ApiException.conflict(
                     "A published listing can't be moved back to draft by saving changes.");
         }
-        if (updated.getStatus() != null && !updated.getStatus().equals(existing.getStatus())
-                && "PUBLISHED".equals(updated.getStatus())) {
-            assertCanPublish(existing.getOwner());
-        }
         if (updated.getStatus() != null) {
             existing.setStatus(updated.getStatus());
+        }
+        // Checked on the listing as it will be saved, and on every save that
+        // leaves it public -- not just on the DRAFT -> PUBLISHED transition --
+        // so editing a live listing can't blank out a required field. The
+        // transaction rolls back on failure, so nothing above is persisted.
+        if ("PUBLISHED".equals(existing.getStatus())) {
+            assertPublishable(existing);
         }
         existing.setLastConfirmedAt(LocalDateTime.now());
         recomputeVerification(existing);
@@ -675,7 +682,7 @@ public class PropertyService {
      * Dedicated one-tap publish action for a draft, used by the
      * landlord dashboard's quick-publish button so flipping a draft
      * live doesn't require reopening the whole listing wizard. Still
-     * runs the same phone-verification check as every other path to
+     * runs the same {@link PublicationPolicy} as every other path to
      * PUBLISHED.
      */
     public Property publishDraft(Long id) {
@@ -684,7 +691,7 @@ public class PropertyService {
             throw ApiException.forbidden(
                     "This listing is under admin review and cannot be published.");
         }
-        assertCanPublish(existing.getOwner());
+        assertPublishable(existing);
         existing.setStatus("PUBLISHED");
         if (existing.getListedAt() == null) {
             existing.setListedAt(LocalDateTime.now());

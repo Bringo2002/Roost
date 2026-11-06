@@ -1,6 +1,8 @@
 package com.roost.service;
 
 import com.roost.exception.ApiException;
+import com.roost.exception.PublicationPolicyException;
+import com.roost.exception.PublicationViolation;
 import com.roost.model.Property;
 import com.roost.model.User;
 import com.roost.repository.PropertyRepository;
@@ -13,6 +15,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -58,6 +61,25 @@ class PropertyServiceSecurityTest {
         existingProperty.setStatus("PUBLISHED");
     }
 
+    /** A listing that satisfies the publication policy, owned by {@link #verifiedOwner}. */
+    private Property validListing() {
+        Property p = new Property();
+        p.setOwner(verifiedOwner);
+        p.setTitle("Sunny 1BR in Kilimani");
+        p.setPrice(25000);
+        p.setLocation("Kilimani");
+        p.setLatitude(-1.2921);
+        p.setLongitude(36.7872);
+        p.setHouseType("1BR");
+        p.setImageUrls(List.of("a.jpg", "b.jpg", "c.jpg"));
+        p.setLandlordPhone("+254700000000");
+        return p;
+    }
+
+    private static List<String> codes(PublicationPolicyException ex) {
+        return ex.getViolations().stream().map(PublicationViolation::code).toList();
+    }
+
     // ── H1: Status override from UNDER_REVIEW ──────────────────────────────
 
     @Test
@@ -95,7 +117,7 @@ class PropertyServiceSecurityTest {
         when(propertyRepository.save(any(Property.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
 
-        Property updated = new Property();
+        Property updated = validListing();
         updated.setStatus("PUBLISHED");
 
         Property result = propertyService.updateProperty(10L, updated);
@@ -112,7 +134,7 @@ class PropertyServiceSecurityTest {
         when(propertyRepository.save(any(Property.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
 
-        Property updated = new Property();
+        Property updated = validListing();
         updated.setDocumentVerified(true);
 
         Property result = propertyService.updateProperty(10L, updated);
@@ -128,7 +150,7 @@ class PropertyServiceSecurityTest {
         when(propertyRepository.save(any(Property.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
 
-        Property updated = new Property();
+        Property updated = validListing();
         updated.setLandlordEndorsed(true);
 
         Property result = propertyService.updateProperty(10L, updated);
@@ -144,7 +166,7 @@ class PropertyServiceSecurityTest {
         when(propertyRepository.save(any(Property.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
 
-        Property updated = new Property();
+        Property updated = validListing();
         updated.setEndorsementToken("attacker-chosen-token");
 
         Property result = propertyService.updateProperty(10L, updated);
@@ -237,7 +259,7 @@ class PropertyServiceSecurityTest {
         when(propertyRepository.save(any(Property.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
 
-        Property updated = new Property();
+        Property updated = validListing();
         updated.setStatus("PUBLISHED");
 
         Property result = propertyService.updateProperty(10L, updated);
@@ -257,5 +279,102 @@ class PropertyServiceSecurityTest {
 
         Property result = propertyService.updateProperty(10L, updated);
         assertEquals("DRAFT", result.getStatus());
+    }
+
+    // ── Publication policy is enforced on every publish route ──────────────
+
+    @Test
+    @DisplayName("addProperty rejects an incomplete listing created as PUBLISHED")
+    void addProperty_rejectsIncompletePublishedListing() {
+        Property input = new Property();
+        input.setOwner(verifiedOwner);
+        input.setStatus("PUBLISHED");
+
+        PublicationPolicyException ex = assertThrows(PublicationPolicyException.class,
+                () -> propertyService.addProperty(input));
+        assertTrue(codes(ex).contains("TITLE_REQUIRED"), "violations: " + codes(ex));
+        verify(propertyRepository, never()).save(any(Property.class));
+    }
+
+    @Test
+    @DisplayName("addProperty accepts a complete listing created as PUBLISHED")
+    void addProperty_acceptsCompletePublishedListing() {
+        Property input = validListing();
+        input.setStatus("PUBLISHED");
+        when(propertyRepository.save(any(Property.class)))
+                .thenAnswer(inv -> inv.getArgument(0));
+
+        Property result = propertyService.addProperty(input);
+        assertEquals("PUBLISHED", result.getStatus());
+    }
+
+    @Test
+    @DisplayName("publishDraft rejects an incomplete draft")
+    void publishDraft_rejectsIncompleteDraft() {
+        existingProperty.setStatus("DRAFT");
+        when(propertyRepository.findById(10L)).thenReturn(Optional.of(existingProperty));
+
+        PublicationPolicyException ex = assertThrows(PublicationPolicyException.class,
+                () -> propertyService.publishDraft(10L));
+        assertTrue(codes(ex).contains("PRICE_INVALID"), "violations: " + codes(ex));
+        verify(propertyRepository, never()).save(any(Property.class));
+    }
+
+    @Test
+    @DisplayName("publishDraft still requires the owner's phone to be verified")
+    void publishDraft_rejectsUnverifiedOwnerPhone() {
+        Property draft = validListing();
+        draft.setStatus("DRAFT");
+        verifiedOwner.setPhoneVerified(false);
+        when(propertyRepository.findById(10L)).thenReturn(Optional.of(draft));
+
+        PublicationPolicyException ex = assertThrows(PublicationPolicyException.class,
+                () -> propertyService.publishDraft(10L));
+        assertEquals(List.of("OWNER_PHONE_UNVERIFIED"), codes(ex));
+    }
+
+    @Test
+    @DisplayName("publishDraft publishes a complete draft")
+    void publishDraft_publishesCompleteDraft() {
+        Property draft = validListing();
+        draft.setStatus("DRAFT");
+        when(propertyRepository.findById(10L)).thenReturn(Optional.of(draft));
+        when(propertyRepository.save(any(Property.class)))
+                .thenAnswer(inv -> inv.getArgument(0));
+
+        Property result = propertyService.publishDraft(10L);
+        assertEquals("PUBLISHED", result.getStatus());
+    }
+
+    @Test
+    @DisplayName("updateProperty rejects publishing an incomplete draft")
+    void updateProperty_rejectsPublishingIncompleteDraft() {
+        existingProperty.setStatus("DRAFT");
+        when(propertyRepository.findById(10L)).thenReturn(Optional.of(existingProperty));
+
+        Property updated = validListing();
+        updated.setTitle(" ");
+        updated.setStatus("PUBLISHED");
+
+        PublicationPolicyException ex = assertThrows(PublicationPolicyException.class,
+                () -> propertyService.updateProperty(10L, updated));
+        assertEquals(List.of("TITLE_REQUIRED"), codes(ex));
+        verify(propertyRepository, never()).save(any(Property.class));
+    }
+
+    @Test
+    @DisplayName("updateProperty rejects an edit that leaves a live listing incomplete")
+    void updateProperty_rejectsEditThatBlanksLiveListing() {
+        existingProperty.setStatus("PUBLISHED");
+        when(propertyRepository.findById(10L)).thenReturn(Optional.of(existingProperty));
+
+        Property updated = validListing();
+        updated.setPrice(0);
+        updated.setStatus("PUBLISHED");
+
+        PublicationPolicyException ex = assertThrows(PublicationPolicyException.class,
+                () -> propertyService.updateProperty(10L, updated));
+        assertEquals(List.of("PRICE_INVALID"), codes(ex));
+        verify(propertyRepository, never()).save(any(Property.class));
     }
 }
