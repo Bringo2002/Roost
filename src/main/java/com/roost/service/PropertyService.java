@@ -619,6 +619,15 @@ public class PropertyService {
                     "Invalid status '" + updated.getStatus()
                     + "'. Allowed values: " + LANDLORD_ALLOWED_STATUSES);
         }
+        // A full-overwrite save must never take a live listing off the
+        // market: the wizard's autosave used to send DRAFT for listings
+        // being edited, silently unpublishing them. Withdrawing a listing
+        // has to be a deliberate lifecycle action, not a side effect of
+        // saving field edits.
+        if ("PUBLISHED".equals(existing.getStatus()) && "DRAFT".equals(updated.getStatus())) {
+            throw ApiException.conflict(
+                    "A published listing can't be moved back to draft by saving changes.");
+        }
         if (updated.getStatus() != null && !updated.getStatus().equals(existing.getStatus())
                 && "PUBLISHED".equals(updated.getStatus())) {
             assertCanPublish(existing.getOwner());
