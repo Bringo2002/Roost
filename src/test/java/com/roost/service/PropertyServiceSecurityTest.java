@@ -40,6 +40,7 @@ class PropertyServiceSecurityTest {
     @Mock private NearbyFacilitiesService nearbyFacilitiesService;
     @Mock private PropertyRiskService propertyRiskService;
     @Mock private org.springframework.context.ApplicationEventPublisher eventPublisher;
+    @Mock private GpsReadingPolicy gpsReadingPolicy;
 
     @InjectMocks
     private PropertyService propertyService;
@@ -376,5 +377,78 @@ class PropertyServiceSecurityTest {
                 () -> propertyService.updateProperty(10L, updated));
         assertEquals(List.of("PRICE_INVALID"), codes(ex));
         verify(propertyRepository, never()).save(any(Property.class));
+    }
+
+    // ── GPS verification is decided by the server-side policy ──────────────
+
+    private static GpsReading someReading() {
+        return new GpsReading(-1.2921, 36.7872, 12.0, 1_800_000_000_000L);
+    }
+
+    @Test
+    @DisplayName("verifyGpsLocation rejects every outcome except PASS and verifies nothing")
+    void verifyGpsLocation_rejectsWhenPolicyRejects() {
+        existingProperty.setLatitude(-1.2921);
+        existingProperty.setLongitude(36.7872);
+        existingProperty.setGpsVerified(false);
+        when(propertyRepository.findById(10L)).thenReturn(Optional.of(existingProperty));
+
+        for (GpsReadingPolicy.Outcome outcome : List.of(
+                GpsReadingPolicy.Outcome.INVALID,
+                GpsReadingPolicy.Outcome.STALE,
+                GpsReadingPolicy.Outcome.TOO_INACCURATE,
+                GpsReadingPolicy.Outcome.TOO_FAR)) {
+            when(gpsReadingPolicy.evaluate(anyDouble(), anyDouble(), any(GpsReading.class), anyLong()))
+                    .thenReturn(new GpsReadingPolicy.Verdict(outcome, 350.0));
+
+            ApiException ex = assertThrows(ApiException.class,
+                    () -> propertyService.verifyGpsLocation(10L, someReading()), outcome.name());
+            assertEquals(org.springframework.http.HttpStatus.BAD_REQUEST, ex.getStatus(), outcome.name());
+        }
+        assertFalse(existingProperty.isGpsVerified());
+        verify(propertyRepository, never()).save(any(Property.class));
+    }
+
+    @Test
+    @DisplayName("verifyGpsLocation tells the lister how far away they are when too far")
+    void verifyGpsLocation_tooFarReportsDistance() {
+        existingProperty.setLatitude(-1.2921);
+        existingProperty.setLongitude(36.7872);
+        when(propertyRepository.findById(10L)).thenReturn(Optional.of(existingProperty));
+        when(gpsReadingPolicy.evaluate(anyDouble(), anyDouble(), any(GpsReading.class), anyLong()))
+                .thenReturn(new GpsReadingPolicy.Verdict(GpsReadingPolicy.Outcome.TOO_FAR, 350.0));
+
+        ApiException ex = assertThrows(ApiException.class,
+                () -> propertyService.verifyGpsLocation(10L, someReading()));
+        assertTrue(ex.getMessage().contains("350m"), ex.getMessage());
+    }
+
+    @Test
+    @DisplayName("verifyGpsLocation marks the listing verified when the policy passes")
+    void verifyGpsLocation_verifiesOnPass() {
+        existingProperty.setLatitude(-1.2921);
+        existingProperty.setLongitude(36.7872);
+        existingProperty.setGpsVerified(false);
+        when(propertyRepository.findById(10L)).thenReturn(Optional.of(existingProperty));
+        when(propertyRepository.save(any(Property.class))).thenAnswer(inv -> inv.getArgument(0));
+        GpsReading reading = someReading();
+        when(gpsReadingPolicy.evaluate(eq(-1.2921), eq(36.7872), eq(reading), anyLong()))
+                .thenReturn(new GpsReadingPolicy.Verdict(GpsReadingPolicy.Outcome.PASS, 4.0));
+
+        Property result = propertyService.verifyGpsLocation(10L, reading);
+
+        assertTrue(result.isGpsVerified());
+        assertNotNull(result.getGpsVerifiedAt());
+    }
+
+    @Test
+    @DisplayName("verifyGpsLocation needs a pinned location and doesn't consult the policy without one")
+    void verifyGpsLocation_requiresPinnedLocation() {
+        existingProperty.setLatitude(null);
+        existingProperty.setLongitude(null);
+        when(propertyRepository.findById(10L)).thenReturn(Optional.of(existingProperty));
+
+        assertThrows(ApiException.class, () -> propertyService.verifyGpsLocation(10L, someReading()));
+        verifyNoInteractions(gpsReadingPolicy);
     }
 }
