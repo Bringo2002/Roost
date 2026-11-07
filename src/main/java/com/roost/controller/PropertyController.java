@@ -10,6 +10,7 @@ import com.roost.model.PropertyReport;
 import com.roost.model.User;
 import com.roost.model.Role;
 import com.roost.repository.MediaHashRepository;
+import com.roost.service.GpsReading;
 import com.roost.service.PropertyService;
 import com.roost.service.PropertyRiskService;
 import com.roost.service.RentEstimateService;
@@ -216,7 +217,14 @@ public class PropertyController {
         if (lat == null || lng == null) {
             return ResponseEntity.badRequest().body(Map.of("error", "latitude and longitude are required"));
         }
-        return ResponseEntity.ok(PropertyResponseDto.forOwner(propertyService.verifyGpsLocation(id, lat, lng)));
+        // A missing accuracy or timestamp is passed on as "not reported" so
+        // the policy rejects it through the same path as any other bad fix.
+        Double accuracy = body.get("accuracyMeters");
+        Double capturedAt = body.get("capturedAtEpochMs");
+        GpsReading reading = new GpsReading(lat, lng,
+                accuracy == null ? Double.NaN : accuracy,
+                capturedAt == null ? 0L : capturedAt.longValue());
+        return ResponseEntity.ok(PropertyResponseDto.forOwner(propertyService.verifyGpsLocation(id, reading)));
     }
 
     @PostMapping("/{id}/report")

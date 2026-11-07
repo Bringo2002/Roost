@@ -54,6 +54,7 @@ public class PropertyService {
     private final NearbyFacilitiesService nearbyFacilitiesService;
     private final PropertyRiskService propertyRiskService;
     private final ApplicationEventPublisher eventPublisher;
+    private final GpsReadingPolicy gpsReadingPolicy;
 
     /** Three distinct people flagging the same listing is enough to pull
      *  it from public view pending an admin look, rather than waiting on
@@ -70,7 +71,8 @@ public class PropertyService {
                             ReviewRepository reviewRepository, PropertyReportRepository propertyReportRepository,
                             CommunityCheckRepository communityCheckRepository, ApplicationRepository applicationRepository,
                             FirebasePushService firebasePushService, NearbyFacilitiesService nearbyFacilitiesService,
-                            PropertyRiskService propertyRiskService, ApplicationEventPublisher eventPublisher) {
+                            PropertyRiskService propertyRiskService, ApplicationEventPublisher eventPublisher,
+                            GpsReadingPolicy gpsReadingPolicy) {
         this.propertyRepository = propertyRepository;
         this.userRepository = userRepository;
         this.communityCheckRepository = communityCheckRepository;
@@ -81,6 +83,7 @@ public class PropertyService {
         this.nearbyFacilitiesService = nearbyFacilitiesService;
         this.propertyRiskService = propertyRiskService;
         this.eventPublisher = eventPublisher;
+        this.gpsReadingPolicy = gpsReadingPolicy;
     }
 
     /**
@@ -208,10 +211,9 @@ public class PropertyService {
         property.setVerified(phoneVerified && property.isGpsVerified() && property.isPhotoApproved());
     }
 
-    /** Meters of tolerance for GPS verification -- generous enough to
-     *  absorb ordinary phone GPS drift and multipath error in dense
-     *  urban buildings, tight enough that verifying from across town
-     *  isn't possible. */
+    /** How far the pinned location may move before an existing GPS
+     *  verification no longer applies and has to be redone. (How close a
+     *  reading must be to pass is {@link GpsReadingPolicy}'s job.) */
     private static final double GPS_VERIFICATION_TOLERANCE_METERS = 200.0;
 
     /**
@@ -222,18 +224,27 @@ public class PropertyService {
      * anyone could satisfy by dropping a map pin from anywhere -- this
      * one actually requires standing there.
      */
-    public Property verifyGpsLocation(Long propertyId, double deviceLat, double deviceLng) {
+    public Property verifyGpsLocation(Long propertyId, GpsReading reading) {
         Property property = getPropertyById(propertyId);
         if (property.getLatitude() == null || property.getLongitude() == null) {
             throw ApiException.badRequest("This listing doesn't have a pinned location yet.");
         }
 
-        double distanceMeters = GeoUtils.haversineMeters(
-                property.getLatitude(), property.getLongitude(), deviceLat, deviceLng);
-
-        if (distanceMeters > GPS_VERIFICATION_TOLERANCE_METERS) {
-            throw ApiException.badRequest(String.format(
-                    "You're about %.0fm from the listed location. Move closer and try again.", distanceMeters));
+        // The server decides: the reading has to be fresh and precise, and
+        // close enough once its own accuracy radius is taken into account.
+        GpsReadingPolicy.Verdict verdict = gpsReadingPolicy.evaluate(
+                property.getLatitude(), property.getLongitude(), reading, System.currentTimeMillis());
+        switch (verdict.outcome()) {
+            case INVALID -> throw ApiException.badRequest(
+                    "We couldn't read your location. Please update the Roost app and try again.");
+            case STALE -> throw ApiException.badRequest(
+                    "Your location reading is out of date. Please try again.");
+            case TOO_INACCURATE -> throw ApiException.badRequest(
+                    "Your GPS signal isn't precise enough yet. Move to a spot with a clearer view of the sky and try again.");
+            case TOO_FAR -> throw ApiException.badRequest(String.format(
+                    "You're about %.0fm from the listed location. Move closer and try again.",
+                    verdict.distanceMeters()));
+            case PASS -> { }
         }
 
         property.setGpsVerified(true);
