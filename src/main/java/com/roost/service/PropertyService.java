@@ -27,6 +27,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -55,6 +56,7 @@ public class PropertyService {
     private final PropertyRiskService propertyRiskService;
     private final ApplicationEventPublisher eventPublisher;
     private final GpsReadingPolicy gpsReadingPolicy;
+    private final AddressAreaCheck addressAreaCheck;
 
     /** Three distinct people flagging the same listing is enough to pull
      *  it from public view pending an admin look, rather than waiting on
@@ -72,7 +74,7 @@ public class PropertyService {
                             CommunityCheckRepository communityCheckRepository, ApplicationRepository applicationRepository,
                             FirebasePushService firebasePushService, NearbyFacilitiesService nearbyFacilitiesService,
                             PropertyRiskService propertyRiskService, ApplicationEventPublisher eventPublisher,
-                            GpsReadingPolicy gpsReadingPolicy) {
+                            GpsReadingPolicy gpsReadingPolicy, AddressAreaCheck addressAreaCheck) {
         this.propertyRepository = propertyRepository;
         this.userRepository = userRepository;
         this.communityCheckRepository = communityCheckRepository;
@@ -84,6 +86,7 @@ public class PropertyService {
         this.propertyRiskService = propertyRiskService;
         this.eventPublisher = eventPublisher;
         this.gpsReadingPolicy = gpsReadingPolicy;
+        this.addressAreaCheck = addressAreaCheck;
     }
 
     /**
@@ -211,10 +214,12 @@ public class PropertyService {
         property.setVerified(phoneVerified && property.isGpsVerified() && property.isPhotoApproved());
     }
 
-    /** How far the pinned location may move before an existing GPS
-     *  verification no longer applies and has to be redone. (How close a
-     *  reading must be to pass is {@link GpsReadingPolicy}'s job.) */
-    private static final double GPS_VERIFICATION_TOLERANCE_METERS = 200.0;
+    /** How far the pin may move before an existing GPS verification no
+     *  longer applies and has to be redone. Small on purpose: just enough to
+     *  absorb rounding when the same coordinates are saved again, so that
+     *  any real move needs re-verifying. (How close a reading must be to
+     *  pass is {@link GpsReadingPolicy}'s job.) */
+    private static final double PIN_MOVE_TOLERANCE_METERS = 5.0;
 
     /**
      * Confirms the owner is (or very recently was) physically at the
@@ -245,6 +250,27 @@ public class PropertyService {
                     "You're about %.0fm from the listed location. Move closer and try again.",
                     verdict.distanceMeters()));
             case PASS -> { }
+        }
+
+        // Being at the pin proves little if the pin itself can be anywhere, so
+        // the pin must also fall in the area the listing's address names,
+        // as geocoded by the server rather than supplied by the client.
+        String address = property.getLocation();
+        if (address == null || address.isBlank()) {
+            throw ApiException.badRequest(
+                    "Add the listing's location (neighbourhood and town) before verifying.");
+        }
+        switch (addressAreaCheck.check(
+                address, property.getCountry(), property.getLatitude(), property.getLongitude())) {
+            case MATCHES, SKIPPED -> { }
+            case OUTSIDE_AREA -> throw ApiException.badRequest(
+                    "This listing's address (\"" + address + "\") doesn't match where it is pinned. "
+                            + "Check the address, or verify from the property itself.");
+            case NOT_FOUND -> throw ApiException.badRequest(
+                    "We couldn't find \"" + address + "\" on the map. Add the neighbourhood and town "
+                            + "(for example \"Kilimani, Nairobi\") and try again.");
+            case UNAVAILABLE -> throw ApiException.serviceUnavailable(
+                    "We couldn't check the address just now. Please try again in a few minutes.");
         }
 
         property.setGpsVerified(true);
@@ -540,6 +566,9 @@ public class PropertyService {
 
     public Property updateProperty(Long id, Property updated) {
         Property existing = getPropertyById(id);
+        // Read before the full overwrite below: deciding whether the address
+        // changed needs the old text, and it is replaced a few lines down.
+        String previousAddress = existing.getLocation();
         existing.setTitle(updated.getTitle());
         existing.setLocation(updated.getLocation());
         existing.setPrice(updated.getPrice());
@@ -555,9 +584,13 @@ public class PropertyService {
         // the old verification no longer says anything true about the
         // new one, so it must be cleared and re-earned. Checked against
         // the *existing* lat/lng before they're overwritten below.
-        if (locationChangedSignificantly(
+        // The address text is the other half of what verification vouched
+        // for (the pin was checked against it), so changing either one means
+        // it has to be re-earned.
+        if (pinMoved(
                 existing.getLatitude(), existing.getLongitude(),
-                updated.getLatitude(), updated.getLongitude())) {
+                updated.getLatitude(), updated.getLongitude())
+                || addressTextChanged(previousAddress, updated.getLocation())) {
             existing.setGpsVerified(false);
             existing.setGpsVerifiedAt(null);
         }
@@ -673,20 +706,28 @@ public class PropertyService {
     }
 
     /**
-     * True if [newLat]/[newLng] represents a meaningfully different
-     * location from [oldLat]/[oldLng] -- either one side is missing
-     * where the other isn't (conservatively treated as a change, since
-     * there's nothing to compare), or the two points are further apart
-     * than GPS verification's own tolerance. Reuses that same tolerance
-     * so "verified" consistently means "within this distance of the
-     * currently pinned location," not just "was within it once."
+     * True if [newLat]/[newLng] is a different location from
+     * [oldLat]/[oldLng] -- either one side is missing where the other
+     * isn't (conservatively treated as a change, since there's nothing to
+     * compare), or the two points are further apart than
+     * {@link #PIN_MOVE_TOLERANCE_METERS}. A verification only vouches for
+     * the pin it was earned at, so moving the pin has to clear it.
      */
-    private boolean locationChangedSignificantly(Double oldLat, Double oldLng, Double newLat, Double newLng) {
+    private boolean pinMoved(Double oldLat, Double oldLng, Double newLat, Double newLng) {
         boolean hadOld = oldLat != null && oldLng != null;
         boolean hasNew = newLat != null && newLng != null;
         if (hadOld != hasNew) return true;
         if (!hadOld) return false; // neither had coordinates -- nothing changed
-        return GeoUtils.haversineMeters(oldLat, oldLng, newLat, newLng) > GPS_VERIFICATION_TOLERANCE_METERS;
+        return GeoUtils.haversineMeters(oldLat, oldLng, newLat, newLng) > PIN_MOVE_TOLERANCE_METERS;
+    }
+
+    /** True when the address text really changed; case and spacing don't count. */
+    private static boolean addressTextChanged(String oldText, String newText) {
+        return !normaliseAddress(oldText).equals(normaliseAddress(newText));
+    }
+
+    private static String normaliseAddress(String text) {
+        return text == null ? "" : text.trim().replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
     }
 
     /**
