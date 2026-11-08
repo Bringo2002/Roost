@@ -548,4 +548,82 @@ class PropertyServiceSecurityTest {
         assertThrows(ApiException.class, () -> propertyService.verifyGpsLocation(10L, someReading()));
         verifyNoInteractions(addressAreaCheck);
     }
+
+    // ── Verification only vouches for the pin and address it was earned at ──
+
+    /** A verified draft pinned in Kilimani, ready to be edited. */
+    private void givenVerifiedDraftInKilimani() {
+        existingProperty.setStatus("DRAFT");
+        existingProperty.setLatitude(-1.2921);
+        existingProperty.setLongitude(36.7872);
+        existingProperty.setLocation("Kilimani, Nairobi");
+        existingProperty.setGpsVerified(true);
+        existingProperty.setGpsVerifiedAt(java.time.LocalDateTime.now());
+        when(propertyRepository.findById(10L)).thenReturn(Optional.of(existingProperty));
+        when(propertyRepository.save(any(Property.class))).thenAnswer(inv -> inv.getArgument(0));
+    }
+
+    private Property draftEditAt(double lat, double lng, String location) {
+        Property updated = new Property();
+        updated.setStatus("DRAFT");
+        updated.setLatitude(lat);
+        updated.setLongitude(lng);
+        updated.setLocation(location);
+        return updated;
+    }
+
+    @Test
+    @DisplayName("updateProperty clears GPS verification when the address text changes")
+    void updateProperty_clearsGpsVerificationWhenTheAddressChanges() {
+        givenVerifiedDraftInKilimani();
+
+        Property result = propertyService.updateProperty(10L, draftEditAt(-1.2921, 36.7872, "Westlands, Nairobi"));
+
+        assertFalse(result.isGpsVerified());
+        assertNull(result.getGpsVerifiedAt());
+    }
+
+    @Test
+    @DisplayName("updateProperty keeps GPS verification when only the address's case or spacing changes")
+    void updateProperty_keepsGpsVerificationForFormattingOnlyAddressChanges() {
+        givenVerifiedDraftInKilimani();
+
+        Property result = propertyService.updateProperty(10L, draftEditAt(-1.2921, 36.7872, "  kilimani,   NAIROBI "));
+
+        assertTrue(result.isGpsVerified());
+    }
+
+    @Test
+    @DisplayName("updateProperty clears GPS verification when the pin moves")
+    void updateProperty_clearsGpsVerificationWhenThePinMoves() {
+        givenVerifiedDraftInKilimani();
+
+        // about 110 m north: previously tolerated, now a different location
+        Property result = propertyService.updateProperty(10L, draftEditAt(-1.2911, 36.7872, "Kilimani, Nairobi"));
+
+        assertFalse(result.isGpsVerified());
+        assertNull(result.getGpsVerifiedAt());
+    }
+
+    @Test
+    @DisplayName("updateProperty keeps GPS verification when the same pin is saved again")
+    void updateProperty_keepsGpsVerificationWhenNothingMoved() {
+        givenVerifiedDraftInKilimani();
+
+        Property result = propertyService.updateProperty(10L, draftEditAt(-1.2921, 36.7872, "Kilimani, Nairobi"));
+
+        assertTrue(result.isGpsVerified());
+        assertNotNull(result.getGpsVerifiedAt());
+    }
+
+    @Test
+    @DisplayName("updateProperty tolerates a few metres of rounding in the pin")
+    void updateProperty_toleratesRoundingInThePin() {
+        givenVerifiedDraftInKilimani();
+
+        // about 3 m north
+        Property result = propertyService.updateProperty(10L, draftEditAt(-1.29207, 36.7872, "Kilimani, Nairobi"));
+
+        assertTrue(result.isGpsVerified());
+    }
 }
