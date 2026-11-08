@@ -4,6 +4,7 @@ import com.roost.model.ListingRankScore;
 import com.roost.model.Property;
 import com.roost.model.Role;
 import com.roost.model.User;
+import com.roost.util.EmailNormalizer;
 import org.hibernate.SessionFactory;
 import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.BeforeEach;
@@ -69,7 +70,7 @@ class PropertyRepositoryTest {
     private User persistUser(String prefix) {
         User u = new User();
         u.setName(prefix);
-        u.setEmail(prefix + "+" + System.nanoTime() + "@example.com");
+        u.setEmail(EmailNormalizer.normalize(prefix + "+" + System.nanoTime() + "@example.com"));
         u.setPassword("hashed-password");
         u.setRole(Role.LANDLORD);
         return em.persist(u);

@@ -4,6 +4,7 @@ import com.roost.model.Property;
 import com.roost.model.Review;
 import com.roost.model.Role;
 import com.roost.model.User;
+import com.roost.util.EmailNormalizer;
 import org.hibernate.resource.jdbc.spi.StatementInspector;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -90,7 +91,7 @@ class ReviewRepositoryTest {
     private User persistUser(String prefix) {
         User u = new User();
         u.setName(prefix);
-        u.setEmail(prefix + "+" + System.nanoTime() + "@example.com");
+        u.setEmail(EmailNormalizer.normalize(prefix + "+" + System.nanoTime() + "@example.com"));
         u.setPassword("hashed-password");
         u.setRole(Role.TENANT);
         return em.persist(u);

@@ -15,6 +15,12 @@
 -- filterPropertiesSortedByDistance, findByStatusPublishedPagedSortedByDistance,
 -- and the comparable-price distance queries.
 
+-- The index below needs these two columns. V1/V2 don't create them (Hibernate
+-- added them in existing databases), so a brand-new database would fail here
+-- without this. IF NOT EXISTS makes it a no-op wherever they already exist.
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS latitude  DOUBLE PRECISION;
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION;
+
 CREATE INDEX IF NOT EXISTS idx_properties_geo_bbox
     ON properties (latitude, longitude)
     WHERE status = 'PUBLISHED' AND available = true
