@@ -41,6 +41,7 @@ class PropertyServiceSecurityTest {
     @Mock private PropertyRiskService propertyRiskService;
     @Mock private org.springframework.context.ApplicationEventPublisher eventPublisher;
     @Mock private GpsReadingPolicy gpsReadingPolicy;
+    @Mock private AddressAreaCheck addressAreaCheck;
 
     @InjectMocks
     private PropertyService propertyService;
@@ -434,6 +435,9 @@ class PropertyServiceSecurityTest {
         GpsReading reading = someReading();
         when(gpsReadingPolicy.evaluate(eq(-1.2921), eq(36.7872), eq(reading), anyLong()))
                 .thenReturn(new GpsReadingPolicy.Verdict(GpsReadingPolicy.Outcome.PASS, 4.0));
+        existingProperty.setLocation("Kilimani, Nairobi");
+        when(addressAreaCheck.check("Kilimani, Nairobi", "KE", -1.2921, 36.7872))
+                .thenReturn(AddressAreaCheck.Outcome.MATCHES);
 
         Property result = propertyService.verifyGpsLocation(10L, reading);
 
@@ -450,5 +454,98 @@ class PropertyServiceSecurityTest {
 
         assertThrows(ApiException.class, () -> propertyService.verifyGpsLocation(10L, someReading()));
         verifyNoInteractions(gpsReadingPolicy);
+    }
+
+    // ── The pin must be in the area the address names ───────────────────────
+
+    /** A listing at a pinned location whose fresh reading passes the GPS policy. */
+    private void givenPassingReadingAt(String address) {
+        existingProperty.setLatitude(-1.2921);
+        existingProperty.setLongitude(36.7872);
+        existingProperty.setLocation(address);
+        existingProperty.setGpsVerified(false);
+        when(propertyRepository.findById(10L)).thenReturn(Optional.of(existingProperty));
+        when(gpsReadingPolicy.evaluate(anyDouble(), anyDouble(), any(GpsReading.class), anyLong()))
+                .thenReturn(new GpsReadingPolicy.Verdict(GpsReadingPolicy.Outcome.PASS, 4.0));
+    }
+
+    @Test
+    @DisplayName("verifyGpsLocation refuses when the pin is outside the area the address names")
+    void verifyGpsLocation_rejectsPinOutsideTheAddressArea() {
+        givenPassingReadingAt("Westlands, Nairobi");
+        when(addressAreaCheck.check(anyString(), anyString(), anyDouble(), anyDouble()))
+                .thenReturn(AddressAreaCheck.Outcome.OUTSIDE_AREA);
+
+        ApiException ex = assertThrows(ApiException.class,
+                () -> propertyService.verifyGpsLocation(10L, someReading()));
+
+        assertEquals(org.springframework.http.HttpStatus.BAD_REQUEST, ex.getStatus());
+        assertTrue(ex.getMessage().contains("Westlands, Nairobi"), ex.getMessage());
+        assertFalse(existingProperty.isGpsVerified());
+        verify(propertyRepository, never()).save(any(Property.class));
+    }
+
+    @Test
+    @DisplayName("verifyGpsLocation asks for a better address when it matches nothing on the map")
+    void verifyGpsLocation_rejectsAnUnrecognisedAddress() {
+        givenPassingReadingAt("asdf qwerty");
+        when(addressAreaCheck.check(anyString(), anyString(), anyDouble(), anyDouble()))
+                .thenReturn(AddressAreaCheck.Outcome.NOT_FOUND);
+
+        ApiException ex = assertThrows(ApiException.class,
+                () -> propertyService.verifyGpsLocation(10L, someReading()));
+
+        assertEquals(org.springframework.http.HttpStatus.BAD_REQUEST, ex.getStatus());
+        assertTrue(ex.getMessage().contains("Kilimani, Nairobi"), "should show an example: " + ex.getMessage());
+        verify(propertyRepository, never()).save(any(Property.class));
+    }
+
+    @Test
+    @DisplayName("verifyGpsLocation answers 503 and verifies nothing when the address can't be checked")
+    void verifyGpsLocation_unavailableAddressCheckIsNotWavedThrough() {
+        givenPassingReadingAt("Kilimani, Nairobi");
+        when(addressAreaCheck.check(anyString(), anyString(), anyDouble(), anyDouble()))
+                .thenReturn(AddressAreaCheck.Outcome.UNAVAILABLE);
+
+        ApiException ex = assertThrows(ApiException.class,
+                () -> propertyService.verifyGpsLocation(10L, someReading()));
+
+        assertEquals(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE, ex.getStatus());
+        assertFalse(existingProperty.isGpsVerified());
+        verify(propertyRepository, never()).save(any(Property.class));
+    }
+
+    @Test
+    @DisplayName("verifyGpsLocation still verifies when the address check is switched off")
+    void verifyGpsLocation_verifiesWhenAddressCheckIsSkipped() {
+        givenPassingReadingAt("Kilimani, Nairobi");
+        when(addressAreaCheck.check(anyString(), anyString(), anyDouble(), anyDouble()))
+                .thenReturn(AddressAreaCheck.Outcome.SKIPPED);
+        when(propertyRepository.save(any(Property.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        assertTrue(propertyService.verifyGpsLocation(10L, someReading()).isGpsVerified());
+    }
+
+    @Test
+    @DisplayName("verifyGpsLocation needs an address, and doesn't geocode a blank one")
+    void verifyGpsLocation_requiresAnAddress() {
+        givenPassingReadingAt("   ");
+
+        assertThrows(ApiException.class, () -> propertyService.verifyGpsLocation(10L, someReading()));
+        verifyNoInteractions(addressAreaCheck);
+    }
+
+    @Test
+    @DisplayName("verifyGpsLocation only checks the address once the reading itself has passed")
+    void verifyGpsLocation_addressCheckComesAfterTheReadingCheck() {
+        existingProperty.setLatitude(-1.2921);
+        existingProperty.setLongitude(36.7872);
+        existingProperty.setLocation("Kilimani, Nairobi");
+        when(propertyRepository.findById(10L)).thenReturn(Optional.of(existingProperty));
+        when(gpsReadingPolicy.evaluate(anyDouble(), anyDouble(), any(GpsReading.class), anyLong()))
+                .thenReturn(new GpsReadingPolicy.Verdict(GpsReadingPolicy.Outcome.TOO_FAR, 900.0));
+
+        assertThrows(ApiException.class, () -> propertyService.verifyGpsLocation(10L, someReading()));
+        verifyNoInteractions(addressAreaCheck);
     }
 }

@@ -55,6 +55,7 @@ public class PropertyService {
     private final PropertyRiskService propertyRiskService;
     private final ApplicationEventPublisher eventPublisher;
     private final GpsReadingPolicy gpsReadingPolicy;
+    private final AddressAreaCheck addressAreaCheck;
 
     /** Three distinct people flagging the same listing is enough to pull
      *  it from public view pending an admin look, rather than waiting on
@@ -72,7 +73,7 @@ public class PropertyService {
                             CommunityCheckRepository communityCheckRepository, ApplicationRepository applicationRepository,
                             FirebasePushService firebasePushService, NearbyFacilitiesService nearbyFacilitiesService,
                             PropertyRiskService propertyRiskService, ApplicationEventPublisher eventPublisher,
-                            GpsReadingPolicy gpsReadingPolicy) {
+                            GpsReadingPolicy gpsReadingPolicy, AddressAreaCheck addressAreaCheck) {
         this.propertyRepository = propertyRepository;
         this.userRepository = userRepository;
         this.communityCheckRepository = communityCheckRepository;
@@ -84,6 +85,7 @@ public class PropertyService {
         this.propertyRiskService = propertyRiskService;
         this.eventPublisher = eventPublisher;
         this.gpsReadingPolicy = gpsReadingPolicy;
+        this.addressAreaCheck = addressAreaCheck;
     }
 
     /**
@@ -245,6 +247,27 @@ public class PropertyService {
                     "You're about %.0fm from the listed location. Move closer and try again.",
                     verdict.distanceMeters()));
             case PASS -> { }
+        }
+
+        // Being at the pin proves little if the pin itself can be anywhere, so
+        // the pin must also fall in the area the listing's address names,
+        // as geocoded by the server rather than supplied by the client.
+        String address = property.getLocation();
+        if (address == null || address.isBlank()) {
+            throw ApiException.badRequest(
+                    "Add the listing's location (neighbourhood and town) before verifying.");
+        }
+        switch (addressAreaCheck.check(
+                address, property.getCountry(), property.getLatitude(), property.getLongitude())) {
+            case MATCHES, SKIPPED -> { }
+            case OUTSIDE_AREA -> throw ApiException.badRequest(
+                    "This listing's address (\"" + address + "\") doesn't match where it is pinned. "
+                            + "Check the address, or verify from the property itself.");
+            case NOT_FOUND -> throw ApiException.badRequest(
+                    "We couldn't find \"" + address + "\" on the map. Add the neighbourhood and town "
+                            + "(for example \"Kilimani, Nairobi\") and try again.");
+            case UNAVAILABLE -> throw ApiException.serviceUnavailable(
+                    "We couldn't check the address just now. Please try again in a few minutes.");
         }
 
         property.setGpsVerified(true);
