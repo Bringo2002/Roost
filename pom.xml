@@ -78,9 +78,12 @@
 			<groupId>com.github.ben-manes.caffeine</groupId>
 			<artifactId>caffeine</artifactId>
 		</dependency>
+		<!-- Spring Boot 4 only auto-runs Flyway migrations when the Boot starter is
+		     present; a bare flyway-core on the classpath is ignored. The starter
+		     brings flyway-core transitively. -->
 		<dependency>
-			<groupId>org.flywaydb</groupId>
-			<artifactId>flyway-core</artifactId>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-flyway</artifactId>
 		</dependency>
 		<dependency>
 			<groupId>org.flywaydb</groupId>
