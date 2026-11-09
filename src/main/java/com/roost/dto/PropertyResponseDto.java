@@ -3,6 +3,7 @@ package com.roost.dto;
 import com.roost.model.Property;
 import com.roost.model.User;
 import com.roost.service.PropertyRiskService;
+import com.roost.service.PropertyVerification;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -101,6 +102,12 @@ public class PropertyResponseDto {
     private final List<String> imageUrls;
     private final List<String> documentUrls;
     private final boolean documentVerified;
+    /**
+     * Every trust signal and its state, for the listing's owner. Null in the
+     * public view: renters see only the Verified badge, never the
+     * intermediate states (a rejected photo set, an unreviewed document).
+     */
+    private final PropertyVerification verification;
     private final boolean isDirectLandlord;
     private final boolean landlordEndorsed;
     private final String endorsementToken;
@@ -234,6 +241,7 @@ public class PropertyResponseDto {
         this.imageUrls = p.getImageUrls();
         this.documentUrls = p.getDocumentUrls() != null ? p.getDocumentUrls() : new ArrayList<>();
         this.documentVerified = Boolean.TRUE.equals(p.getDocumentVerified());
+        this.verification = includePrivateFields ? PropertyVerification.from(p) : null;
         this.isDirectLandlord = p.isDirectLandlord();
         this.landlordEndorsed = p.isLandlordEndorsed();
         this.endorsementToken = includePrivateFields ? p.getEndorsementToken() : null;
@@ -402,6 +410,7 @@ public class PropertyResponseDto {
     public List<String> getImageUrls() { return imageUrls; }
     public List<String> getDocumentUrls() { return documentUrls; }
     public boolean isDocumentVerified() { return documentVerified; }
+    public PropertyVerification getVerification() { return verification; }
     public boolean isDirectLandlord() { return isDirectLandlord; }
     public boolean isLandlordEndorsed() { return landlordEndorsed; }
     public String getEndorsementToken() { return endorsementToken; }

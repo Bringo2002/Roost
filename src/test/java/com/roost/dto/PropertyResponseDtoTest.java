@@ -125,4 +125,43 @@ class PropertyResponseDtoTest {
 
         assertNull(PropertyResponseDto.forViewer(property, null, owner).getEndorsementToken());
     }
+
+    // ── Verification states are the owner's view; renters see only the badge ──
+
+    @Test
+    @DisplayName("the owner view carries every verification state and the badge")
+    void ownerViewCarriesVerificationStates() throws Exception {
+        owner.setPhoneVerified(true);
+        property.setGpsVerified(true);
+        property.setImageUrls(List.of("a.jpg"));
+        property.setDocumentUrls(List.of("title-deed.pdf"));
+
+        JsonNode json = mapper.valueToTree(PropertyResponseDto.forOwner(property));
+
+        JsonNode verification = json.get("verification");
+        assertEquals("VERIFIED", verification.get("phone").asText());
+        assertEquals("PASSED", verification.get("onSite").asText());
+        assertEquals("SUBMITTED", verification.get("photos").asText());
+        assertEquals("UPLOADED", verification.get("documents").asText());
+        assertEquals("NOT_ESTABLISHED", verification.get("authority").asText());
+        assertFalse(verification.get("badgeEarned").asBoolean(), "photos aren't approved yet");
+    }
+
+    @Test
+    @DisplayName("the public view carries no verification states, only the badge flag")
+    void publicViewHidesVerificationStates() {
+        property.setPhotoRejected(true);
+
+        PropertyResponseDto dto = PropertyResponseDto.from(property);
+
+        assertNull(dto.getVerification());
+    }
+
+    @Test
+    @DisplayName("forViewer shows the states to the owner and hides them from anyone else")
+    void viewerAwareVerificationStates() {
+        assertTrue(PropertyResponseDto.forViewer(property, null, owner).getVerification() != null);
+        assertNull(PropertyResponseDto.forViewer(property, null, stranger).getVerification());
+        assertNull(PropertyResponseDto.forViewer(property, null, null).getVerification());
+    }
 }
