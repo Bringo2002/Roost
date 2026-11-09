@@ -205,13 +205,13 @@ public class PropertyService {
     /**
      * Recomputes the "Verified" badge from the three v1 signals: owner's
      * phone verified, GPS location genuinely confirmed on-site
-     * (gpsVerified -- see verifyGpsLocation), photos admin-approved.
-     * Called whenever any underlying signal could have changed -- never
-     * set verified directly from client input.
+     * (gpsVerified -- see verifyGpsLocation), photos admin-approved. The
+     * rule itself lives in {@link PropertyVerification}, the one place it
+     * is defined. Called whenever any underlying signal could have changed
+     * -- never set verified directly from client input.
      */
     private void recomputeVerification(Property property) {
-        boolean phoneVerified = property.getOwner() != null && property.getOwner().isPhoneVerified();
-        property.setVerified(phoneVerified && property.isGpsVerified() && property.isPhotoApproved());
+        property.setVerified(PropertyVerification.from(property).badgeEarned());
     }
 
     /** How far the pin may move before an existing GPS verification no
