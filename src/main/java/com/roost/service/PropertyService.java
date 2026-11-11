@@ -933,18 +933,50 @@ public class PropertyService {
     }
 
     /**
+     * A reviewed listing that no longer meets the publication rules can't go
+     * straight back live. It goes back to DRAFT instead, where its owner can
+     * edit it (UNDER_REVIEW doesn't allow that, so blocking the restore
+     * outright would leave it stuck), and the owner is told what to fix.
+     */
+    private Property returnToDraftWithReasons(Property property, List<PublicationViolation> violations) {
+        property.setStatus("DRAFT");
+        Property saved = propertyRepository.save(property);
+        if (saved.getOwner() != null) {
+            String name = saved.getTitle() == null || saved.getTitle().isBlank()
+                    ? "Your listing" : saved.getTitle();
+            String reasons = violations.stream()
+                    .map(PublicationViolation::message)
+                    .collect(Collectors.joining(" "));
+            firebasePushService.sendToUser(
+                    saved.getOwner(),
+                    "Listing needs changes",
+                    name + " was cleared by the review, but it can't go live until you fix this: " + reasons,
+                    Map.of("type", "listing_needs_changes", "propertyId", String.valueOf(saved.getId()))
+            );
+        }
+        return saved;
+    }
+
+    /**
      * Admin decision after reviewing a flagged listing: either restore
      * it to public view (reports were unfounded) or leave it hidden.
      * Doesn't delete anything either way -- a genuinely bad listing
      * still gets removed through the existing delete endpoint, which
      * is a separate, more deliberate action than a review decision.
      * Either branch marks the reports reviewed, since this is itself
-     * the review decision.
+     * the review decision. A listing that is restored but no longer meets
+     * the publication rules goes back to DRAFT rather than live.
      */
     public Property resolveReportedListing(Long propertyId, boolean restore) {
         Property property = getPropertyById(propertyId);
         property.setReportsReviewedAt(LocalDateTime.now());
         if (restore) {
+            // Restoring is one more way to make a listing public, so it meets
+            // the same publication rules as every other route.
+            List<PublicationViolation> violations = PublicationPolicy.validate(property);
+            if (!violations.isEmpty()) {
+                return returnToDraftWithReasons(property, violations);
+            }
             property.setStatus("PUBLISHED");
             Property saved = propertyRepository.save(property);
             if (saved.getOwner() != null) {
