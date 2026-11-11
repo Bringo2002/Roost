@@ -626,4 +626,70 @@ class PropertyServiceSecurityTest {
 
         assertTrue(result.isGpsVerified());
     }
+
+    // ── Restoring a reviewed listing meets the publication rules too ────────
+
+    private Property reportedListing() {
+        Property p = validListing();
+        p.setStatus("UNDER_REVIEW");
+        when(propertyRepository.findById(10L)).thenReturn(Optional.of(p));
+        when(propertyRepository.save(any(Property.class))).thenAnswer(inv -> inv.getArgument(0));
+        return p;
+    }
+
+    @Test
+    @DisplayName("resolveReportedListing puts a complete listing back live and tells the owner")
+    void resolveReportedListing_restoresACompleteListing() {
+        reportedListing();
+
+        Property result = propertyService.resolveReportedListing(10L, true);
+
+        assertEquals("PUBLISHED", result.getStatus());
+        assertNotNull(result.getReportsReviewedAt());
+        verify(firebasePushService).sendToUser(
+                eq(verifiedOwner), eq("Listing restored"), anyString(), anyMap());
+    }
+
+    @Test
+    @DisplayName("resolveReportedListing returns an incomplete listing to draft and says what to fix")
+    void resolveReportedListing_returnsAnIncompleteListingToDraft() {
+        Property listing = reportedListing();
+        listing.setTitle(" ");
+
+        Property result = propertyService.resolveReportedListing(10L, true);
+
+        assertEquals("DRAFT", result.getStatus());
+        assertNotNull(result.getReportsReviewedAt());
+        verify(firebasePushService).sendToUser(
+                eq(verifiedOwner), eq("Listing needs changes"),
+                contains("Give your listing a title."), anyMap());
+        verify(firebasePushService, never()).sendToUser(
+                any(User.class), eq("Listing restored"), anyString(), anyMap());
+    }
+
+    @Test
+    @DisplayName("resolveReportedListing won't restore a listing whose owner's phone isn't verified")
+    void resolveReportedListing_requiresAVerifiedOwnerPhone() {
+        reportedListing();
+        verifiedOwner.setPhoneVerified(false);
+
+        Property result = propertyService.resolveReportedListing(10L, true);
+
+        assertEquals("DRAFT", result.getStatus());
+        verify(firebasePushService).sendToUser(
+                eq(verifiedOwner), eq("Listing needs changes"),
+                contains("Verify your phone number"), anyMap());
+    }
+
+    @Test
+    @DisplayName("resolveReportedListing leaves a listing hidden, and tells no one, when not restoring")
+    void resolveReportedListing_leavesItHiddenWhenNotRestoring() {
+        reportedListing();
+
+        Property result = propertyService.resolveReportedListing(10L, false);
+
+        assertEquals("UNDER_REVIEW", result.getStatus());
+        assertNotNull(result.getReportsReviewedAt());
+        verifyNoInteractions(firebasePushService);
+    }
 }
