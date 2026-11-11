@@ -2,6 +2,7 @@ package com.roost.controller;
 
 import com.roost.dto.UserProfileResponse;
 import com.roost.model.User;
+import com.roost.service.AccountDeletionService;
 import com.roost.service.AuthService;
 import com.roost.service.UserService;
 import org.springframework.http.ResponseEntity;
@@ -20,10 +21,14 @@ public class UserController {
     // /api/users for backward compatibility with the frontend.
     private final AuthService authService;
     private final UserService userService;
+    private final AccountDeletionService accountDeletionService;
 
-    public UserController(AuthService authService, UserService userService) {
+    public UserController(AuthService authService,
+                          UserService userService,
+                          AccountDeletionService accountDeletionService) {
         this.authService = authService;
         this.userService = userService;
+        this.accountDeletionService = accountDeletionService;
     }
 
     @GetMapping("/me")
@@ -87,6 +92,20 @@ public class UserController {
     public ResponseEntity<Map<String, String>> getPublicKey(@AuthenticationPrincipal User user, @PathVariable Long id) {
         if (user == null) return ResponseEntity.status(401).build();
         return ResponseEntity.ok(Map.of("publicKey", userService.getPublicKey(id)));
+    }
+
+    /**
+     * Deletes the authenticated user's account. The body must carry the
+     * account's own {@code email} as an explicit confirmation. POST rather
+     * than DELETE so the confirmation body survives proxies that drop
+     * DELETE bodies.
+     */
+    @PostMapping("/me/delete-account")
+    public ResponseEntity<Map<String, String>> deleteAccount(@AuthenticationPrincipal User user,
+                                                                @RequestBody Map<String, String> payload) {
+        if (user == null) return ResponseEntity.status(401).build();
+        accountDeletionService.deleteAccount(user, payload.get("email"));
+        return ResponseEntity.ok(Map.of("status", "deleted"));
     }
 
     @PostMapping({"/me/change-password", "/change-password"})
