@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * Checks that a listing's pin is in the area its address text names, using
@@ -66,21 +67,57 @@ public class AddressAreaCheck {
         if (!enabled) {
             return Outcome.SKIPPED;
         }
-        boolean foundAnyPlace = false;
+        Evaluation result = evaluate(locationText, countryCode, pinLat, pinLng);
+        // One line per check, so how loosely addresses are really matching can be
+        // read from the logs: the place found and the size of the area it allows.
+        log.info("Address cross-check outcome={} query=\"{}\" country={} bestMatch={}",
+                result.outcome(), result.query(), countryCode, describe(result.best()));
+        return result.outcome();
+    }
+
+    /** The outcome, plus the lookup and place it was decided on, for logging. */
+    private record Evaluation(Outcome outcome, String query, GeocodedPlace best) {
+    }
+
+    private Evaluation evaluate(String locationText, String countryCode, double pinLat, double pinLng) {
+        String firstQuery = "";
+        GeocodedPlace firstFound = null;
+        String firstFoundQuery = "";
         for (String query : queriesFor(locationText)) {
+            if (firstQuery.isEmpty()) {
+                firstQuery = query;
+            }
             List<GeocodedPlace> places;
             try {
                 places = geocoder.search(query, countryCode);
             } catch (GeocodingUnavailableException e) {
                 log.warn("Address cross-check unavailable for \"{}\": {}", query, e.getMessage());
-                return Outcome.UNAVAILABLE;
+                return new Evaluation(Outcome.UNAVAILABLE, query, null);
             }
-            if (AddressAreaPolicy.isWithinAny(pinLat, pinLng, places, marginMeters)) {
-                return Outcome.MATCHES;
+            for (GeocodedPlace place : places) {
+                if (AddressAreaPolicy.isWithin(pinLat, pinLng, place, marginMeters)) {
+                    return new Evaluation(Outcome.MATCHES, query, place);
+                }
             }
-            foundAnyPlace |= !places.isEmpty();
+            if (firstFound == null && !places.isEmpty()) {
+                firstFound = places.get(0);
+                firstFoundQuery = query;
+            }
         }
-        return foundAnyPlace ? Outcome.OUTSIDE_AREA : Outcome.NOT_FOUND;
+        return firstFound != null
+                ? new Evaluation(Outcome.OUTSIDE_AREA, firstFoundQuery, firstFound)
+                : new Evaluation(Outcome.NOT_FOUND, firstQuery, null);
+    }
+
+    /** A place's name and the size of its bounding box, e.g. "Kilimani [4.45x4.45 km]". */
+    private static String describe(GeocodedPlace place) {
+        if (place == null) {
+            return "none";
+        }
+        double heightKm = (place.north() - place.south()) * 111.32;
+        double widthKm = (place.east() - place.west()) * 111.32
+                * Math.cos(Math.toRadians((place.north() + place.south()) / 2));
+        return String.format(Locale.ROOT, "%s [%.2fx%.2f km]", place.displayName(), heightKm, widthKm);
     }
 
     /**
