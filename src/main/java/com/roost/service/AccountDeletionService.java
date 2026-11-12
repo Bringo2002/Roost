@@ -3,6 +3,7 @@ package com.roost.service;
 import com.roost.exception.ApiException;
 import com.roost.model.Property;
 import com.roost.model.User;
+import com.roost.repository.ApplicationRepository;
 import com.roost.repository.PropertyRepository;
 import com.roost.repository.UserRepository;
 import com.roost.util.EmailNormalizer;
@@ -10,6 +11,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.UUID;
@@ -34,13 +36,16 @@ public class AccountDeletionService {
 
     private final UserRepository userRepository;
     private final PropertyRepository propertyRepository;
+    private final ApplicationRepository applicationRepository;
     private final PasswordEncoder passwordEncoder;
 
     public AccountDeletionService(UserRepository userRepository,
                                   PropertyRepository propertyRepository,
+                                  ApplicationRepository applicationRepository,
                                   PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
         this.propertyRepository = propertyRepository;
+        this.applicationRepository = applicationRepository;
         this.passwordEncoder = passwordEncoder;
     }
 
@@ -62,18 +67,63 @@ public class AccountDeletionService {
             throw ApiException.badRequest("Email does not match this account");
         }
 
-        unpublishListings(user);
+        List<Property> owned = propertyRepository.findByOwner(user);
+        deleteApplications(user, owned);
+        retireListings(owned);
         anonymize(user);
         userRepository.save(user);
     }
 
-    /** Takes the owner's live listings out of the public feed. */
-    private void unpublishListings(User owner) {
-        List<Property> published = propertyRepository.findByOwner(owner).stream()
-                .filter(property -> PUBLISHED.equals(property.getStatus()))
-                .toList();
-        published.forEach(property -> property.setStatus(DRAFT));
-        propertyRepository.saveAll(published);
+    /**
+     * Deletes the applications this account is part of. They carry a full
+     * name, national ID, employment status and income, so they are removed
+     * outright rather than anonymized: both the ones the user submitted and
+     * the ones other people sent to the user's listings, which would
+     * otherwise stay attached to a listing nobody can reach any more.
+     */
+    private void deleteApplications(User user, List<Property> owned) {
+        applicationRepository.deleteAll(applicationRepository.findByApplicantOrderByCreatedAtDesc(user));
+        owned.forEach(applicationRepository::deleteByProperty);
+    }
+
+    /**
+     * Takes the owner's live listings out of the public feed and strips the
+     * personal details from every listing they own. The rows stay, because
+     * events, rank scores and inspections still point at them, but nothing
+     * that identifies the owner, the caretaker or the people on site remains.
+     */
+    private void retireListings(List<Property> owned) {
+        if (owned.isEmpty()) {
+            return;
+        }
+        for (Property property : owned) {
+            if (PUBLISHED.equals(property.getStatus())) {
+                property.setStatus(DRAFT);
+            }
+            scrubPersonalData(property);
+        }
+        propertyRepository.saveAll(owned);
+    }
+
+    /**
+     * Clears contact names and phone numbers, the endorsement link, and every
+     * photo, document and video reference. The stored files themselves are
+     * not deleted here: uploads are de-duplicated across users, so an object
+     * can be shared with another listing and needs a reference check first.
+     */
+    private void scrubPersonalData(Property property) {
+        property.setLandlordName(null);
+        property.setLandlordPhone(null);
+        property.setLandlordId(null);
+        property.setOwnerVerifyName(null);
+        property.setOwnerVerifyPhone(null);
+        property.setCaretakerName(null);
+        property.setCaretakerPhone(null);
+        property.setEndorsementToken(null);
+        property.setImageUrl(null);
+        property.setImageUrls(new ArrayList<>());
+        property.setDocumentUrls(new ArrayList<>());
+        property.setVideoUrl(null);
     }
 
     private void anonymize(User user) {

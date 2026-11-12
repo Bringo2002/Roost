@@ -102,6 +102,12 @@ public class ChatService {
 
         User recipient = userRepository.findById(recipientId)
                 .orElseThrow(() -> ApiException.badRequest("Recipient not found"));
+        // A deleted (or otherwise disabled) account can't receive messages.
+        // Checked before the key check below: deletion also wipes the key,
+        // and "hasn't enabled secure messaging" would be the wrong reason.
+        if (!recipient.isEnabled()) {
+            throw ApiException.badRequest("This account is no longer available");
+        }
         if (recipient.getPublicKey() == null || recipient.getPublicKey().isBlank()) {
             throw ApiException.badRequest("Recipient hasn't enabled secure messaging yet");
         }
