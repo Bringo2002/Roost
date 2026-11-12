@@ -1,9 +1,11 @@
 package com.roost.service;
 
 import com.roost.exception.ApiException;
+import com.roost.model.Application;
 import com.roost.model.Property;
 import com.roost.model.Role;
 import com.roost.model.User;
+import com.roost.repository.ApplicationRepository;
 import com.roost.repository.PropertyRepository;
 import com.roost.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -28,6 +30,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -41,6 +44,7 @@ class AccountDeletionServiceTest {
 
     @Mock private UserRepository userRepository;
     @Mock private PropertyRepository propertyRepository;
+    @Mock private ApplicationRepository applicationRepository;
     @Mock private PasswordEncoder passwordEncoder;
 
     @InjectMocks
@@ -142,5 +146,42 @@ class AccountDeletionServiceTest {
         assertEquals(HttpStatus.BAD_REQUEST, ex.getStatus());
         assertTrue(user.isEnabled());
         verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("deletes the applications the user submitted, which hold their ID and income details")
+    void deletesTheUsersOwnApplications() {
+        Application first = new Application();
+        Application second = new Application();
+        when(propertyRepository.findByOwner(user)).thenReturn(List.of());
+        when(applicationRepository.findByApplicantOrderByCreatedAtDesc(user))
+                .thenReturn(List.of(first, second));
+        when(passwordEncoder.encode(anyString())).thenReturn("unusable-hash");
+
+        service.deleteAccount(user, "ada@example.com");
+
+        verify(applicationRepository).deleteAll(List.of(first, second));
+    }
+
+    @Test
+    @DisplayName("deletes the applications other people sent to the user's listings")
+    void deletesApplicationsReceivedOnTheUsersListings() {
+        Property live = propertyWithStatus("PUBLISHED");
+        Property draft = propertyWithStatus("DRAFT");
+        when(propertyRepository.findByOwner(user)).thenReturn(List.of(live, draft));
+        when(passwordEncoder.encode(anyString())).thenReturn("unusable-hash");
+
+        service.deleteAccount(user, "ada@example.com");
+
+        verify(applicationRepository).deleteByProperty(live);
+        verify(applicationRepository).deleteByProperty(draft);
+    }
+
+    @Test
+    @DisplayName("a rejected confirmation deletes no applications")
+    void rejectedConfirmationDeletesNoApplications() {
+        assertThrows(ApiException.class, () -> service.deleteAccount(user, "someone@else.com"));
+
+        verifyNoInteractions(applicationRepository);
     }
 }

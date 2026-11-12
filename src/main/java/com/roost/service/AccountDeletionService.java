@@ -3,6 +3,7 @@ package com.roost.service;
 import com.roost.exception.ApiException;
 import com.roost.model.Property;
 import com.roost.model.User;
+import com.roost.repository.ApplicationRepository;
 import com.roost.repository.PropertyRepository;
 import com.roost.repository.UserRepository;
 import com.roost.util.EmailNormalizer;
@@ -34,13 +35,16 @@ public class AccountDeletionService {
 
     private final UserRepository userRepository;
     private final PropertyRepository propertyRepository;
+    private final ApplicationRepository applicationRepository;
     private final PasswordEncoder passwordEncoder;
 
     public AccountDeletionService(UserRepository userRepository,
                                   PropertyRepository propertyRepository,
+                                  ApplicationRepository applicationRepository,
                                   PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
         this.propertyRepository = propertyRepository;
+        this.applicationRepository = applicationRepository;
         this.passwordEncoder = passwordEncoder;
     }
 
@@ -62,14 +66,28 @@ public class AccountDeletionService {
             throw ApiException.badRequest("Email does not match this account");
         }
 
-        unpublishListings(user);
+        List<Property> owned = propertyRepository.findByOwner(user);
+        deleteApplications(user, owned);
+        unpublishListings(owned);
         anonymize(user);
         userRepository.save(user);
     }
 
+    /**
+     * Deletes the applications this account is part of. They carry a full
+     * name, national ID, employment status and income, so they are removed
+     * outright rather than anonymized: both the ones the user submitted and
+     * the ones other people sent to the user's listings, which would
+     * otherwise stay attached to a listing nobody can reach any more.
+     */
+    private void deleteApplications(User user, List<Property> owned) {
+        applicationRepository.deleteAll(applicationRepository.findByApplicantOrderByCreatedAtDesc(user));
+        owned.forEach(applicationRepository::deleteByProperty);
+    }
+
     /** Takes the owner's live listings out of the public feed. */
-    private void unpublishListings(User owner) {
-        List<Property> published = propertyRepository.findByOwner(owner).stream()
+    private void unpublishListings(List<Property> owned) {
+        List<Property> published = owned.stream()
                 .filter(property -> PUBLISHED.equals(property.getStatus()))
                 .toList();
         published.forEach(property -> property.setStatus(DRAFT));
