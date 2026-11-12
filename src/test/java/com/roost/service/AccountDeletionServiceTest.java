@@ -18,6 +18,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -110,7 +111,7 @@ class AccountDeletionServiceTest {
         assertEquals("DRAFT", published.getStatus());
         assertEquals("DRAFT", draft.getStatus());
         assertEquals("RENTED", rented.getStatus());
-        verify(propertyRepository).saveAll(List.of(published));
+        verify(propertyRepository).saveAll(List.of(published, draft, rented));
     }
 
     @Test
@@ -183,5 +184,57 @@ class AccountDeletionServiceTest {
         assertThrows(ApiException.class, () -> service.deleteAccount(user, "someone@else.com"));
 
         verifyNoInteractions(applicationRepository);
+    }
+
+    private static Property listingWithPersonalData(String status) {
+        Property property = propertyWithStatus(status);
+        property.setLandlordName("Ada Lovelace");
+        property.setLandlordPhone("+254700000000");
+        property.setLandlordId("42");
+        property.setOwnerVerifyName("Ada L");
+        property.setOwnerVerifyPhone("+254711111111");
+        property.setCaretakerName("Charles");
+        property.setCaretakerPhone("+254722222222");
+        property.setEndorsementToken("endorse-me");
+        property.setImageUrl("https://cdn.example.com/cover.jpg");
+        property.setImageUrls(new ArrayList<>(List.of("https://cdn.example.com/a.jpg")));
+        property.setDocumentUrls(new ArrayList<>(List.of("https://cdn.example.com/title-deed.pdf")));
+        property.setVideoUrl("https://cdn.example.com/tour.mp4");
+        return property;
+    }
+
+    @Test
+    @DisplayName("strips contact details, the endorsement link and all media from every listing, whatever its status")
+    void scrubsPersonalDataFromEveryListing() {
+        Property published = listingWithPersonalData("PUBLISHED");
+        Property rented = listingWithPersonalData("RENTED");
+        when(propertyRepository.findByOwner(user)).thenReturn(List.of(published, rented));
+        when(passwordEncoder.encode(anyString())).thenReturn("unusable-hash");
+
+        service.deleteAccount(user, "ada@example.com");
+
+        for (Property listing : List.of(published, rented)) {
+            assertNull(listing.getLandlordName());
+            assertNull(listing.getLandlordPhone());
+            assertNull(listing.getLandlordId());
+            assertNull(listing.getOwnerVerifyName());
+            assertNull(listing.getOwnerVerifyPhone());
+            assertNull(listing.getCaretakerName());
+            assertNull(listing.getCaretakerPhone());
+            assertNull(listing.getEndorsementToken());
+            assertNull(listing.getImageUrl());
+            assertTrue(listing.getImageUrls().isEmpty());
+            assertTrue(listing.getDocumentUrls().isEmpty());
+            assertNull(listing.getVideoUrl());
+        }
+        verify(propertyRepository).saveAll(List.of(published, rented));
+    }
+
+    @Test
+    @DisplayName("a rejected confirmation leaves the listings' personal data untouched")
+    void rejectedConfirmationLeavesListingsUntouched() {
+        assertThrows(ApiException.class, () -> service.deleteAccount(user, "someone@else.com"));
+
+        verifyNoInteractions(propertyRepository);
     }
 }

@@ -11,6 +11,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.UUID;
@@ -68,7 +69,7 @@ public class AccountDeletionService {
 
         List<Property> owned = propertyRepository.findByOwner(user);
         deleteApplications(user, owned);
-        unpublishListings(owned);
+        retireListings(owned);
         anonymize(user);
         userRepository.save(user);
     }
@@ -85,13 +86,44 @@ public class AccountDeletionService {
         owned.forEach(applicationRepository::deleteByProperty);
     }
 
-    /** Takes the owner's live listings out of the public feed. */
-    private void unpublishListings(List<Property> owned) {
-        List<Property> published = owned.stream()
-                .filter(property -> PUBLISHED.equals(property.getStatus()))
-                .toList();
-        published.forEach(property -> property.setStatus(DRAFT));
-        propertyRepository.saveAll(published);
+    /**
+     * Takes the owner's live listings out of the public feed and strips the
+     * personal details from every listing they own. The rows stay, because
+     * events, rank scores and inspections still point at them, but nothing
+     * that identifies the owner, the caretaker or the people on site remains.
+     */
+    private void retireListings(List<Property> owned) {
+        if (owned.isEmpty()) {
+            return;
+        }
+        for (Property property : owned) {
+            if (PUBLISHED.equals(property.getStatus())) {
+                property.setStatus(DRAFT);
+            }
+            scrubPersonalData(property);
+        }
+        propertyRepository.saveAll(owned);
+    }
+
+    /**
+     * Clears contact names and phone numbers, the endorsement link, and every
+     * photo, document and video reference. The stored files themselves are
+     * not deleted here: uploads are de-duplicated across users, so an object
+     * can be shared with another listing and needs a reference check first.
+     */
+    private void scrubPersonalData(Property property) {
+        property.setLandlordName(null);
+        property.setLandlordPhone(null);
+        property.setLandlordId(null);
+        property.setOwnerVerifyName(null);
+        property.setOwnerVerifyPhone(null);
+        property.setCaretakerName(null);
+        property.setCaretakerPhone(null);
+        property.setEndorsementToken(null);
+        property.setImageUrl(null);
+        property.setImageUrls(new ArrayList<>());
+        property.setDocumentUrls(new ArrayList<>());
+        property.setVideoUrl(null);
     }
 
     private void anonymize(User user) {
