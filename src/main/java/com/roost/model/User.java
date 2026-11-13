@@ -59,6 +59,18 @@ public class User implements UserDetails {
      *  Spring Security's {@link #isAccountNonLocked()}. */
     private Boolean accountNonLocked = true;
 
+    /** When the user requested account deletion. Null = no pending deletion. */
+    private LocalDateTime deletionRequestedAt;
+
+    /** When the account will be permanently deleted (requested + grace period).
+     *  Null = no pending deletion. A nightly scheduled task processes rows
+     *  where this timestamp has passed and {@code enabled} is still true. */
+    private LocalDateTime deletionScheduledAt;
+
+    /** Optional user-provided reason for leaving (analytics, not PII). */
+    @Column(length = 500)
+    private String deletionReason;
+
     /** FCM device registration token for push notifications. Null until
      *  the app registers one; overwritten on refresh/re-login. Never
      *  serialized -- Message.sender/recipient embed the full User, so
@@ -203,6 +215,35 @@ public class User implements UserDetails {
 
     public void setSavedPropertyIds(Set<Long> savedPropertyIds) {
         this.savedPropertyIds = savedPropertyIds;
+    }
+
+    public LocalDateTime getDeletionRequestedAt() {
+        return deletionRequestedAt;
+    }
+
+    public void setDeletionRequestedAt(LocalDateTime deletionRequestedAt) {
+        this.deletionRequestedAt = deletionRequestedAt;
+    }
+
+    public LocalDateTime getDeletionScheduledAt() {
+        return deletionScheduledAt;
+    }
+
+    public void setDeletionScheduledAt(LocalDateTime deletionScheduledAt) {
+        this.deletionScheduledAt = deletionScheduledAt;
+    }
+
+    public String getDeletionReason() {
+        return deletionReason;
+    }
+
+    public void setDeletionReason(String deletionReason) {
+        this.deletionReason = deletionReason;
+    }
+
+    /** Returns true if this account has a pending (not yet executed) deletion. */
+    public boolean isDeletionPending() {
+        return deletionScheduledAt != null && isEnabled();
     }
 
     @Override

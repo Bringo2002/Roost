@@ -218,6 +218,7 @@ public class AuthService {
                 .publicKey(user.getPublicKey())
                 .avatarUrl(user.getAvatarUrl())
                 .lastActiveAt(user.getLastActiveAt())
+                .deletionScheduledAt(user.getDeletionScheduledAt())
                 .build();
     }
 }

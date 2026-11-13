@@ -1,10 +1,13 @@
 package com.roost.controller;
 
+import com.roost.dto.AccountDeletionRequestDto;
+import com.roost.dto.AccountDeletionStatusDto;
 import com.roost.dto.UserProfileResponse;
 import com.roost.model.User;
 import com.roost.service.AccountDeletionService;
 import com.roost.service.AuthService;
 import com.roost.service.UserService;
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
@@ -95,17 +98,53 @@ public class UserController {
     }
 
     /**
-     * Deletes the authenticated user's account. The body must carry the
-     * account's own {@code email} as an explicit confirmation. POST rather
-     * than DELETE so the confirmation body survives proxies that drop
-     * DELETE bodies.
+     * Initiates account deletion with a 14-day grace period. The user must
+     * confirm by re-typing their email and re-authenticating with their
+     * password. During the grace period the account remains functional and
+     * the deletion can be cancelled via {@code POST /me/cancel-deletion}.
+     *
+     * <p>Uses POST (not DELETE) so the confirmation body survives proxies
+     * that drop DELETE request bodies.
+     *
+     * @param user    the authenticated user requesting deletion
+     * @param request email + password confirmation, plus optional reason
+     * @return deletion status with the scheduled execution date
      */
     @PostMapping("/me/delete-account")
-    public ResponseEntity<Map<String, String>> deleteAccount(@AuthenticationPrincipal User user,
-                                                                @RequestBody Map<String, String> payload) {
+    public ResponseEntity<AccountDeletionStatusDto> deleteAccount(
+            @AuthenticationPrincipal User user,
+            @Valid @RequestBody AccountDeletionRequestDto request) {
         if (user == null) return ResponseEntity.status(401).build();
-        accountDeletionService.deleteAccount(user, payload.get("email"));
-        return ResponseEntity.ok(Map.of("status", "deleted"));
+        AccountDeletionStatusDto status = accountDeletionService.requestDeletion(
+                user, request.getEmail(), request.getPassword(), request.getReason());
+        return ResponseEntity.ok(status);
+    }
+
+    /**
+     * Cancels a pending account deletion during the grace period.
+     *
+     * @param user the authenticated user cancelling deletion
+     * @return deletion status confirming cancellation
+     */
+    @PostMapping("/me/cancel-deletion")
+    public ResponseEntity<AccountDeletionStatusDto> cancelDeletion(
+            @AuthenticationPrincipal User user) {
+        if (user == null) return ResponseEntity.status(401).build();
+        return ResponseEntity.ok(accountDeletionService.cancelDeletion(user));
+    }
+
+    /**
+     * Returns the current account deletion status: whether a deletion is
+     * scheduled (with dates), or no deletion is pending.
+     *
+     * @param user the authenticated user
+     * @return deletion status DTO
+     */
+    @GetMapping("/me/deletion-status")
+    public ResponseEntity<AccountDeletionStatusDto> getDeletionStatus(
+            @AuthenticationPrincipal User user) {
+        if (user == null) return ResponseEntity.status(401).build();
+        return ResponseEntity.ok(accountDeletionService.getDeletionStatus(user));
     }
 
     @PostMapping({"/me/change-password", "/change-password"})
