@@ -80,60 +80,52 @@ jobs:
           name: roost-jar
           path: ./target
 
-      - name: Deploy to EC2 via SSH
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          port: ${{ secrets.EC2_PORT || 22 }}
-          script: |
-            set -e
-
-            echo "── Stopping existing app..."
-            sudo systemctl stop roost.service || true
-
-            echo "── Backing up current JAR..."
-            cp ~/roost/app.jar ~/roost/app.jar.bak 2>/dev/null || true
-
-      - name: Upload JAR to EC2
+      - name: Deploy JAR to EC2
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          port: ${{ secrets.EC2_PORT || 22 }}
           source: target/*.jar
-          target: ~/roost/
+          target: /tmp/roost-deploy/
           strip_components: 1
 
-      - name: Start app on EC2
+      - name: Restart app on EC2
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          port: ${{ secrets.EC2_PORT || 22 }}
           script: |
             set -e
 
-            # Rename to a stable path
-            mv ~/roost/*.jar ~/roost/app.jar
+            echo "── Backing up current JAR..."
+            sudo cp /opt/roost/app.jar /opt/roost/app.jar.bak 2>/dev/null || true
 
-            echo "── Starting app..."
+            echo "── Stopping Roost..."
+            sudo systemctl stop roost.service
+
+            echo "── Installing new JAR..."
+            sudo mv /tmp/roost-deploy/*.jar /opt/roost/app.jar
+            sudo chown roost:roost /opt/roost/app.jar
+            rm -rf /tmp/roost-deploy
+
+            echo "── Starting Roost..."
             sudo systemctl start roost.service
 
             echo "── Waiting for health check..."
             for i in $(seq 1 30); do
-              if curl -sf http://localhost:${PORT:-8080}/actuator/health > /dev/null 2>&1; then
-                echo "✅ App is healthy!"
+              if curl -sf http://127.0.0.1:8080/api/auth/health > /dev/null 2>&1 || \
+                 curl -sf -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/ 2>/dev/null | grep -qE '^[2-4]'; then
+                echo "✅ App is up and responding!"
                 exit 0
               fi
               sleep 2
             done
 
-            echo "❌ Health check failed after 60s"
-            echo "── Rolling back..."
-            cp ~/roost/app.jar.bak ~/roost/app.jar 2>/dev/null || true
-            sudo systemctl restart roost.service
+            echo "❌ Health check failed after 60s — rolling back..."
+            sudo systemctl stop roost.service
+            sudo cp /opt/roost/app.jar.bak /opt/roost/app.jar 2>/dev/null || true
+            sudo chown roost:roost /opt/roost/app.jar
+            sudo systemctl start roost.service
             exit 1
