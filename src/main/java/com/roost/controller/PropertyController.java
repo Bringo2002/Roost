@@ -19,6 +19,7 @@ import com.roost.service.R2StorageService;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
@@ -224,7 +225,53 @@ public class PropertyController {
         GpsReading reading = new GpsReading(lat, lng,
                 accuracy == null ? Double.NaN : accuracy,
                 capturedAt == null ? 0L : capturedAt.longValue());
-        return ResponseEntity.ok(PropertyResponseDto.forOwner(propertyService.verifyGpsLocation(id, reading)));
+
+        // Only the owner reaches this point, so nobody else can use up the
+        // owner's allowance by poking at their listing.
+        String propertyKey = "verify-gps:property:" + id;
+        String userKey = "verify-gps:user:" + user.getId();
+        if (rateLimiterService.isBlocked(propertyKey, MAX_FAILED_GPS_PER_PROPERTY, GPS_ATTEMPT_WINDOW)
+                || rateLimiterService.isBlocked(userKey, MAX_FAILED_GPS_PER_USER, GPS_ATTEMPT_WINDOW)) {
+            auditGpsAttempt(id, user, "BLOCKED", reading, "too many failed attempts");
+            throw ApiException.tooManyRequests(
+                    "Too many location checks. Please wait a while before trying again.");
+        }
+
+        try {
+            Property verified = propertyService.verifyGpsLocation(id, reading);
+            // A pass clears this listing's failures. The user-wide count is
+            // left to expire, so passing on one listing doesn't restore the
+            // allowance for probing others.
+            rateLimiterService.reset(propertyKey);
+            auditGpsAttempt(id, user, "PASSED", reading, "");
+            return ResponseEntity.ok(PropertyResponseDto.forOwner(verified));
+        } catch (ApiException e) {
+            if (e.getStatus() == HttpStatus.BAD_REQUEST) {
+                rateLimiterService.record(propertyKey);
+                rateLimiterService.record(userKey);
+                auditGpsAttempt(id, user, "REJECTED", reading, e.getMessage());
+            } else if (e.getStatus() == HttpStatus.SERVICE_UNAVAILABLE) {
+                // The address service being down is not the owner's doing.
+                auditGpsAttempt(id, user, "UNAVAILABLE", reading, e.getMessage());
+            } else {
+                auditGpsAttempt(id, user, "ERROR", reading, e.getMessage());
+            }
+            throw e;
+        }
+    }
+
+    /** Failed location checks allowed per listing and per user in the window. */
+    private static final int MAX_FAILED_GPS_PER_PROPERTY = 8;
+    private static final int MAX_FAILED_GPS_PER_USER = 20;
+    private static final Duration GPS_ATTEMPT_WINDOW = Duration.ofHours(1);
+
+    /** One structured line per location-check attempt, so probing can be seen in the log. */
+    private void auditGpsAttempt(Long propertyId, User user, String outcome, GpsReading reading, String reason) {
+        String accuracy = Double.isNaN(reading.accuracyMeters()) ? "n/a" : String.valueOf(reading.accuracyMeters());
+        // The reason can echo the address the lister typed; keep it on one line.
+        String oneLine = reason == null ? "" : reason.replaceAll("[\\p{Cntrl}]", " ");
+        log.info(String.format("GPS verify attempt property=%d user=%d outcome=%s accuracyMeters=%s reason=\"%s\"",
+                propertyId, user.getId(), outcome, accuracy, oneLine));
     }
 
     @PostMapping("/{id}/report")
