@@ -102,6 +102,14 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
 
     List<Property> findByPhotoApprovedFalseAndPhotoRejectedFalse();
 
+    /** Listings that have submitted documents no admin has accepted yet.
+     *  A null flag counts as not accepted: createProperty resets it to null,
+     *  while the column default is false. */
+    @Query("select distinct p from Property p where p.documentUrls is not empty "
+            + "and (p.documentVerified is null or p.documentVerified = false) "
+            + "order by p.id")
+    List<Property> findPendingDocumentReview();
+
     /** Backs the unpaginated getAllProperties() feed, mapped through
      *  PropertyResponseDto for every row -- same owner fetch-join
      *  reasoning as findByOwnerOrderByIdDesc. */
