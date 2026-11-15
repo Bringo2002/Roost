@@ -628,6 +628,13 @@ public class PropertyService {
         existing.setDeposit(updated.getDeposit());
         existing.setMoveInDate(updated.getMoveInDate());
         existing.setImageUrls(updated.getImageUrls());
+        // An accepted document set vouches for those exact files. Once the
+        // list changes, the new files have not been reviewed, so the
+        // acceptance has to be earned again. Order and blank entries don't
+        // count as a change.
+        if (!documentSet(existing.getDocumentUrls()).equals(documentSet(updated.getDocumentUrls()))) {
+            existing.setDocumentVerified(false);
+        }
         existing.setDocumentUrls(updated.getDocumentUrls());
         // documentVerified, landlordEndorsed, and endorsementToken are
         // admin/system-controlled trust badges -- never copy from the
@@ -722,6 +729,17 @@ public class PropertyService {
     }
 
     /** True when the address text really changed; case and spacing don't count. */
+    /** The non-blank document links as a set, so comparing two lists ignores
+     *  order and empty entries. A null list is the same as an empty one. */
+    private static Set<String> documentSet(List<String> urls) {
+        if (urls == null) {
+            return Set.of();
+        }
+        return urls.stream()
+                .filter(url -> url != null && !url.isBlank())
+                .collect(Collectors.toSet());
+    }
+
     private static boolean addressTextChanged(String oldText, String newText) {
         return !normaliseAddress(oldText).equals(normaliseAddress(newText));
     }
