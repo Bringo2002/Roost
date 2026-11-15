@@ -101,6 +101,7 @@ public class PropertyResponseDto {
     private final int saveCount;
     private final List<String> imageUrls;
     private final List<String> documentUrls;
+    private final int documentCount;
     private final boolean documentVerified;
     /**
      * Every trust signal and its state, for the listing's owner. Null in the
@@ -179,6 +180,21 @@ public class PropertyResponseDto {
      *                              holder of its endorsement token
      */
     public PropertyResponseDto(Property p, PropertyRiskService.PriceComparison comparison, boolean includePrivateFields) {
+        this(p, comparison, includePrivateFields, includePrivateFields);
+    }
+
+    /**
+     * Constructor that also decides whether the verification documents'
+     * links are included. They are identity and ownership papers (national
+     * IDs, title deeds), so only the listing's owner and admins reviewing
+     * verifications get them. Everyone else gets an empty list and
+     * {@code documentCount}, which is enough to show that documents were
+     * submitted.
+     *
+     * @param includeDocuments true only for the owner or an admin
+     */
+    public PropertyResponseDto(Property p, PropertyRiskService.PriceComparison comparison,
+                               boolean includePrivateFields, boolean includeDocuments) {
         this.id = p.getId();
         this.title = p.getTitle();
         this.buildingName = p.getBuildingName();
@@ -239,7 +255,9 @@ public class PropertyResponseDto {
         this.viewCount = p.getViewCount();
         this.saveCount = p.getSaveCount();
         this.imageUrls = p.getImageUrls();
-        this.documentUrls = p.getDocumentUrls() != null ? p.getDocumentUrls() : new ArrayList<>();
+        List<String> submittedDocuments = p.getDocumentUrls() != null ? p.getDocumentUrls() : new ArrayList<>();
+        this.documentCount = (int) submittedDocuments.stream().filter(url -> url != null && !url.isBlank()).count();
+        this.documentUrls = includeDocuments ? submittedDocuments : new ArrayList<>();
         this.documentVerified = Boolean.TRUE.equals(p.getDocumentVerified());
         this.verification = includePrivateFields ? PropertyVerification.from(p) : null;
         this.isDirectLandlord = p.isDirectLandlord();
@@ -328,6 +346,28 @@ public class PropertyResponseDto {
     }
 
     /**
+     * Admin view for reviewing verifications: the public view plus the
+     * verification documents' links. It does not carry the endorsement
+     * token or the verifier's contact details.
+     *
+     * @param p the property, may be null
+     * @return the admin DTO, or null if {@code p} is null
+     */
+    public static PropertyResponseDto forAdmin(Property p) {
+        return p == null ? null : new PropertyResponseDto(p, null, false, true);
+    }
+
+    /**
+     * Admin view of many properties.
+     *
+     * @param properties the properties to expose
+     * @return one admin DTO per property, in order
+     */
+    public static List<PropertyResponseDto> forAdmin(List<Property> properties) {
+        return properties.stream().map(PropertyResponseDto::forAdmin).toList();
+    }
+
+    /**
      * Viewer-aware view: private fields are included only when
      * {@code viewer} is the listing's owner; everyone else (other users,
      * anonymous visitors) gets the public view.
@@ -409,6 +449,7 @@ public class PropertyResponseDto {
     public int getSaveCount() { return saveCount; }
     public List<String> getImageUrls() { return imageUrls; }
     public List<String> getDocumentUrls() { return documentUrls; }
+    public int getDocumentCount() { return documentCount; }
     public boolean isDocumentVerified() { return documentVerified; }
     public PropertyVerification getVerification() { return verification; }
     public boolean isDirectLandlord() { return isDirectLandlord; }
