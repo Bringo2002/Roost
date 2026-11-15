@@ -164,4 +164,61 @@ class PropertyResponseDtoTest {
         assertNull(PropertyResponseDto.forViewer(property, null, stranger).getVerification());
         assertNull(PropertyResponseDto.forViewer(property, null, null).getVerification());
     }
+
+    @Test
+    @DisplayName("public view hides verification document links but still reports how many were submitted")
+    void publicViewHidesDocumentLinks() {
+        property.setDocumentUrls(List.of("https://files.example/id-front.jpg", "https://files.example/title-deed.jpg"));
+
+        JsonNode json = mapper.valueToTree(PropertyResponseDto.from(property));
+
+        assertTrue(json.get("documentUrls").isArray());
+        assertEquals(0, json.get("documentUrls").size());
+        assertEquals(2, json.get("documentCount").asInt());
+    }
+
+    @Test
+    @DisplayName("viewer who is not the owner gets the public view of documents")
+    void strangerDoesNotSeeDocumentLinks() {
+        property.setDocumentUrls(List.of("https://files.example/id-front.jpg"));
+
+        JsonNode json = mapper.valueToTree(PropertyResponseDto.forViewer(property, null, stranger));
+
+        assertEquals(0, json.get("documentUrls").size());
+        assertEquals(1, json.get("documentCount").asInt());
+    }
+
+    @Test
+    @DisplayName("owner sees their own document links")
+    void ownerSeesDocumentLinks() {
+        property.setDocumentUrls(List.of("https://files.example/id-front.jpg"));
+
+        JsonNode json = mapper.valueToTree(PropertyResponseDto.forOwner(property));
+
+        assertEquals(1, json.get("documentUrls").size());
+        assertEquals("https://files.example/id-front.jpg", json.get("documentUrls").get(0).asText());
+    }
+
+    @Test
+    @DisplayName("admin view carries document links but not the endorsement token or verifier contact")
+    void adminViewHasDocumentsButNoSecrets() {
+        property.setDocumentUrls(List.of("https://files.example/id-front.jpg"));
+
+        JsonNode json = mapper.valueToTree(PropertyResponseDto.forAdmin(property));
+
+        assertEquals(1, json.get("documentUrls").size());
+        assertTrue(json.get("endorsementToken").isNull());
+        assertTrue(json.get("ownerVerifyName").isNull());
+        assertTrue(json.get("ownerVerifyPhone").isNull());
+    }
+
+    @Test
+    @DisplayName("blank document entries are not counted")
+    void blankDocumentEntriesAreNotCounted() {
+        property.setDocumentUrls(java.util.Arrays.asList("https://files.example/id-front.jpg", " ", null));
+
+        JsonNode json = mapper.valueToTree(PropertyResponseDto.from(property));
+
+        assertEquals(1, json.get("documentCount").asInt());
+    }
 }

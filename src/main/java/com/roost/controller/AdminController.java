@@ -38,7 +38,7 @@ public class AdminController {
     public ResponseEntity<?> getPendingVerifications(@AuthenticationPrincipal User user) {
         if (user == null) return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
         if (user.getRole() != Role.ADMIN) return ResponseEntity.status(403).body(Map.of("error", "Admin access required"));
-        return ResponseEntity.ok(PropertyResponseDto.from(propertyService.getPendingPhotoReview()));
+        return ResponseEntity.ok(PropertyResponseDto.forAdmin(propertyService.getPendingPhotoReview()));
     }
 
     @PostMapping("/properties/{id}/approve-photos")
@@ -46,7 +46,7 @@ public class AdminController {
         if (user == null) return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
         if (user.getRole() != Role.ADMIN) return ResponseEntity.status(403).body(Map.of("error", "Admin access required"));
         Property updated = propertyService.approvePhotos(id);
-        return ResponseEntity.ok(PropertyResponseDto.from(updated));
+        return ResponseEntity.ok(PropertyResponseDto.forAdmin(updated));
     }
 
     @PostMapping("/properties/{id}/reject-photos")
@@ -57,7 +57,7 @@ public class AdminController {
         if (user.getRole() != Role.ADMIN) return ResponseEntity.status(403).body(Map.of("error", "Admin access required"));
         String reason = body != null ? body.get("reason") : null;
         Property updated = propertyService.rejectPhotos(id, reason);
-        return ResponseEntity.ok(PropertyResponseDto.from(updated));
+        return ResponseEntity.ok(PropertyResponseDto.forAdmin(updated));
     }
 
     @GetMapping("/flagged-listings")
