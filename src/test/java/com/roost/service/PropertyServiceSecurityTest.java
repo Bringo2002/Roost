@@ -15,6 +15,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -142,6 +143,59 @@ class PropertyServiceSecurityTest {
         Property result = propertyService.updateProperty(10L, updated);
         assertFalse(result.getDocumentVerified(),
                 "documentVerified should not be overwritten by client input");
+    }
+
+    @Test
+    @DisplayName("updateProperty clears document acceptance when the documents change")
+    void updateProperty_changedDocumentsClearAcceptance() {
+        existingProperty.setDocumentUrls(new ArrayList<>(List.of("https://docs.example.com/deed.pdf")));
+        existingProperty.setDocumentVerified(true);
+        when(propertyRepository.findById(10L)).thenReturn(Optional.of(existingProperty));
+        when(propertyRepository.save(any(Property.class)))
+                .thenAnswer(inv -> inv.getArgument(0));
+
+        Property updated = validListing();
+        updated.setDocumentUrls(new ArrayList<>(List.of("https://docs.example.com/other.pdf")));
+
+        Property result = propertyService.updateProperty(10L, updated);
+        assertFalse(result.getDocumentVerified(),
+                "replacing the documents must not keep the old acceptance");
+    }
+
+    @Test
+    @DisplayName("updateProperty clears document acceptance when the documents are removed")
+    void updateProperty_removedDocumentsClearAcceptance() {
+        existingProperty.setDocumentUrls(new ArrayList<>(List.of("https://docs.example.com/deed.pdf")));
+        existingProperty.setDocumentVerified(true);
+        when(propertyRepository.findById(10L)).thenReturn(Optional.of(existingProperty));
+        when(propertyRepository.save(any(Property.class)))
+                .thenAnswer(inv -> inv.getArgument(0));
+
+        Property updated = validListing();
+        updated.setDocumentUrls(new ArrayList<>());
+
+        Property result = propertyService.updateProperty(10L, updated);
+        assertFalse(result.getDocumentVerified());
+    }
+
+    @Test
+    @DisplayName("updateProperty keeps document acceptance when the same documents are sent again")
+    void updateProperty_sameDocumentsKeepAcceptance() {
+        existingProperty.setDocumentUrls(new ArrayList<>(List.of(
+                "https://docs.example.com/deed.pdf", "https://docs.example.com/id.jpg")));
+        existingProperty.setDocumentVerified(true);
+        when(propertyRepository.findById(10L)).thenReturn(Optional.of(existingProperty));
+        when(propertyRepository.save(any(Property.class)))
+                .thenAnswer(inv -> inv.getArgument(0));
+
+        // Same files, different order: an ordinary edit of other fields.
+        Property updated = validListing();
+        updated.setDocumentUrls(new ArrayList<>(List.of(
+                "https://docs.example.com/id.jpg", "https://docs.example.com/deed.pdf")));
+
+        Property result = propertyService.updateProperty(10L, updated);
+        assertTrue(result.getDocumentVerified(),
+                "an edit that doesn't touch the documents must not lose the acceptance");
     }
 
     @Test
