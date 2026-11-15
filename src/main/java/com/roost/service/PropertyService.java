@@ -803,6 +803,29 @@ public class PropertyService {
         return propertyRepository.findByPhotoApprovedFalseAndPhotoRejectedFalse();
     }
 
+    /** Listings with submitted documents that no admin has accepted yet,
+     *  oldest first. Independent of the photo queue: a listing whose photos
+     *  were approved long ago still appears here until its documents are
+     *  reviewed. */
+    public List<Property> getPendingDocumentReview() {
+        return propertyRepository.findPendingDocumentReview();
+    }
+
+    /** Admin accepts a listing's documents as genuine. Idempotent. Refuses a
+     *  listing with nothing submitted, since accepting nothing would mark a
+     *  listing as document-verified that has no documents. */
+    public Property acceptDocuments(Long id) {
+        Property property = getPropertyById(id);
+        boolean hasDocuments = property.getDocumentUrls() != null
+                && property.getDocumentUrls().stream().anyMatch(url -> url != null && !url.isBlank());
+        if (!hasDocuments) {
+            throw ApiException.badRequest("This listing has no documents to accept.");
+        }
+        property.setDocumentVerified(true);
+        recomputeVerification(property);
+        return propertyRepository.save(property);
+    }
+
     /**
      * Records a report against a listing. One report per user per
      * listing -- repeat reports from the same person don't count twice

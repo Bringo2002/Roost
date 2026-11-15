@@ -41,6 +41,21 @@ public class AdminController {
         return ResponseEntity.ok(PropertyResponseDto.forAdmin(propertyService.getPendingPhotoReview()));
     }
 
+    @GetMapping("/pending-documents")
+    public ResponseEntity<?> getPendingDocuments(@AuthenticationPrincipal User user) {
+        if (user == null) return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
+        if (user.getRole() != Role.ADMIN) return ResponseEntity.status(403).body(Map.of("error", "Admin access required"));
+        return ResponseEntity.ok(PropertyResponseDto.forAdmin(propertyService.getPendingDocumentReview()));
+    }
+
+    @PostMapping("/properties/{id}/accept-documents")
+    public ResponseEntity<?> acceptDocuments(@PathVariable Long id, @AuthenticationPrincipal User user) {
+        if (user == null) return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
+        if (user.getRole() != Role.ADMIN) return ResponseEntity.status(403).body(Map.of("error", "Admin access required"));
+        Property updated = propertyService.acceptDocuments(id);
+        return ResponseEntity.ok(PropertyResponseDto.forAdmin(updated));
+    }
+
     @PostMapping("/properties/{id}/approve-photos")
     public ResponseEntity<?> approvePhotos(@PathVariable Long id, @AuthenticationPrincipal User user) {
         if (user == null) return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
