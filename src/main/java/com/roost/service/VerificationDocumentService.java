@@ -158,6 +158,20 @@ public class VerificationDocumentService {
                 .toList();
     }
 
+    /**
+     * Where a person's identity verification stands, read fresh from the database.
+     *
+     * @param userId the person
+     * @return their current status
+     * @throws ApiException 404 if the user does not exist
+     */
+    @Transactional(readOnly = true)
+    public IdentityStatus getIdentityStatus(Long userId) {
+        return users.findById(userId)
+                .map(User::getIdentityStatus)
+                .orElseThrow(() -> ApiException.notFound("User not found."));
+    }
+
     /** A passport alone, or both sides of a national ID, makes a complete set. */
     private static boolean isComplete(List<VerificationDocument> active) {
         boolean passport = false;

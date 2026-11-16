@@ -261,4 +261,20 @@ class VerificationDocumentServiceTest {
         assertEquals(1, listed.size());
         assertEquals(VerificationDocument.DocType.PASSPORT, listed.get(0).getDocType());
     }
+
+    @Test
+    @DisplayName("the identity status is read fresh from the database")
+    void identityStatusIsReadFromTheDatabase() {
+        lister.setIdentityStatus(IdentityStatus.REJECTED);
+
+        assertEquals(IdentityStatus.REJECTED, service.getIdentityStatus(7L));
+    }
+
+    @Test
+    @DisplayName("the identity status of an unknown user is a 404")
+    void identityStatusOfUnknownUser() {
+        when(users.findById(99L)).thenReturn(Optional.empty());
+
+        assertRejected(HttpStatus.NOT_FOUND, () -> service.getIdentityStatus(99L));
+    }
 }
