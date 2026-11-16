@@ -83,6 +83,18 @@ public class GlobalExceptionHandler {
         return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
     }
 
+    /**
+     * An upload bigger than the server's multipart limit. Without this it would
+     * fall into the RuntimeException handler below and read as "Invalid request".
+     */
+    @ExceptionHandler(org.springframework.web.multipart.MaxUploadSizeExceededException.class)
+    public ResponseEntity<Map<String, String>> handleUploadTooLarge(
+            org.springframework.web.multipart.MaxUploadSizeExceededException ex) {
+        Map<String, String> errorResponse = new HashMap<>();
+        errorResponse.put("error", "The file is too large. The limit is 5 MB.");
+        return new ResponseEntity<>(errorResponse, HttpStatus.PAYLOAD_TOO_LARGE);
+    }
+
     @ExceptionHandler(RuntimeException.class)
     public ResponseEntity<Map<String, String>> handleRuntimeException(RuntimeException ex) {
         log.warn("Unhandled RuntimeException on {}", ex.getClass().getSimpleName(), ex);
