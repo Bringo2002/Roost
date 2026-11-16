@@ -32,6 +32,14 @@ public class User implements UserDetails {
     @Enumerated(EnumType.STRING)
     private Role role;
 
+    /**
+     * Where this person's identity verification stands. Written only by the
+     * verification services, together with an audit event for the change.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "identity_status", nullable = false, length = 20)
+    private IdentityStatus identityStatus = IdentityStatus.NOT_SUBMITTED;
+
     @Column(columnDefinition = "TEXT")
     private String publicKey;
 
@@ -143,6 +151,9 @@ public class User implements UserDetails {
     public void setRole(Role role) {
         this.role = role;
     }
+
+    public IdentityStatus getIdentityStatus() { return identityStatus; }
+    public void setIdentityStatus(IdentityStatus identityStatus) { this.identityStatus = identityStatus; }
 
     public String getPublicKey() {
         return publicKey;
