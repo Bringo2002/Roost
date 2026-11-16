@@ -570,6 +570,7 @@ public class PropertyService {
         // changed needs the old text, and it is replaced a few lines down.
         String previousAddress = existing.getLocation();
         existing.setTitle(updated.getTitle());
+        existing.setBuildingName(updated.getBuildingName());
         existing.setLocation(updated.getLocation());
         existing.setPrice(updated.getPrice());
         existing.setBedrooms(updated.getBedrooms());
