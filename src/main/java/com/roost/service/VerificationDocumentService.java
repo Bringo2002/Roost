@@ -172,6 +172,133 @@ public class VerificationDocumentService {
                 .orElseThrow(() -> ApiException.notFound("User not found."));
     }
 
+    /** A file read for review, with the type to serve it as. */
+    public record ReviewFile(byte[] data, String contentType) {}
+
+    /** Longest reason a reviewer can give; matches the database columns. */
+    static final int MAX_REJECT_REASON = 1000;
+
+    /**
+     * Listers whose identity documents are waiting for a reviewer.
+     *
+     * @return listers at the pending stage, oldest account first
+     */
+    @Transactional(readOnly = true)
+    public List<User> listPendingIdentities() {
+        return users.findByIdentityStatusOrderByIdAsc(IdentityStatus.PENDING);
+    }
+
+    /**
+     * Reads a stored document for a reviewer and records that they looked.
+     *
+     * <p>The view is written down only after the file was read and before it
+     * is returned, so a file never reaches a reviewer without a record.
+     *
+     * @param reviewer the admin viewing the file
+     * @param documentId the document to read
+     * @return the file bytes and the type to serve them as
+     * @throws ApiException 404 if the document does not exist or was deleted,
+     *                      503 if private storage is not available
+     */
+    @Transactional
+    public ReviewFile viewDocument(User reviewer, Long documentId) {
+        VerificationDocument document = documents.findById(documentId)
+                .filter(d -> d.getDeletedAt() == null)
+                .orElseThrow(() -> ApiException.notFound("Document not found."));
+        byte[] data = storage.load(document.getStorageKey());
+        auditEvents.save(VerificationAuditEvent.of(
+                reviewer, VerificationAuditEvent.Action.VIEWED, document, null, null));
+        return new ReviewFile(data, document.getContentType());
+    }
+
+    /**
+     * Accepts a lister's identity documents and marks their identity verified.
+     *
+     * <p>Every identity document on file must be a freshly submitted one. If a
+     * document was rejected earlier and not replaced, accepting would quietly
+     * overturn that decision, so the reviewer has to reject again or wait for
+     * the replacement.
+     *
+     * @param reviewer the admin deciding
+     * @param userId the lister whose documents are reviewed
+     * @throws ApiException 403 for your own documents, 404 if no such user, 409 if the lister is
+     *                      not waiting for review, the set is incomplete, or a document was
+     *                      rejected earlier and not replaced
+     */
+    @Transactional
+    public void acceptIdentity(User reviewer, Long userId) {
+        User owner = pendingOwner(reviewer, userId);
+        List<VerificationDocument> active = listIdentityDocuments(owner.getId());
+        if (!isComplete(active)) {
+            throw ApiException.conflict("The documents on file are not a complete set.");
+        }
+        if (active.stream().anyMatch(d -> d.getStatus() != VerificationDocument.Status.SUBMITTED)) {
+            throw ApiException.conflict("Some documents were rejected earlier and have not been replaced.");
+        }
+        LocalDateTime now = LocalDateTime.now();
+        for (VerificationDocument document : active) {
+            document.setStatus(VerificationDocument.Status.ACCEPTED);
+            document.setReviewedBy(reviewer);
+            document.setReviewedAt(now);
+            document.setRejectReason(null);
+            documents.save(document);
+            auditEvents.save(VerificationAuditEvent.of(
+                    reviewer, VerificationAuditEvent.Action.ACCEPTED, document, null, null));
+        }
+        owner.setIdentityStatus(IdentityStatus.VERIFIED);
+        users.save(owner);
+    }
+
+    /**
+     * Rejects a lister's submitted identity documents, with a reason the
+     * lister will see. The lister can then submit new ones.
+     *
+     * @param reviewer the admin deciding
+     * @param userId the lister whose documents are reviewed
+     * @param reason what to fix; required, at most {@value #MAX_REJECT_REASON} characters
+     * @throws ApiException 400 for a missing or too long reason, 403 for your own documents,
+     *                      404 if no such user, 409 if the lister is not waiting for review
+     */
+    @Transactional
+    public void rejectIdentity(User reviewer, Long userId, String reason) {
+        String cleaned = reason == null ? "" : reason.trim();
+        if (cleaned.isEmpty()) {
+            throw ApiException.badRequest("Tell the lister what to fix.");
+        }
+        if (cleaned.length() > MAX_REJECT_REASON) {
+            throw ApiException.badRequest("The reason is too long. The limit is " + MAX_REJECT_REASON + " characters.");
+        }
+        User owner = pendingOwner(reviewer, userId);
+        LocalDateTime now = LocalDateTime.now();
+        for (VerificationDocument document : listIdentityDocuments(owner.getId())) {
+            if (document.getStatus() != VerificationDocument.Status.SUBMITTED) {
+                continue;
+            }
+            document.setStatus(VerificationDocument.Status.REJECTED);
+            document.setReviewedBy(reviewer);
+            document.setReviewedAt(now);
+            document.setRejectReason(cleaned);
+            documents.save(document);
+            auditEvents.save(VerificationAuditEvent.of(
+                    reviewer, VerificationAuditEvent.Action.REJECTED, document, null, cleaned));
+        }
+        owner.setIdentityStatus(IdentityStatus.REJECTED);
+        users.save(owner);
+    }
+
+    /** The lister under review, checked to be someone else and still waiting. */
+    private User pendingOwner(User reviewer, Long userId) {
+        if (reviewer.getId().equals(userId)) {
+            throw ApiException.forbidden("You can't review your own documents.");
+        }
+        User owner = users.findById(userId)
+                .orElseThrow(() -> ApiException.notFound("User not found."));
+        if (owner.getIdentityStatus() != IdentityStatus.PENDING) {
+            throw ApiException.conflict("This person's documents are not waiting for review.");
+        }
+        return owner;
+    }
+
     /** A passport alone, or both sides of a national ID, makes a complete set. */
     private static boolean isComplete(List<VerificationDocument> active) {
         boolean passport = false;

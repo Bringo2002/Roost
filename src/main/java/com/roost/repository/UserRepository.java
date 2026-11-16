@@ -1,5 +1,6 @@
 package com.roost.repository;
 
+import com.roost.model.IdentityStatus;
 import com.roost.model.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 
@@ -12,4 +13,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     /** Finds users whose grace period has expired and are still enabled. */
     List<User> findByDeletionScheduledAtBeforeAndEnabledTrue(LocalDateTime cutoff);
+
+    /** Listers at the given identity stage, oldest account first. */
+    List<User> findByIdentityStatusOrderByIdAsc(IdentityStatus status);
 }
