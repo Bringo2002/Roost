@@ -18,9 +18,14 @@ public class UserProfileResponse {
      *  deletion. Only populated for the authenticated user's own profile. */
     private LocalDateTime deletionScheduledAt;
 
+    /** True for accounts created through Google or Apple sign-in, which have
+     *  no password the user knows. The app uses it to decide whether the
+     *  delete-account screen asks for one. */
+    private boolean emailVerified;
+
     public UserProfileResponse() {}
 
-    public UserProfileResponse(Long id, String name, String email, String phone, boolean phoneVerified, Role role, String publicKey, String avatarUrl, LocalDateTime lastActiveAt, LocalDateTime deletionScheduledAt) {
+    public UserProfileResponse(Long id, String name, String email, String phone, boolean phoneVerified, Role role, String publicKey, String avatarUrl, LocalDateTime lastActiveAt, LocalDateTime deletionScheduledAt, boolean emailVerified) {
         this.id = id;
         this.name = name;
         this.email = email;
@@ -31,6 +36,7 @@ public class UserProfileResponse {
         this.avatarUrl = avatarUrl;
         this.lastActiveAt = lastActiveAt;
         this.deletionScheduledAt = deletionScheduledAt;
+        this.emailVerified = emailVerified;
     }
 
     public Long getId() {
@@ -113,6 +119,14 @@ public class UserProfileResponse {
         this.deletionScheduledAt = deletionScheduledAt;
     }
 
+    public boolean isEmailVerified() {
+        return emailVerified;
+    }
+
+    public void setEmailVerified(boolean emailVerified) {
+        this.emailVerified = emailVerified;
+    }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -128,6 +142,7 @@ public class UserProfileResponse {
         private String avatarUrl;
         private LocalDateTime lastActiveAt;
         private LocalDateTime deletionScheduledAt;
+        private boolean emailVerified;
 
         public Builder id(Long id) {
             this.id = id;
@@ -179,8 +194,13 @@ public class UserProfileResponse {
             return this;
         }
 
+        public Builder emailVerified(boolean emailVerified) {
+            this.emailVerified = emailVerified;
+            return this;
+        }
+
         public UserProfileResponse build() {
-            return new UserProfileResponse(id, name, email, phone, phoneVerified, role, publicKey, avatarUrl, lastActiveAt, deletionScheduledAt);
+            return new UserProfileResponse(id, name, email, phone, phoneVerified, role, publicKey, avatarUrl, lastActiveAt, deletionScheduledAt, emailVerified);
         }
     }
 }
