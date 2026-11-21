@@ -31,7 +31,7 @@ Schema migrations, JPA `@Entity` classes, Spring Data repositories.
 | Concern | Location |
 |---|---|
 | Schema migrations | `src/main/resources/db/migration/` (Flyway, `V<n>__description.sql`) |
-| Data seeding | `src/main/java/com/roost/config/DataSeeder.java`, `src/main/resources/data.sql` |
+| Data seeding | `src/main/java/com/roost/config/DataSeeder.java` (opt-in: only runs when `app.seed.enabled=true`), `src/main/resources/data.sql` |
 | Database config | `src/main/java/com/roost/config/DatabaseConfig.java` |
 | JPA entities | `src/main/java/com/roost/model/` |
 | Spring Data repositories | `src/main/java/com/roost/repository/` |
@@ -126,6 +126,12 @@ All commands assume the working directory is the repository root. This project u
 
 ```bash
 ./mvnw spring-boot:run
+```
+
+With demo listings seeded (local development only; seeding is off by default and must never be enabled on the live server):
+
+```bash
+APP_SEED_ENABLED=true ./mvnw spring-boot:run
 ```
 
 With a specific profile:
