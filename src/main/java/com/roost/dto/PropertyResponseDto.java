@@ -195,6 +195,22 @@ public class PropertyResponseDto {
      */
     public PropertyResponseDto(Property p, PropertyRiskService.PriceComparison comparison,
                                boolean includePrivateFields, boolean includeDocuments) {
+        this(p, comparison, includePrivateFields, includeDocuments, includePrivateFields);
+    }
+
+    /**
+     * Full constructor with the verification record controlled on its own.
+     * {@code verification} holds only state names and the badge decision, no
+     * credentials or third-party details, so it can be shared with admins
+     * without the endorsement token and verifier contact that
+     * {@code includePrivateFields} also unlocks.
+     *
+     * @param includeVerification true for the owner and for admins reviewing
+     *                            verifications
+     */
+    public PropertyResponseDto(Property p, PropertyRiskService.PriceComparison comparison,
+                               boolean includePrivateFields, boolean includeDocuments,
+                               boolean includeVerification) {
         this.id = p.getId();
         this.title = p.getTitle();
         this.buildingName = p.getBuildingName();
@@ -259,7 +275,7 @@ public class PropertyResponseDto {
         this.documentCount = (int) submittedDocuments.stream().filter(url -> url != null && !url.isBlank()).count();
         this.documentUrls = includeDocuments ? submittedDocuments : new ArrayList<>();
         this.documentVerified = Boolean.TRUE.equals(p.getDocumentVerified());
-        this.verification = includePrivateFields ? PropertyVerification.from(p) : null;
+        this.verification = includeVerification ? PropertyVerification.from(p) : null;
         this.isDirectLandlord = p.isDirectLandlord();
         this.landlordEndorsed = p.isLandlordEndorsed();
         this.endorsementToken = includePrivateFields ? p.getEndorsementToken() : null;
@@ -347,14 +363,15 @@ public class PropertyResponseDto {
 
     /**
      * Admin view for reviewing verifications: the public view plus the
-     * verification documents' links. It does not carry the endorsement
-     * token or the verifier's contact details.
+     * verification documents' links and the verification record (phone,
+     * on-site, photos, documents and badge states). It does not carry the
+     * endorsement token or the verifier's contact details.
      *
      * @param p the property, may be null
      * @return the admin DTO, or null if {@code p} is null
      */
     public static PropertyResponseDto forAdmin(Property p) {
-        return p == null ? null : new PropertyResponseDto(p, null, false, true);
+        return p == null ? null : new PropertyResponseDto(p, null, false, true, true);
     }
 
     /**
