@@ -213,6 +213,40 @@ class PropertyResponseDtoTest {
     }
 
     @Test
+    @DisplayName("admin view carries the verification record")
+    void adminViewCarriesVerificationRecord() {
+        owner.setPhoneVerified(true);
+        property.setGpsVerified(true);
+        property.setDocumentUrls(List.of("https://files.example/title-deed.jpg"));
+
+        JsonNode verification = mapper.valueToTree(PropertyResponseDto.forAdmin(property)).get("verification");
+
+        assertEquals("VERIFIED", verification.get("phone").asText());
+        assertEquals("PASSED", verification.get("onSite").asText());
+        assertEquals("NOT_SUBMITTED", verification.get("photos").asText());
+        assertEquals("UPLOADED", verification.get("documents").asText());
+        assertFalse(verification.get("badgeEarned").asBoolean());
+    }
+
+    @Test
+    @DisplayName("admin view reports an unverified owner phone as unverified")
+    void adminViewReportsUnverifiedPhone() {
+        owner.setPhoneVerified(false);
+
+        JsonNode verification = mapper.valueToTree(PropertyResponseDto.forAdmin(property)).get("verification");
+
+        assertEquals("UNVERIFIED", verification.get("phone").asText());
+    }
+
+    @Test
+    @DisplayName("public view still omits the verification record")
+    void publicViewOmitsVerificationRecord() {
+        JsonNode json = mapper.valueToTree(PropertyResponseDto.from(property));
+
+        assertTrue(json.get("verification").isNull());
+    }
+
+    @Test
     @DisplayName("blank document entries are not counted")
     void blankDocumentEntriesAreNotCounted() {
         property.setDocumentUrls(java.util.Arrays.asList("https://files.example/id-front.jpg", " ", null));
