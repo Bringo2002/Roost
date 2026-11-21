@@ -6,7 +6,7 @@ This file is binding operating instructions for any AI coding agent working in t
 
 ## 1. Scope of This Repository
 
-This repository (`Roost`) owns **Layer 1 — Data/Infra** and **Layer 2 — API/Business Logic** of the Roost platform. It is a Spring Boot 3.5 application running on Java 21, built with Maven, backed by PostgreSQL, and deployed on Railway.
+This repository (`Roost`) owns **Layer 1 — Data/Infra** and **Layer 2 — API/Business Logic** of the Roost platform. It is a Spring Boot 3.5 application running on Java 21, built with Maven, backed by PostgreSQL, and deployed on AWS: a single EC2 instance (Amazon Linux 2023, systemd service `roost`, Nginx in front) with a managed RDS PostgreSQL database. Deployment files live in `deploy/aws/`.
 
 The sibling repository `roost_app` owns Layer 3 (Flutter client). It is **entirely out of scope** for any agent session here.
 
@@ -36,7 +36,7 @@ Schema migrations, JPA `@Entity` classes, Spring Data repositories.
 | JPA entities | `src/main/java/com/roost/model/` |
 | Spring Data repositories | `src/main/java/com/roost/repository/` |
 
-**Permitted read/write for a Layer 1 task:** All files listed above, plus `src/main/resources/application.properties` and `src/main/resources/application-production.properties` for datasource/JPA configuration, and `pom.xml` if a new dependency is required.
+**Permitted read/write for a Layer 1 task:** All files listed above, plus `src/main/resources/application.properties`, `src/main/resources/application-production.properties` and `src/main/resources/application-aws.properties` (the profile the EC2 service runs) for datasource/JPA configuration, and `pom.xml` if a new dependency is required.
 
 **Out of scope for a Layer 1 task:** `src/main/java/com/roost/controller/`, `src/main/java/com/roost/service/`, `src/main/java/com/roost/dto/`, `src/main/java/com/roost/security/`, `src/main/java/com/roost/exception/`. Do not touch these directories unless the task explicitly spans both layers.
 
@@ -159,7 +159,7 @@ With a specific profile:
 
 ### Schema Migrations
 
-Schema changes are versioned Flyway migrations in `src/main/resources/db/migration/` (`V1__baseline_schema.sql`, `V2__…`, and so on). They run automatically on application startup, and in production Hibernate only validates the schema (`ddl-auto=validate`).
+Schema changes are versioned Flyway migrations in `src/main/resources/db/migration/` (`V1__baseline_schema.sql`, `V2__…`, and so on). They run automatically on application startup, and the `production` profile only validates the schema (`ddl-auto=validate`). The `aws` profile that the EC2 service runs currently sets `ddl-auto=update`; switching it to `validate` is a cleanup candidate now that Flyway owns the schema.
 
 When changing the schema:
 1. Add the next `V<n>__short_description.sql` file. Never edit a migration that has already been applied.
@@ -209,7 +209,7 @@ HikariCP is the default connection pool. Configure per environment:
 ```properties
 # <PLACEHOLDER: Set per environment based on expected concurrent load>
 # Rule of thumb: pool size = (2 * CPU cores) + number of effective spindle disks
-# For Railway's managed PostgreSQL, start with 10 and adjust based on metrics.
+# For the AWS RDS PostgreSQL instance, start with 10 and adjust based on metrics.
 spring.datasource.hikari.maximum-pool-size=<POOL_SIZE>
 spring.datasource.hikari.minimum-idle=<MIN_IDLE>
 spring.datasource.hikari.connection-timeout=30000
@@ -226,10 +226,10 @@ Target: GC pause budget of **< 10 ms** p99 for API request serving.
 # At 20M+ user scale with latency-sensitive API traffic:
 #   - ZGC (-XX:+UseZGC -XX:+ZGenerational) for sub-millisecond pauses
 #   - OR G1GC (-XX:+UseG1GC -XX:MaxGCPauseMillis=10) for balanced throughput
-# Set in Dockerfile ENTRYPOINT or Railway environment variables.
+# Set in the ExecStart line of deploy/aws/roost.service.
 ```
 
-The current `Dockerfile` and `Procfile` do not specify a collector — Java 21 defaults to G1GC. Add explicit flags when deploying at scale.
+The current `deploy/aws/roost.service` sets only heap bounds (`-Xms256m -Xmx768m`) and no collector flag. Add explicit GC flags when deploying at scale.
 
 ### API Versioning Rule
 
