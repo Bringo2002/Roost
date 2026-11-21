@@ -5,15 +5,21 @@ import com.roost.repository.PropertyRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.CommandLineRunner;
-import org.springframework.context.annotation.Profile;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * Seeds demo listings for local development. Opt-in only: it is created
+ * solely when {@code app.seed.enabled=true} (for example
+ * {@code APP_SEED_ENABLED=true ./mvnw spring-boot:run}), so it can never
+ * run against the live database by accident.
+ */
 @Component
-@Profile("!production")
+@ConditionalOnProperty(name = "app.seed.enabled", havingValue = "true")
 public class DataSeeder implements CommandLineRunner {
 
     private static final Logger log = LoggerFactory.getLogger(DataSeeder.class);
