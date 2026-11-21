@@ -25,9 +25,9 @@ import java.util.List;
  * updateProperty, reportProperty, and submitCommunityCheck.
  *
  * Thresholds are @Value-injected from application.properties (risk.*)
- * rather than hardcoded constants, so they can be tuned via a Railway
- * env var once real usage data suggests they need it, without a code
- * change or redeploy.
+ * rather than hardcoded constants, so they can be tuned via an env var
+ * in /etc/roost/env (followed by a service restart) once real usage data
+ * suggests they need it, without a code change or redeploy.
  */
 @Service
 public class PropertyRiskService {
