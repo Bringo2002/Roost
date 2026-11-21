@@ -6,22 +6,21 @@ import jakarta.validation.constraints.Size;
 /**
  * Request body for initiating account deletion with a grace period.
  *
- * <p>The user must re-type their email as confirmation and provide their
- * password for re-authentication. Social-login users who have no known
- * password may supply a blank string — the service layer handles that
- * case separately. An optional free-text reason is collected for
- * product analytics but is not stored as PII.
+ * <p>The user must re-type their email as confirmation. Accounts created
+ * with a password must also provide it for re-authentication; accounts
+ * created through Google or Apple sign-in have no password the user knows,
+ * so for them it is omitted and the service skips that check. An optional
+ * free-text reason is collected for product analytics but is not stored as
+ * PII.
  */
 public class AccountDeletionRequestDto {
 
     @NotBlank(message = "Email confirmation is required")
     private String email;
 
-    /** Current password for re-authentication. Social-login accounts that
-     *  have no user-chosen password may omit this (the field is still
-     *  required by Bean Validation, but the service tolerates a mismatch
-     *  when the user signed up via Google/Apple). */
-    @NotBlank(message = "Password is required for re-authentication")
+    /** Current password for re-authentication. Required for password
+     *  accounts (enforced in the service, which knows the account type);
+     *  social-login accounts have no user-chosen password and omit it. */
     private String password;
 
     /** Optional reason the user is leaving — capped to 500 characters. */

@@ -26,7 +26,9 @@ import java.util.UUID;
  * <h3>Two-phase deletion model</h3>
  * <ol>
  *   <li><strong>Request</strong> — the user confirms their email, re-authenticates
- *       with their password, and optionally provides a reason. The account is
+ *       with their password (accounts created through Google or Apple sign-in,
+ *       which have no password the user knows, skip this), and optionally
+ *       provides a reason. The account is
  *       marked for deletion {@value #GRACE_PERIOD_DAYS} days in the future but
  *       remains fully functional during the grace window.</li>
  *   <li><strong>Execution</strong> — a nightly scheduled task
@@ -74,13 +76,17 @@ public class AccountDeletionService {
     /**
      * Initiates account deletion with a grace period.
      *
-     * <p>The user must confirm by typing their email and re-authenticating
-     * with their password. An optional reason is stored for analytics.
+     * <p>The user must confirm by typing their email. Password accounts must
+     * also re-authenticate with their password; accounts created through
+     * Google or Apple sign-in have no password the user knows, so only the
+     * email confirmation applies to them. An optional reason is stored for
+     * analytics.
      * The account continues to function during the grace period.
      *
      * @param user     the authenticated user requesting deletion
      * @param email    the email the user typed to confirm
-     * @param password the user's current password for re-authentication
+     * @param password the user's current password for re-authentication;
+     *                 ignored for social-login accounts
      * @param reason   optional free-text reason (may be null)
      * @return deletion status with the scheduled execution date
      * @throws ApiException 400 if email/password is wrong; 409 if already scheduled
@@ -94,7 +100,9 @@ public class AccountDeletionService {
         }
 
         validateConfirmationEmail(user, email);
-        validatePassword(user, password);
+        if (requiresPasswordReauthentication(user)) {
+            validatePassword(user, password);
+        }
 
         LocalDateTime now = LocalDateTime.now();
         LocalDateTime scheduledAt = now.plusDays(GRACE_PERIOD_DAYS);
@@ -233,6 +241,19 @@ public class AccountDeletionService {
         if (!EmailNormalizer.normalize(confirmEmail).equals(user.getEmail())) {
             throw ApiException.badRequest("Email does not match this account");
         }
+    }
+
+    /**
+     * Whether this account must supply its password to request deletion.
+     *
+     * <p>Only Google and Apple sign-in mark an account email-verified, and
+     * both create it with a random password nobody knows, so asking those
+     * users for it would make deletion impossible. Password signups are
+     * always created unverified, and a social login never attaches itself to
+     * an unverified account.
+     */
+    private boolean requiresPasswordReauthentication(User user) {
+        return !user.isEmailVerified();
     }
 
     /**

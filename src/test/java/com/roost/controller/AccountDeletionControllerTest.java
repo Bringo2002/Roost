@@ -24,6 +24,7 @@ import java.time.LocalDateTime;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -90,6 +91,22 @@ class AccountDeletionControllerTest {
                 .andExpect(jsonPath("$.status").value("scheduled"))
                 .andExpect(jsonPath("$.gracePeriodDays").value(14))
                 .andExpect(jsonPath("$.deletionScheduledAt").isNotEmpty());
+    }
+
+    @Test
+    @DisplayName("POST /me/delete-account accepts a request without a password (social-login accounts)")
+    void requestDeletion_acceptsRequestWithoutPassword() throws Exception {
+        LocalDateTime now = LocalDateTime.now();
+        when(accountDeletionService.requestDeletion(any(), eq("test@example.com"), isNull(), isNull()))
+                .thenReturn(AccountDeletionStatusDto.scheduled(now, now.plusDays(14), 14));
+
+        mockMvc.perform(post("/api/users/me/delete-account")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"email":"test@example.com"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("scheduled"));
     }
 
     @Test
