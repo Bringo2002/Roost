@@ -219,6 +219,7 @@ public class AuthService {
                 .avatarUrl(user.getAvatarUrl())
                 .lastActiveAt(user.getLastActiveAt())
                 .deletionScheduledAt(user.getDeletionScheduledAt())
+                .emailVerified(user.isEmailVerified())
                 .build();
     }
 }
