@@ -9,7 +9,7 @@ it. The other runbooks in this folder rely on these procedures.
 |---|---|
 | Server | One EC2 instance (Amazon Linux 2023), login user `ec2-user` |
 | App process | systemd unit `roost` (`sudo systemctl status roost`) |
-| Spring profile | `aws`, set in the unit file. `Procfile` and `Dockerfile` still say `production`; they are leftovers from the previous host and are not used on EC2 |
+| Spring profile | `aws`, set in the unit file (`deploy/aws/roost.service`) |
 | Configuration | `/etc/roost/env`, loaded by systemd as an `EnvironmentFile` |
 | Logs | `/var/log/roost/app.log`, or `sudo journalctl -u roost -n 100` |
 
