@@ -70,7 +70,7 @@ public class SecurityConfig {
             .headers(headers -> headers
                 // Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
                 // Tells browsers to only connect over HTTPS for 1 year.
-                // Only sent over HTTPS (Railway TLS termination), so local
+                // Only sent over HTTPS (TLS is terminated in front of the app), so local
                 // dev over plain HTTP is unaffected.
                 .httpStrictTransportSecurity(hsts -> hsts
                         .maxAgeInSeconds(31_536_000)  // 1 year

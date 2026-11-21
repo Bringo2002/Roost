@@ -14,7 +14,7 @@ import java.util.concurrent.ConcurrentLinkedDeque;
  * /api/auth/login and /api/auth/signup -- see AuthController.
  *
  * Deliberately in-memory rather than Redis/DB-backed: this app runs as
- * a single Railway instance today, and in-memory needs zero new
+ * a single EC2 instance today, and in-memory needs zero new
  * infrastructure. The real trade-off, worth remembering if this ever
  * changes: counts reset on every restart/deploy, and if the app is ever
  * scaled to multiple instances, each instance tracks its own counts
