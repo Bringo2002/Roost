@@ -77,6 +77,12 @@ class AccountDeletionGracePeriodServiceTest {
     @DisplayName("requestDeletion")
     class RequestDeletion {
 
+        /** The password path: accounts created by password signup are never email-verified. */
+        @BeforeEach
+        void passwordAccount() {
+            user.setEmailVerified(false);
+        }
+
         @Test
         @DisplayName("sets scheduled dates and returns 'scheduled' status")
         void setsDatesAndReturnsScheduled() {
@@ -177,6 +183,56 @@ class AccountDeletionGracePeriodServiceTest {
 
             assertEquals("scheduled", result.getStatus());
             assertNull(user.getDeletionReason());
+        }
+
+        @Test
+        @DisplayName("social-login account can request deletion without a password")
+        void socialLoginAccountMayOmitPassword() {
+            user.setEmailVerified(true); // only Google/Apple sign-in sets this
+
+            AccountDeletionStatusDto nullPassword = service.requestDeletion(
+                    user, "ada@example.com", null, null);
+
+            assertEquals("scheduled", nullPassword.getStatus());
+            assertNotNull(user.getDeletionScheduledAt());
+            verify(passwordEncoder, never()).matches(any(), any());
+            verify(userRepository).save(user);
+        }
+
+        @Test
+        @DisplayName("social-login account may also send a blank password")
+        void socialLoginAccountMayBlankPassword() {
+            user.setEmailVerified(true);
+
+            AccountDeletionStatusDto result = service.requestDeletion(
+                    user, "ada@example.com", "  ", null);
+
+            assertEquals("scheduled", result.getStatus());
+            verify(passwordEncoder, never()).matches(any(), any());
+        }
+
+        @Test
+        @DisplayName("social-login account must still confirm its email")
+        void socialLoginAccountMustConfirmEmail() {
+            user.setEmailVerified(true);
+
+            ApiException ex = assertThrows(ApiException.class,
+                    () -> service.requestDeletion(user, "someone@else.com", null, null));
+
+            assertEquals(HttpStatus.BAD_REQUEST, ex.getStatus());
+            assertNull(user.getDeletionScheduledAt());
+            verify(userRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("password account without a password is still rejected")
+        void passwordAccountStillNeedsPassword() {
+            ApiException ex = assertThrows(ApiException.class,
+                    () -> service.requestDeletion(user, "ada@example.com", null, null));
+
+            assertEquals(HttpStatus.BAD_REQUEST, ex.getStatus());
+            assertNull(user.getDeletionScheduledAt());
+            verify(userRepository, never()).save(any());
         }
     }
 
