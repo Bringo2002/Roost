@@ -36,7 +36,7 @@ Schema migrations, JPA `@Entity` classes, Spring Data repositories.
 | JPA entities | `src/main/java/com/roost/model/` |
 | Spring Data repositories | `src/main/java/com/roost/repository/` |
 
-**Permitted read/write for a Layer 1 task:** All files listed above, plus `src/main/resources/application.properties`, `src/main/resources/application-production.properties` and `src/main/resources/application-aws.properties` (the profile the EC2 service runs) for datasource/JPA configuration, and `pom.xml` if a new dependency is required.
+**Permitted read/write for a Layer 1 task:** All files listed above, plus `src/main/resources/application.properties` and `src/main/resources/application-aws.properties` (the profile the EC2 service runs) for datasource/JPA configuration, and `pom.xml` if a new dependency is required.
 
 **Out of scope for a Layer 1 task:** `src/main/java/com/roost/controller/`, `src/main/java/com/roost/service/`, `src/main/java/com/roost/dto/`, `src/main/java/com/roost/security/`, `src/main/java/com/roost/exception/`. Do not touch these directories unless the task explicitly spans both layers.
 
@@ -134,10 +134,10 @@ With demo listings seeded (local development only; seeding is off by default and
 APP_SEED_ENABLED=true ./mvnw spring-boot:run
 ```
 
-With a specific profile:
+With the `aws` profile (the one EC2 runs; needs the variables from `deploy/aws/env.template`):
 
 ```bash
-./mvnw spring-boot:run -Dspring-boot.run.profiles=production
+./mvnw spring-boot:run -Dspring-boot.run.profiles=aws
 ```
 
 ### Build
@@ -165,7 +165,7 @@ With a specific profile:
 
 ### Schema Migrations
 
-Schema changes are versioned Flyway migrations in `src/main/resources/db/migration/` (`V1__baseline_schema.sql`, `V2__…`, and so on). They run automatically on application startup, and the `production` profile only validates the schema (`ddl-auto=validate`). The `aws` profile that the EC2 service runs currently sets `ddl-auto=update`; switching it to `validate` is a cleanup candidate now that Flyway owns the schema.
+Schema changes are versioned Flyway migrations in `src/main/resources/db/migration/` (`V1__baseline_schema.sql`, `V2__…`, and so on). They run automatically on application startup, and the `aws` profile that the EC2 service runs currently sets `ddl-auto=update`; switching it to `validate` is a cleanup candidate once Flyway migrations cover every table and column the entities use.
 
 When changing the schema:
 1. Add the next `V<n>__short_description.sql` file. Never edit a migration that has already been applied.
