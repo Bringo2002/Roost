@@ -40,6 +40,13 @@ public class MoveInInspection {
 
     private String landlordName;
 
+    /**
+     * The tenant's name as it was when the inspection was recorded. Kept on
+     * the inspection so it still identifies the tenant after their account
+     * has been erased and renamed.
+     */
+    private String tenantName;
+
     @Column(columnDefinition = "TEXT", nullable = false)
     private String roomsJson;
 
@@ -66,6 +73,9 @@ public class MoveInInspection {
 
     public String getLandlordName() { return landlordName; }
     public void setLandlordName(String landlordName) { this.landlordName = landlordName; }
+
+    public String getTenantName() { return tenantName; }
+    public void setTenantName(String tenantName) { this.tenantName = tenantName; }
 
     public String getRoomsJson() { return roomsJson; }
     public void setRoomsJson(String roomsJson) { this.roomsJson = roomsJson; }
