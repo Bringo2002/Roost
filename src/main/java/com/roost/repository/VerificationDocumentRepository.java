@@ -14,6 +14,10 @@ public interface VerificationDocumentRepository extends JpaRepository<Verificati
 
     List<VerificationDocument> findByOwnerIdAndDeletedAtIsNullOrderByUploadedAtDesc(Long ownerId);
 
+    /** Every document the user uploaded, including ones already marked deleted.
+     *  Account erasure uses it so no file of theirs is left behind. */
+    List<VerificationDocument> findByOwnerId(Long ownerId);
+
     List<VerificationDocument> findByClaimIdAndDeletedAtIsNull(Long claimId);
 
     /** Files whose review was decided before the cutoff and that are still stored. */

@@ -35,6 +35,11 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
     List<Message> findChatHistoryAfter(@Param("user1") User user1, @Param("user2") User user2, @Param("afterId") Long afterId,
                                         @Param("clearedBeforeId") Long clearedBeforeId);
 
+    /** Every message the user sent or received, in any conversation. Account
+     *  erasure uses it to delete them along with their attachments. */
+    @Query("SELECT m FROM Message m WHERE m.sender = :user OR m.recipient = :user")
+    List<Message> findAllInvolving(@Param("user") User user);
+
     @Query("SELECT DISTINCT u FROM User u WHERE u IN (SELECT m.sender FROM Message m WHERE m.recipient = :user) OR u IN (SELECT m.recipient FROM Message m WHERE m.sender = :user)")
     List<User> findActiveChatPartners(@Param("user") User user);
 
