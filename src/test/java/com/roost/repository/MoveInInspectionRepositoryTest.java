@@ -128,6 +128,23 @@ class MoveInInspectionRepositoryTest {
     }
 
     @Test
+    @DisplayName("the tenant's name stays on the inspection after the tenant's account is renamed")
+    void tenantNameSurvivesTheTenantAccountBeingRenamed() {
+        User tenant = persistUser("tenant");
+        MoveInInspection saved = inspection(listing("the listing"), tenant, LocalDateTime.now());
+        saved.setTenantName("Ada Lovelace");
+        flushAndClear();
+
+        // What account erasure does to the user row.
+        User managedTenant = em.find(User.class, tenant.getId());
+        managedTenant.setName("Deleted user");
+        flushAndClear();
+
+        MoveInInspection reloaded = em.find(MoveInInspection.class, saved.getId());
+        assertEquals("Ada Lovelace", reloaded.getTenantName());
+    }
+
+    @Test
     @DisplayName("findByPropertyOrderByCreatedAtDesc: the generated SQL fetch-joins tenant")
     void findByPropertyOrderByCreatedAtDesc_sqlFetchJoinsTenant() {
         Property property = listing("the listing");
