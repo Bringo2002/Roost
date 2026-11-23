@@ -34,6 +34,8 @@ public class MoveInInspectionService {
         MoveInInspection inspection = new MoveInInspection();
         inspection.setProperty(property);
         inspection.setTenant(tenant);
+        // Snapshot the name: it must still identify the tenant if their account is later erased.
+        inspection.setTenantName(tenant.getName());
         inspection.setLandlordName(property.getOwner() != null ? property.getOwner().getName() : null);
         inspection.setRoomsJson(roomsJson);
         inspection.setCreatedAt(LocalDateTime.now());

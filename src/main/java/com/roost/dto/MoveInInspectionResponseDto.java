@@ -34,7 +34,7 @@ public class MoveInInspectionResponseDto {
         this.id = String.valueOf(inspection.getId());
         this.propertyId = inspection.getProperty().getId();
         this.propertyTitle = inspection.getProperty().getTitle();
-        this.tenantName = inspection.getTenant().getName();
+        this.tenantName = tenantNameOf(inspection);
         this.landlordName = inspection.getLandlordName();
         this.createdAt = inspection.getCreatedAt().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
         this.completedAt = inspection.getCompletedAt() != null
@@ -45,6 +45,14 @@ public class MoveInInspectionResponseDto {
         this.landlordSignature = inspection.getLandlordSignature();
         this.meterElectricity = inspection.getMeterElectricity();
         this.meterWater = inspection.getMeterWater();
+    }
+
+    /** The name recorded on the inspection, which survives the tenant's account
+     *  being erased. Records created before it was stored have none, so they
+     *  fall back to the account's current name. */
+    private static String tenantNameOf(MoveInInspection inspection) {
+        String recorded = inspection.getTenantName();
+        return recorded != null && !recorded.isBlank() ? recorded : inspection.getTenant().getName();
     }
 
     /** Parses the stored rooms JSON blob back into a real JSON node so
