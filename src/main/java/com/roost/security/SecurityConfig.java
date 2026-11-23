@@ -27,10 +27,10 @@ public class SecurityConfig {
     // Comma-separated allowlist, e.g. "https://harrington.co.ke,https://admin.roost.app".
     // Local dev defaults to "*" for convenience -- the native Flutter app
     // never sends an Origin header at all, so this setting only ever
-    // matters for browser-based callers. Production has no wildcard
-    // fallback (see application-production.properties): until a real web
-    // surface exists, this stays empty and no cross-origin browser
-    // caller is trusted.
+    // matters for browser-based callers. The aws profile (the one the EC2
+    // service runs) has no wildcard fallback: it trusts only the origins
+    // listed in application-aws.properties, plus anything added through
+    // the CORS_ALLOWED_ORIGINS environment variable.
     @Value("${app.cors.allowed-origins:*}")
     private String allowedOriginsProperty;
 
