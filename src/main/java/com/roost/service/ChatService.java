@@ -10,6 +10,7 @@ import com.roost.model.User;
 import com.roost.repository.ChatVisibilityRepository;
 import com.roost.repository.MessageReactionRepository;
 import com.roost.repository.MessageRepository;
+import com.roost.repository.UserBlockRepository;
 import com.roost.repository.UserRepository;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -19,9 +20,11 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -56,6 +59,7 @@ public class ChatService {
     private final UserRepository userRepository;
     private final MessageReactionRepository reactionRepository;
     private final ChatVisibilityRepository chatVisibilityRepository;
+    private final UserBlockRepository userBlockRepository;
     private final R2StorageService r2StorageService;
     private final FirebasePushService firebasePushService;
 
@@ -66,12 +70,14 @@ public class ChatService {
                         UserRepository userRepository,
                         MessageReactionRepository reactionRepository,
                         ChatVisibilityRepository chatVisibilityRepository,
+                        UserBlockRepository userBlockRepository,
                         R2StorageService r2StorageService,
                         FirebasePushService firebasePushService) {
         this.messageRepository = messageRepository;
         this.userRepository = userRepository;
         this.reactionRepository = reactionRepository;
         this.chatVisibilityRepository = chatVisibilityRepository;
+        this.userBlockRepository = userBlockRepository;
         this.r2StorageService = r2StorageService;
         this.firebasePushService = firebasePushService;
     }
@@ -107,6 +113,15 @@ public class ChatService {
         // and "hasn't enabled secure messaging" would be the wrong reason.
         if (!recipient.isEnabled()) {
             throw ApiException.badRequest("This account is no longer available");
+        }
+        // A block in either direction ends the conversation. The blocked
+        // sender is told only that they can't message this person, not who
+        // blocked whom.
+        if (userBlockRepository.existsByBlockerAndBlocked(sender, recipient)) {
+            throw ApiException.forbidden("Unblock this person to message them");
+        }
+        if (userBlockRepository.existsByBlockerAndBlocked(recipient, sender)) {
+            throw ApiException.forbidden("You can't send messages to this person");
         }
         if (recipient.getPublicKey() == null || recipient.getPublicKey().isBlank()) {
             throw ApiException.badRequest("Recipient hasn't enabled secure messaging yet");
@@ -174,6 +189,12 @@ public class ChatService {
     public List<Message> getChatHistory(User user, Long otherUserId, Long beforeId, Long afterId, Integer limit) {
         User otherUser = userRepository.findById(otherUserId)
                 .orElseThrow(() -> ApiException.badRequest("User not found"));
+
+        // Someone the user blocked has no visible conversation; it comes
+        // back, unchanged, if they are unblocked.
+        if (userBlockRepository.existsByBlockerAndBlocked(user, otherUser)) {
+            return new ArrayList<>();
+        }
 
         int pageSize = (limit != null && limit > 0) ? Math.min(limit, MAX_HISTORY_PAGE_SIZE) : DEFAULT_HISTORY_PAGE_SIZE;
         Long clearedBeforeId = chatVisibilityRepository.findByUserAndPartner(user, otherUser)
@@ -295,8 +316,12 @@ public class ChatService {
 
     public List<User> getActiveChats(User user) {
         List<User> partners = messageRepository.findActiveChatPartners(user);
+        Set<Long> blockedIds = new HashSet<>(userBlockRepository.findBlockedIdsByBlocker(user));
         List<User> visible = new ArrayList<>();
         for (User partner : partners) {
+            if (blockedIds.contains(partner.getId())) {
+                continue;
+            }
             Message lastMsg = messageRepository.findLastMessage(user, partner);
             if (!isHidden(user, partner, lastMsg)) {
                 visible.add(partner);
@@ -306,7 +331,7 @@ public class ChatService {
     }
 
     public long getUnreadCount(User user) {
-        Long count = messageRepository.countUnreadMessages(user);
+        Long count = messageRepository.countUnreadNotBlocked(user);
         return count != null ? count : 0;
     }
 
@@ -353,8 +378,12 @@ public class ChatService {
 
     public List<ConversationSummaryDto> getConversations(User user) {
         List<User> partners = messageRepository.findActiveChatPartners(user);
+        Set<Long> blockedIds = new HashSet<>(userBlockRepository.findBlockedIdsByBlocker(user));
         List<ConversationSummaryDto> summaries = new ArrayList<>();
         for (User partner : partners) {
+            if (blockedIds.contains(partner.getId())) {
+                continue;
+            }
             Message lastMsg = messageRepository.findLastMessage(user, partner);
             if (isHidden(user, partner, lastMsg)) {
                 continue;
