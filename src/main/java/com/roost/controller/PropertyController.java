@@ -89,13 +89,8 @@ public class PropertyController {
             @RequestParam(required = false) Double lng,
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer size) {
-        // Pagination is opt-in here too, same as /filter: omitting
-        // page/size preserves the exact previous behaviour (return
-        // everything PUBLISHED, unbounded) so existing/older clients
-        // aren't silently truncated to one page.
-        if (size == null) {
-            return PropertyResponseDto.from(propertyService.getAllProperties());
-        }
+        // Always paginated: a bare request gets the first page of
+        // DEFAULT_PAGE_SIZE, and size is capped at MAX_PAGE_SIZE.
         Pageable pageable = boundedPageable(page, size);
         return PropertyResponseDto.from(propertyService.getAllProperties(lat, lng, pageable));
     }
@@ -107,17 +102,15 @@ public class PropertyController {
             @RequestParam(defaultValue = "10") double radius,
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer size) {
-        // Paginated by default (like /by-owner, unlike the root endpoint and
-        // /filter): a wide radius would otherwise return every PUBLISHED
-        // listing in range in a single response.
+        // Paginated by default (like every other list endpoint here): a wide
+        // radius would otherwise return every PUBLISHED listing in range in
+        // a single response.
         return PropertyResponseDto.from(propertyService.getNearby(lat, lng, radius, boundedPageable(page, size)));
     }
 
     /**
      * Public host-profile listings: PUBLISHED-only, scoped to one owner,
-     * paginated by default (not opt-in like /filter or the root endpoint
-     * above) -- there's no legacy client relying on an unbounded response
-     * here, since this is a brand-new endpoint.
+     * paginated by default.
      */
     @GetMapping("/by-owner/{ownerId}")
     public List<PropertyResponseDto> getPublishedPropertiesByOwner(
@@ -142,16 +135,14 @@ public class PropertyController {
             @RequestParam(required = false) Boolean verified,
             // Free-text remainder of the user's search box -- see
             // PropertyService#filter and PropertyRepository for how
-            // this is matched. Only affects the paginated (size != null)
-            // branch below: the unpaginated branch is unbounded/legacy
-            // and untouched by this.
+            // this is matched.
             @RequestParam(required = false) String q,
             @RequestParam(required = false) Double lat,
             @RequestParam(required = false) Double lng,
             // Optional ordering. Absent keeps the existing behaviour (nearest
             // first when lat/lng are sent, otherwise newest first). The only
-            // value today is "recommended": order by the stored ranking score.
-            // Needs pagination, and then lat/lng no longer affect the order.
+            // value today is "recommended": order by the stored ranking score,
+            // and then lat/lng no longer affect the order.
             @RequestParam(required = false) String sort,
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer size) {
@@ -160,17 +151,10 @@ public class PropertyController {
             if (!"recommended".equalsIgnoreCase(sort.trim())) {
                 throw ApiException.badRequest("Unknown sort '" + sort + "'. Expected: recommended");
             }
-            if (size == null) {
-                throw ApiException.badRequest("sort requires paginated requests (send size)");
-            }
             recommended = true;
         }
-        // Pagination is opt-in: omitting page/size preserves the exact
-        // previous behaviour (return everything matching, unbounded) so
-        // existing/older clients aren't silently truncated to one page.
-        if (size == null) {
-            return PropertyResponseDto.from(propertyService.filter(type, minPrice, maxPrice, bedrooms, furnished, parking, wifi, water, security, verified));
-        }
+        // Always paginated: a bare request gets the first page of
+        // DEFAULT_PAGE_SIZE, and size is capped at MAX_PAGE_SIZE.
         Pageable pageable = boundedPageable(page, size);
         if (recommended) {
             return PropertyResponseDto.from(propertyService.filterRecommended(type, minPrice, maxPrice, bedrooms, furnished, parking, wifi, water, security, verified, q, pageable));

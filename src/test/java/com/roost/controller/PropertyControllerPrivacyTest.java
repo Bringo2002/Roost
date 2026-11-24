@@ -109,7 +109,7 @@ class PropertyControllerPrivacyTest {
     @Test
     @DisplayName("GET /api/properties (public feed) never exposes the token or verifier details")
     void publicFeedRedactsPrivateFields() throws Exception {
-        when(propertyService.getAllProperties()).thenReturn(List.of(property));
+        when(propertyService.getAllProperties(any(), any(), any(Pageable.class))).thenReturn(List.of(property));
 
         mockMvc.perform(get("/api/properties"))
                 .andExpect(status().isOk())

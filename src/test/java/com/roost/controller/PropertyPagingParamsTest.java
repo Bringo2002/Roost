@@ -157,7 +157,20 @@ class PropertyPagingParamsTest {
         verify(propertyService).getNearby(eq(-1.29), eq(36.82), eq(10.0), any(Pageable.class));
     }
 
-    // ─── GET /api/properties: pagination is opt-in ───
+    // ─── GET /api/properties: paginated by default ───
+
+    @Test
+    @DisplayName("root feed: without a size it defaults to the first page of 20")
+    void rootFeedDefaultsToFirstPageOfTwenty() throws Exception {
+        when(propertyService.getAllProperties(any(), any(), any(Pageable.class))).thenReturn(List.<Property>of());
+
+        mockMvc.perform(get("/api/properties")).andExpect(status().isOk());
+
+        ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
+        verify(propertyService).getAllProperties(any(), any(), captor.capture());
+        assertEquals(0, captor.getValue().getPageNumber());
+        assertEquals(20, captor.getValue().getPageSize());
+    }
 
     @Test
     @DisplayName("root feed: with a size it caps at 50 and defaults to page 0")
@@ -172,7 +185,22 @@ class PropertyPagingParamsTest {
         assertEquals(50, captor.getValue().getPageSize());
     }
 
-    // ─── GET /api/properties/filter: pagination is opt-in ───
+    // ─── GET /api/properties/filter: paginated by default ───
+
+    @Test
+    @DisplayName("filter: without a size it defaults to the first page of 20")
+    void filterDefaultsToFirstPageOfTwenty() throws Exception {
+        when(propertyService.filter(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(Pageable.class))).thenReturn(List.<Property>of());
+
+        mockMvc.perform(get("/api/properties/filter")).andExpect(status().isOk());
+
+        ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
+        verify(propertyService).filter(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), captor.capture());
+        assertEquals(0, captor.getValue().getPageNumber());
+        assertEquals(20, captor.getValue().getPageSize());
+    }
 
     @Test
     @DisplayName("filter: with a size it clamps the size to at least 1 and the page to at least 0")
