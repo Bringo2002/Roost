@@ -110,12 +110,6 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
             + "order by p.id")
     List<Property> findPendingDocumentReview();
 
-    /** Backs the unpaginated getAllProperties() feed, mapped through
-     *  PropertyResponseDto for every row -- same owner fetch-join
-     *  reasoning as findByOwnerOrderByIdDesc. */
-    @EntityGraph(attributePaths = "owner")
-    List<Property> findByStatus(String status);
-
     /**
      * Average price among published listings with the same house type,
      * bedroom count, and location string -- the comparable set used to
@@ -225,12 +219,11 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
             Pageable pageable);
 
     /**
-     * Paginated version of findByStatus("PUBLISHED") -- same scope as the
-     * unpaginated feed (no availability or coordinate requirement; an
-     * unavailable listing still shows with a "Taken" badge client-side,
-     * and a listing without pinned coordinates still shows, just without
-     * a distance label). Newest-first, matching the /filter endpoint's
-     * own newest-first default when no location is given.
+     * One page of the PUBLISHED feed: no availability or coordinate
+     * requirement (an unavailable listing still shows with a "Taken" badge
+     * client-side, and a listing without pinned coordinates still shows,
+     * just without a distance label). Newest-first, matching the /filter
+     * endpoint's own newest-first default when no location is given.
      */
     // owner is fetch-joined below (LEFT, since a listing can have a null
     // owner in legacy data) so this list query -- mapped through

@@ -335,22 +335,6 @@ class PropertyRepositoryTest {
     }
 
     @Test
-    @DisplayName("findByStatus (unpaginated feed): statement count does not grow with row count")
-    void findByStatus_doesNotGrowWithRowCount() {
-        for (int i = 0; i < 3; i++) publishedListingWithOwnerAndCollections(owner, "few-" + i);
-        flushAndClear();
-        long forThree = statementsFor(() -> propertyRepository.findByStatus("PUBLISHED"));
-
-        for (int i = 0; i < 12; i++) publishedListingWithOwnerAndCollections(owner, "more-" + i);
-        flushAndClear();
-        long forFifteen = statementsFor(() -> propertyRepository.findByStatus("PUBLISHED"));
-
-        assertTrue(forFifteen <= forThree + 1,
-                "statement count grew with row count (3 rows: " + forThree
-                        + ", 15 rows: " + forFifteen + ") -- an N+1 crept back in");
-    }
-
-    @Test
     @DisplayName("findByStatusPublishedPaged: owner is fetch-joined, no per-row owner query")
     void findByStatusPublishedPaged_fetchJoinsOwner() {
         for (int i = 0; i < 10; i++) publishedListingWithOwnerAndCollections(owner, "pub-" + i);
