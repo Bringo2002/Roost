@@ -194,7 +194,7 @@ When changing the schema:
 
 ### Mandatory Pagination on List Endpoints
 
-**Current state:** Mostly addressed. `getAllProperties`, `getNearby`, `filterProperties`, and the host-profile `by-owner` endpoint all now accept optional `page`/`size` query params, bounded via the shared `boundedPageable()` helper in `PropertyController`. `getNearby` and `by-owner` are paginated **by default** (no legacy unbounded callers to preserve), so a bare request to either is always bounded. `getAllProperties` and `filterProperties` keep pagination **opt-in** for backward compatibility, keyed on `size`: omitting `size` still returns the full unbounded result, matching pre-existing client behavior, and a `page` sent without `size` is ignored. The remaining open debt is narrower than before — only those two endpoints' no-`size` path is still unbounded. Do not treat this item as fully closed until that opt-in default is removed or those clients are migrated.
+**Current state:** Closed. `getAllProperties`, `getNearby`, `filterProperties` and the host-profile `by-owner` endpoint all accept optional `page`/`size` query params, bounded via the shared `boundedPageable()` helper in `PropertyController`, and all four are paginated **by default**: a bare request returns the first page of 20, and `size` is clamped to 50. The root feed and `/filter` used to keep pagination opt-in for backward compatibility; that was removed before launch, when no older clients existed to protect. A `page` sent without `size` is honoured, and `sort=recommended` no longer requires `size`.
 
 **Rule going forward:**
 
