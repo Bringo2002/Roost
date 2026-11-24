@@ -124,13 +124,9 @@ public class PropertyService {
         return properties;
     }
 
-    public List<Property> getAllProperties() {
-        return populateRatings(propertyRepository.findByStatus("PUBLISHED"));
-    }
-
     /**
-     * Paginated variant of getAllProperties -- same PUBLISHED-only scope,
-     * no availability or coordinate requirement (see the repository
+     * One page of the public feed: PUBLISHED listings only, with no
+     * availability or coordinate requirement (see the repository
      * queries this dispatches to for why that matters). Sorts by
      * distance when lat/lng are both given, otherwise newest-first.
      */
@@ -385,13 +381,6 @@ public class PropertyService {
                 bb.minLat(), bb.maxLat(),
                 bb.minLng(), bb.maxLng(),
                 pageable));
-    }
-
-    public List<Property> filter(String houseType, Double minPrice, Double maxPrice, Integer bedrooms,
-                                 Boolean furnished, Boolean parking, Boolean wifi, Boolean water,
-                                 Boolean security, Boolean verified) {
-        return populateRatings(propertyRepository.filterProperties(houseType, minPrice, maxPrice, bedrooms,
-                furnished, parking, wifi, water, security, verified));
     }
 
     /** Max free-text words `q` is split into -- see
