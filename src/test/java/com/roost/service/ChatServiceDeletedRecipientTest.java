@@ -6,6 +6,7 @@ import com.roost.model.User;
 import com.roost.repository.ChatVisibilityRepository;
 import com.roost.repository.MessageReactionRepository;
 import com.roost.repository.MessageRepository;
+import com.roost.repository.UserBlockRepository;
 import com.roost.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -38,6 +39,7 @@ class ChatServiceDeletedRecipientTest {
     @Mock private UserRepository userRepository;
     @Mock private MessageReactionRepository reactionRepository;
     @Mock private ChatVisibilityRepository chatVisibilityRepository;
+    @Mock private UserBlockRepository userBlockRepository;
     @Mock private R2StorageService r2StorageService;
     @Mock private FirebasePushService firebasePushService;
 
