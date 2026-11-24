@@ -98,7 +98,8 @@ class InspectionTenantNameMigrationTest {
     void freshDatabaseMigratesWithoutTheInspectionsTable() throws Exception {
         String url = createDatabase("inspection_fresh");
 
-        MigrateResult result = flyway(url, null).migrate();
+        // Stops at V8: this test is about that migration, so later ones must not move it.
+        MigrateResult result = flyway(url, "8").migrate();
 
         assertTrue(result.success);
         assertEquals("8", result.targetSchemaVersion);
