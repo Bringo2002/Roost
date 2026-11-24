@@ -40,6 +40,9 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
     @Query("SELECT m FROM Message m WHERE m.sender = :user OR m.recipient = :user")
     List<Message> findAllInvolving(@Param("user") User user);
 
+    /** Whether any message still has this stored file as its attachment. */
+    boolean existsByAttachmentStorageKey(String attachmentStorageKey);
+
     @Query("SELECT DISTINCT u FROM User u WHERE u IN (SELECT m.sender FROM Message m WHERE m.recipient = :user) OR u IN (SELECT m.recipient FROM Message m WHERE m.sender = :user)")
     List<User> findActiveChatPartners(@Param("user") User user);
 
