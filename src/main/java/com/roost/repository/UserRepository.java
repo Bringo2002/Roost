@@ -9,6 +9,9 @@ import java.util.List;
 import java.util.Optional;
 
 public interface UserRepository extends JpaRepository<User, Long> {
+
+    /** Whether any account still uses this file as its profile photo. */
+    boolean existsByAvatarUrl(String avatarUrl);
     Optional<User> findByEmail(String email);
 
     /** Finds users whose grace period has expired and are still enabled. */

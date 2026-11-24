@@ -23,6 +23,18 @@ public interface PropertyRepository extends JpaRepository<Property, Long> {
 
     List<Property> findByOwner(User owner);
 
+    /**
+     * Whether any listing still uses this public file as its cover photo,
+     * gallery photo, document or video. Uploads are de-duplicated across
+     * users, so the nightly file deletion checks this before removing one.
+     */
+    @Query("""
+            SELECT COUNT(p) > 0 FROM Property p
+            WHERE p.imageUrl = :url OR p.videoUrl = :url
+               OR :url MEMBER OF p.imageUrls OR :url MEMBER OF p.documentUrls
+            """)
+    boolean isMediaUrlInUse(@Param("url") String url);
+
     /** Backs GET /my-listings, which maps every result through
      *  PropertyResponseDto (and therefore reads .getOwner() on each row)
      *  -- fetch-join the owner so a landlord's dashboard costs one query
