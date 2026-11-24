@@ -125,11 +125,15 @@ class PropertyControllerSortTest {
     }
 
     @Test
-    @DisplayName("sort without size is a 400, because the unpaginated search cannot honour it")
-    void sortWithoutSizeIs400() throws Exception {
+    @DisplayName("sort without size still sorts, on the default first page of 20")
+    void sortWithoutSizeUsesTheDefaultPage() throws Exception {
         mockMvc.perform(get("/api/properties/filter").param("sort", "recommended"))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isOk());
 
-        verifyNoInteractions(propertyService);
+        ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
+        verify(propertyService).filterRecommended(
+                any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), pageable.capture());
+        assertEquals(0, pageable.getValue().getPageNumber());
+        assertEquals(20, pageable.getValue().getPageSize());
     }
 }
