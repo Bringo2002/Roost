@@ -6,8 +6,12 @@ import com.roost.model.Property;
 import com.roost.model.Role;
 import com.roost.model.User;
 import com.roost.repository.ApplicationRepository;
+import com.roost.repository.ChatVisibilityRepository;
+import com.roost.repository.MessageRepository;
+import com.roost.repository.MoveInInspectionRepository;
 import com.roost.repository.PropertyRepository;
 import com.roost.repository.UserRepository;
+import com.roost.repository.VerificationDocumentRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -47,6 +51,11 @@ class AccountDeletionServiceTest {
     @Mock private PropertyRepository propertyRepository;
     @Mock private ApplicationRepository applicationRepository;
     @Mock private PasswordEncoder passwordEncoder;
+    @Mock private VerificationDocumentRepository verificationDocumentRepository;
+    @Mock private MessageRepository messageRepository;
+    @Mock private ChatVisibilityRepository chatVisibilityRepository;
+    @Mock private MoveInInspectionRepository moveInInspectionRepository;
+    @Mock private FileDeletionQueue fileDeletionQueue;
 
     @InjectMocks
     private AccountDeletionService service;

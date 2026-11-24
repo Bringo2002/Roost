@@ -2,11 +2,18 @@ package com.roost.service;
 
 import com.roost.dto.AccountDeletionStatusDto;
 import com.roost.exception.ApiException;
+import com.roost.model.Message;
+import com.roost.model.MoveInInspection;
 import com.roost.model.Property;
 import com.roost.model.User;
+import com.roost.model.VerificationDocument;
 import com.roost.repository.ApplicationRepository;
+import com.roost.repository.ChatVisibilityRepository;
+import com.roost.repository.MessageRepository;
+import com.roost.repository.MoveInInspectionRepository;
 import com.roost.repository.PropertyRepository;
 import com.roost.repository.UserRepository;
+import com.roost.repository.VerificationDocumentRepository;
 import com.roost.util.EmailNormalizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,11 +41,14 @@ import java.util.UUID;
  *   <li><strong>Execution</strong> — a nightly scheduled task
  *       ({@link AccountDeletionScheduledTask}) picks up expired grace periods
  *       and runs the irreversible anonymization: personal data is wiped, listings
- *       retired, applications hard-deleted, and the account disabled.</li>
+ *       retired, applications and messages hard-deleted, verification documents
+ *       scrubbed, uploaded files queued for deletion ({@link FileDeletionQueue}),
+ *       and the account disabled.</li>
  * </ol>
  *
  * <p>The account is soft-deleted rather than removed: the user row is kept so
- * the foreign keys held by messages, reviews, and reports stay valid. Because
+ * the foreign keys held by reviews, reports, inspections and the verification
+ * audit trail stay valid. Because
  * the email changes on execution, tokens issued before deletion no longer
  * resolve to a user and are rejected by the JWT filter.
  */
@@ -60,15 +70,30 @@ public class AccountDeletionService {
     private final PropertyRepository propertyRepository;
     private final ApplicationRepository applicationRepository;
     private final PasswordEncoder passwordEncoder;
+    private final VerificationDocumentRepository verificationDocumentRepository;
+    private final MessageRepository messageRepository;
+    private final ChatVisibilityRepository chatVisibilityRepository;
+    private final MoveInInspectionRepository moveInInspectionRepository;
+    private final FileDeletionQueue fileDeletionQueue;
 
     public AccountDeletionService(UserRepository userRepository,
                                   PropertyRepository propertyRepository,
                                   ApplicationRepository applicationRepository,
-                                  PasswordEncoder passwordEncoder) {
+                                  PasswordEncoder passwordEncoder,
+                                  VerificationDocumentRepository verificationDocumentRepository,
+                                  MessageRepository messageRepository,
+                                  ChatVisibilityRepository chatVisibilityRepository,
+                                  MoveInInspectionRepository moveInInspectionRepository,
+                                  FileDeletionQueue fileDeletionQueue) {
         this.userRepository = userRepository;
         this.propertyRepository = propertyRepository;
         this.applicationRepository = applicationRepository;
         this.passwordEncoder = passwordEncoder;
+        this.verificationDocumentRepository = verificationDocumentRepository;
+        this.messageRepository = messageRepository;
+        this.chatVisibilityRepository = chatVisibilityRepository;
+        this.moveInInspectionRepository = moveInInspectionRepository;
+        this.fileDeletionQueue = fileDeletionQueue;
     }
 
     // ── Phase 1: Request / Cancel / Status ──────────────────────────────
@@ -185,20 +210,17 @@ public class AccountDeletionService {
     }
 
     /**
-     * Runs the irreversible deletion sequence on a single user: deletes
-     * applications, retires listings, anonymizes the user row, and disables
-     * the account. This is the internal execution engine — not directly
-     * exposed to controllers.
+     * Runs the irreversible deletion sequence on a single user: queues their
+     * uploaded files for deletion, deletes applications and messages, retires
+     * listings, scrubs verification documents, anonymizes the user row, and
+     * disables the account. This is the internal execution engine — not
+     * directly exposed to controllers.
      *
      * @param user the user to permanently delete
      */
     @Transactional
     public void executeIrreversibleDeletion(User user) {
-        List<Property> owned = propertyRepository.findByOwner(user);
-        deleteApplications(user, owned);
-        retireListings(owned);
-        anonymize(user);
-        userRepository.save(user);
+        erase(user);
     }
 
     /**
@@ -217,12 +239,7 @@ public class AccountDeletionService {
     @Transactional
     public void deleteAccount(User user, String confirmEmail) {
         validateConfirmationEmail(user, confirmEmail);
-
-        List<Property> owned = propertyRepository.findByOwner(user);
-        deleteApplications(user, owned);
-        retireListings(owned);
-        anonymize(user);
-        userRepository.save(user);
+        erase(user);
     }
 
     // ── Validation helpers ──────────────────────────────────────────────
@@ -275,6 +292,96 @@ public class AccountDeletionService {
     // ── Internal deletion machinery ─────────────────────────────────────
 
     /**
+     * The erasure sequence shared by the scheduled and the legacy instant
+     * paths. Order matters: files are queued before the listing references
+     * to them are cleared, and the tenant's name is copied onto their
+     * inspections before the account is renamed.
+     */
+    private void erase(User user) {
+        List<Property> owned = propertyRepository.findByOwner(user);
+        queueUploadedFiles(user, owned);
+        deleteApplications(user, owned);
+        retireListings(owned);
+        eraseVerificationDocuments(user);
+        eraseMessages(user);
+        keepTenantNameOnInspections(user);
+        anonymize(user);
+        userRepository.save(user);
+    }
+
+    /**
+     * Queues the account's profile photo and every photo, document and video
+     * on the listings it owns. They are deleted after the retention period,
+     * once nothing else still uses the same stored file.
+     */
+    private void queueUploadedFiles(User user, List<Property> owned) {
+        fileDeletionQueue.queuePublicUrl(user.getAvatarUrl());
+        for (Property property : owned) {
+            fileDeletionQueue.queuePublicUrl(property.getImageUrl());
+            if (property.getImageUrls() != null) {
+                property.getImageUrls().forEach(fileDeletionQueue::queuePublicUrl);
+            }
+            if (property.getDocumentUrls() != null) {
+                property.getDocumentUrls().forEach(fileDeletionQueue::queuePublicUrl);
+            }
+            fileDeletionQueue.queuePublicUrl(property.getVideoUrl());
+        }
+    }
+
+    /**
+     * Queues every verification document file (IDs, deeds, utility bills) and
+     * clears the AI analysis, which can contain details read off the document.
+     * The rows stay, marked deleted: the append-only audit trail refers to them.
+     */
+    private void eraseVerificationDocuments(User user) {
+        List<VerificationDocument> documents = verificationDocumentRepository.findByOwnerId(user.getId());
+        if (documents.isEmpty()) {
+            return;
+        }
+        LocalDateTime now = LocalDateTime.now();
+        for (VerificationDocument document : documents) {
+            fileDeletionQueue.queuePrivateKey(document.getStorageKey());
+            document.setAiOpinion(null);
+            if (document.getDeletedAt() == null) {
+                document.setDeletedAt(now);
+            }
+        }
+        verificationDocumentRepository.saveAll(documents);
+    }
+
+    /**
+     * Deletes every message the account sent or received, with its reactions,
+     * queues the attachment files, and removes the account's chat settings.
+     * The messages are end-to-end encrypted and the account's keys are erased
+     * here, so the other person could no longer read them anyway.
+     */
+    private void eraseMessages(User user) {
+        List<Message> messages = messageRepository.findAllInvolving(user);
+        for (Message message : messages) {
+            fileDeletionQueue.queuePublicKey(message.getAttachmentStorageKey());
+        }
+        messageRepository.deleteAll(messages);
+        chatVisibilityRepository.deleteAllInvolving(user);
+    }
+
+    /**
+     * An inspection is evidence the landlord may need later, so it must keep
+     * naming the tenant. New ones record the name when they are created; this
+     * fills it in for any that do not have one before the account is renamed.
+     */
+    private void keepTenantNameOnInspections(User user) {
+        List<MoveInInspection> inspections = moveInInspectionRepository.findByTenantOrderByCreatedAtDesc(user);
+        List<MoveInInspection> missingName = inspections.stream()
+                .filter(inspection -> inspection.getTenantName() == null || inspection.getTenantName().isBlank())
+                .toList();
+        if (missingName.isEmpty()) {
+            return;
+        }
+        missingName.forEach(inspection -> inspection.setTenantName(user.getName()));
+        moveInInspectionRepository.saveAll(missingName);
+    }
+
+    /**
      * Deletes the applications this account is part of. They carry a full
      * name, national ID, employment status and income, so they are removed
      * outright rather than anonymized: both the ones the user submitted and
@@ -308,8 +415,9 @@ public class AccountDeletionService {
     /**
      * Clears contact names and phone numbers, the endorsement link, and every
      * photo, document and video reference. The stored files themselves are
-     * not deleted here: uploads are de-duplicated across users, so an object
-     * can be shared with another listing and needs a reference check first.
+     * not deleted here: {@link #queueUploadedFiles} queues them, and the
+     * deletion job checks that no other listing still uses the same
+     * de-duplicated file before removing it.
      */
     private void scrubPersonalData(Property property) {
         property.setLandlordName(null);
