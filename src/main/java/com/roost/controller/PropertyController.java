@@ -17,6 +17,7 @@ import com.roost.service.RentEstimateService;
 import com.roost.service.RateLimiterService;
 import com.roost.service.R2StorageService;
 import jakarta.validation.Valid;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
@@ -162,9 +163,25 @@ public class PropertyController {
         return PropertyResponseDto.from(propertyService.filter(type, minPrice, maxPrice, bedrooms, furnished, parking, wifi, water, security, verified, q, lat, lng, pageable));
     }
 
+    /** A viewer's repeat opens of the same listing inside this window count as one view. */
+    private static final Duration VIEW_DEDUPE_WINDOW = Duration.ofMinutes(30);
+
     @GetMapping("/{id}/view")
-    public ResponseEntity<PropertyResponseDto> incrementView(@PathVariable Long id) {
-        return ResponseEntity.ok(PropertyResponseDto.from(propertyService.incrementViewCount(id)));
+    public ResponseEntity<PropertyResponseDto> incrementView(@PathVariable Long id,
+                                                             @AuthenticationPrincipal User user,
+                                                             HttpServletRequest httpRequest) {
+        // Anonymous callers are told apart by IP (real IP behind the proxy, see RateLimitFilter).
+        String viewer = user != null ? "user:" + user.getId() : "ip:" + httpRequest.getRemoteAddr();
+        String viewKey = "view:" + id + ":" + viewer;
+
+        // A repeat view still gets the listing back, it just isn't counted again.
+        if (rateLimiterService.isBlocked(viewKey, 1, VIEW_DEDUPE_WINDOW)) {
+            return ResponseEntity.ok(PropertyResponseDto.from(propertyService.getPropertyDetail(id)));
+        }
+        PropertyResponseDto counted = PropertyResponseDto.from(propertyService.incrementViewCount(id));
+        // Recorded only after the listing is known to exist, so unknown ids never add keys.
+        rateLimiterService.record(viewKey);
+        return ResponseEntity.ok(counted);
     }
 
     @PostMapping("/{id}/confirm")
