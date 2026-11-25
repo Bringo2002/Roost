@@ -66,7 +66,7 @@ public class ListingEventService {
             }
             Property property = references.computeIfAbsent(
                     item.propertyId(), propertyRepository::getReferenceById);
-            rows.add(new ListingEvent(property, user.getId(), null, item.type(), now));
+            rows.add(new ListingEvent(property, user.getId(), null, item.type(), now, item.source()));
         }
         listingEventRepository.saveAll(rows);
         return new ListingEventBatchResponse(rows.size(), dropped);

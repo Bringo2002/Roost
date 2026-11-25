@@ -3,6 +3,7 @@ package com.roost.controller;
 import com.roost.dto.ListingEventBatchRequest;
 import com.roost.dto.ListingEventBatchResponse;
 import com.roost.exception.GlobalExceptionHandler;
+import com.roost.model.ListingEventSource;
 import com.roost.model.ListingEventType;
 import com.roost.model.User;
 import com.roost.service.ListingEventService;
@@ -13,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.core.MethodParameter;
@@ -105,6 +107,26 @@ class ListingEventControllerTest {
         verify(rateLimiterService).record("listing-events:user:7");
     }
 
+    @Test
+    @DisplayName("a source on an event reaches the service, and a missing or null one arrives as null")
+    @SuppressWarnings("unchecked")
+    void sourceReachesTheService() throws Exception {
+        when(listingEventService.record(eq(user), anyList())).thenReturn(new ListingEventBatchResponse(3, 0));
+
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"events\":["
+                                + "{\"propertyId\":1,\"type\":\"IMPRESSION\",\"source\":\"HOME_FOR_YOU\"},"
+                                + "{\"propertyId\":2,\"type\":\"IMPRESSION\"},"
+                                + "{\"propertyId\":3,\"type\":\"CLICK\",\"source\":null}]}"))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<List<ListingEventBatchRequest.Item>> items = ArgumentCaptor.forClass(List.class);
+        verify(listingEventService).record(eq(user), items.capture());
+        assertEquals(ListingEventSource.HOME_FOR_YOU, items.getValue().get(0).source());
+        assertEquals(null, items.getValue().get(1).source());
+        assertEquals(null, items.getValue().get(2).source());
+    }
+
     @ParameterizedTest(name = "invalid body {0} -> 400, nothing recorded")
     @ValueSource(strings = {
             "{}",
@@ -112,7 +134,8 @@ class ListingEventControllerTest {
             "{\"events\":[null]}",
             "{\"events\":[{\"type\":\"CLICK\"}]}",
             "{\"events\":[{\"propertyId\":1}]}",
-            "{\"events\":[{\"propertyId\":1,\"type\":\"SWIPE\"}]}"
+            "{\"events\":[{\"propertyId\":1,\"type\":\"SWIPE\"}]}",
+            "{\"events\":[{\"propertyId\":1,\"type\":\"CLICK\",\"source\":\"SIDEBAR\"}]}"
     })
     void invalidBodyIs400(String body) throws Exception {
         mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body))

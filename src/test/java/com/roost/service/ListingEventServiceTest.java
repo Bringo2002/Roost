@@ -3,6 +3,7 @@ package com.roost.service;
 import com.roost.dto.ListingEventBatchRequest;
 import com.roost.dto.ListingEventBatchResponse;
 import com.roost.model.ListingEvent;
+import com.roost.model.ListingEventSource;
 import com.roost.model.ListingEventType;
 import com.roost.model.Property;
 import com.roost.model.User;
@@ -24,6 +25,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.times;
@@ -91,6 +93,24 @@ class ListingEventServiceTest {
             assertNotNull(row.getCreatedAt());
         }
         verify(propertyRepository, times(1)).getReferenceById(1L);
+    }
+
+    @Test
+    @DisplayName("each event keeps its own source, and an event without one is stored with none")
+    void storesTheSourceOfEachEvent() {
+        when(propertyRepository.findExistingIds(any())).thenReturn(List.of(1L));
+        when(propertyRepository.getReferenceById(1L)).thenReturn(property(1L));
+
+        service.record(user, List.of(
+                new ListingEventBatchRequest.Item(1L, ListingEventType.IMPRESSION, ListingEventSource.HOME_FOR_YOU),
+                new ListingEventBatchRequest.Item(1L, ListingEventType.IMPRESSION, ListingEventSource.SEARCH),
+                item(1L, ListingEventType.CLICK)));
+
+        verify(listingEventRepository).saveAll(rowsCaptor.capture());
+        List<ListingEvent> rows = rowsCaptor.getValue();
+        assertEquals("HOME_FOR_YOU", rows.get(0).getSource());
+        assertEquals("SEARCH", rows.get(1).getSource());
+        assertNull(rows.get(2).getSource());
     }
 
     @Test
