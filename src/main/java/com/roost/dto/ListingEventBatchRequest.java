@@ -1,5 +1,6 @@
 package com.roost.dto;
 
+import com.roost.model.ListingEventSource;
 import com.roost.model.ListingEventType;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotEmpty;
@@ -20,6 +21,17 @@ public record ListingEventBatchRequest(
     /** Largest batch accepted in one request. */
     public static final int MAX_EVENTS = 50;
 
-    /** One interaction: what happened ({@link ListingEventType}) to which listing. */
-    public record Item(@NotNull Long propertyId, @NotNull ListingEventType type) {}
+    /**
+     * One interaction: what happened ({@link ListingEventType}) to which
+     * listing, and optionally which feed surface showed it
+     * ({@link ListingEventSource}). The source is optional so older clients
+     * keep working; an unknown source value is rejected as a bad request.
+     */
+    public record Item(@NotNull Long propertyId, @NotNull ListingEventType type, ListingEventSource source) {
+
+        /** An interaction with no known feed surface. */
+        public Item(Long propertyId, ListingEventType type) {
+            this(propertyId, type, null);
+        }
+    }
 }
