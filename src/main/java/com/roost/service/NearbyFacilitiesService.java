@@ -33,7 +33,7 @@ import java.util.function.LongSupplier;
  * which is what makes "200m from Thika Superhighway" possible at all.
  */
 @Service
-public class NearbyFacilitiesService {
+public class NearbyFacilitiesService implements FacilitySource {
 
     private static final Logger log = LoggerFactory.getLogger(NearbyFacilitiesService.class);
 
@@ -146,6 +146,7 @@ public class NearbyFacilitiesService {
      * answers are cached. Blocks the calling thread while retrying, so call
      * it off the request thread (see NearbyFacilitiesUpdateListener).
      */
+    @Override
     public Optional<List<Facility>> lookup(double lat, double lng) {
         String key = cacheKey(lat, lng);
         List<Facility> cached = cacheGet(key);
