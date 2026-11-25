@@ -42,6 +42,9 @@ public class ListingEvent {
     /** Max length of {@link #anonymousId}; mirrors the column definition. */
     public static final int ANONYMOUS_ID_MAX_LENGTH = 64;
 
+    /** Max length of {@link #source}; mirrors the column definition. */
+    public static final int SOURCE_MAX_LENGTH = 30;
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -63,6 +66,10 @@ public class ListingEvent {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
+    /** The feed surface that showed the listing (a {@link ListingEventSource} name), or null if unknown. */
+    @Column(name = "source", length = SOURCE_MAX_LENGTH)
+    private String source;
+
     /** JPA requires a no-arg constructor. */
     protected ListingEvent() {}
 
@@ -76,6 +83,18 @@ public class ListingEvent {
      */
     public ListingEvent(Property property, Long userId, String anonymousId,
                         ListingEventType type, Instant createdAt) {
+        this(property, userId, anonymousId, type, createdAt, null);
+    }
+
+    /**
+     * Same as the five-argument constructor, plus the feed surface that
+     * showed the listing.
+     *
+     * @param source where the listing was shown, or null when unknown
+     * @throws IllegalArgumentException if neither actor is present or {@code anonymousId} is too long
+     */
+    public ListingEvent(Property property, Long userId, String anonymousId,
+                        ListingEventType type, Instant createdAt, ListingEventSource source) {
         boolean hasAnonymous = anonymousId != null && !anonymousId.isBlank();
         if (userId == null && !hasAnonymous) {
             throw new IllegalArgumentException("A listing event needs a userId or an anonymousId");
@@ -89,6 +108,7 @@ public class ListingEvent {
         this.anonymousId = hasAnonymous ? anonymousId : null;
         this.eventType = type.name();
         this.createdAt = createdAt;
+        this.source = source == null ? null : source.name();
     }
 
     public Long getId()             { return id; }
@@ -97,4 +117,5 @@ public class ListingEvent {
     public String getAnonymousId()  { return anonymousId; }
     public String getEventType()    { return eventType; }
     public Instant getCreatedAt()   { return createdAt; }
+    public String getSource()       { return source; }
 }
