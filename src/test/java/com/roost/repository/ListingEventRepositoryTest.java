@@ -1,6 +1,7 @@
 package com.roost.repository;
 
 import com.roost.model.ListingEvent;
+import com.roost.model.ListingEventSource;
 import com.roost.model.ListingEventType;
 import com.roost.model.Property;
 import com.roost.model.Role;
@@ -136,6 +137,24 @@ class ListingEventRepositoryTest {
         em.clear();
 
         assertEquals(0, listingEventRepository.count());
+    }
+
+    @Test
+    @DisplayName("source round-trips through the database, and an event without one reads back as null")
+    void source_roundTrips() {
+        Property p = listing("p");
+        em.persist(new ListingEvent(p, null, "device-1", ListingEventType.IMPRESSION, Instant.now(),
+                ListingEventSource.HOME_NEARBY));
+        em.persist(new ListingEvent(p, null, "device-2", ListingEventType.CLICK, Instant.now()));
+        em.flush();
+        em.clear();
+
+        Map<String, String> sourceByDevice = listingEventRepository.findAll().stream()
+                .collect(Collectors.toMap(ListingEvent::getAnonymousId,
+                        e -> String.valueOf(e.getSource())));
+
+        assertEquals("HOME_NEARBY", sourceByDevice.get("device-1"));
+        assertEquals("null", sourceByDevice.get("device-2"));
     }
 
     @Test
