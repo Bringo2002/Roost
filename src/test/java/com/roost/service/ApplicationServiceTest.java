@@ -28,6 +28,7 @@ class ApplicationServiceTest {
 
     @Mock private ApplicationRepository applicationRepository;
     @Mock private PropertyService propertyService;
+    @Mock private ListingEventService listingEventService;
 
     @InjectMocks
     private ApplicationService applicationService;

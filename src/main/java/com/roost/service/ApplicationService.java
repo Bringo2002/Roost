@@ -1,8 +1,10 @@
 package com.roost.service;
 
 import com.roost.dto.ApplicationRequestDto;
+import com.roost.dto.ListingEventBatchRequest;
 import com.roost.exception.ApiException;
 import com.roost.model.Application;
+import com.roost.model.ListingEventType;
 import com.roost.model.Property;
 import com.roost.model.Role;
 import com.roost.model.User;
@@ -19,10 +21,13 @@ public class ApplicationService {
 
     private final ApplicationRepository applicationRepository;
     private final PropertyService propertyService;
+    private final ListingEventService listingEventService;
 
-    public ApplicationService(ApplicationRepository applicationRepository, PropertyService propertyService) {
+    public ApplicationService(ApplicationRepository applicationRepository, PropertyService propertyService,
+                              ListingEventService listingEventService) {
         this.applicationRepository = applicationRepository;
         this.propertyService = propertyService;
+        this.listingEventService = listingEventService;
     }
 
     public Application submitApplication(User applicant, ApplicationRequestDto request) {
@@ -42,7 +47,12 @@ public class ApplicationService {
         application.setStatus("PENDING");
         application.setCreatedAt(LocalDateTime.now());
 
-        return applicationRepository.save(application);
+        Application saved = applicationRepository.save(application);
+
+        // The ranking job counts APPLICATION events; nothing else records them.
+        listingEventService.record(applicant, List.of(
+                new ListingEventBatchRequest.Item(property.getId(), ListingEventType.APPLICATION)));
+        return saved;
     }
 
     public List<Application> getPropertyApplications(User user, Long propertyId) {
