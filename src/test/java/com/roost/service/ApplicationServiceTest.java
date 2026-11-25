@@ -1,8 +1,10 @@
 package com.roost.service;
 
 import com.roost.dto.ApplicationRequestDto;
+import com.roost.dto.ListingEventBatchRequest;
 import com.roost.exception.ApiException;
 import com.roost.model.Application;
+import com.roost.model.ListingEventType;
 import com.roost.model.Property;
 import com.roost.model.User;
 import com.roost.repository.ApplicationRepository;
@@ -10,16 +12,21 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /** Unit tests for {@link ApplicationService#submitApplication}. */
@@ -28,6 +35,7 @@ class ApplicationServiceTest {
 
     @Mock private ApplicationRepository applicationRepository;
     @Mock private PropertyService propertyService;
+    @Mock private ListingEventService listingEventService;
 
     @InjectMocks
     private ApplicationService applicationService;
@@ -75,6 +83,21 @@ class ApplicationServiceTest {
     }
 
     @Test
+    @DisplayName("a submitted application records one APPLICATION event for the listing, by the applicant")
+    @SuppressWarnings("unchecked")
+    void recordsApplicationEvent() {
+        when(propertyService.getPropertyById(10L)).thenReturn(property);
+        when(applicationRepository.existsByPropertyAndApplicant(property, applicant)).thenReturn(false);
+        when(applicationRepository.save(any(Application.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        applicationService.submitApplication(applicant, request(10L, "Jane Doe"));
+
+        ArgumentCaptor<List<ListingEventBatchRequest.Item>> items = ArgumentCaptor.forClass(List.class);
+        verify(listingEventService).record(eq(applicant), items.capture());
+        assertEquals(List.of(new ListingEventBatchRequest.Item(10L, ListingEventType.APPLICATION)), items.getValue());
+    }
+
+    @Test
     @DisplayName("optional fields left out default to empty text and zero income, as before")
     void optionalFieldsDefault() {
         when(propertyService.getPropertyById(10L)).thenReturn(property);
@@ -99,6 +122,7 @@ class ApplicationServiceTest {
 
         assertEquals("You have already applied for this property", ex.getMessage());
         verify(applicationRepository, never()).save(any());
+        verifyNoInteractions(listingEventService);
     }
 
     @Test
@@ -110,5 +134,6 @@ class ApplicationServiceTest {
                 () -> applicationService.submitApplication(applicant, request(99L, "Jane Doe")));
 
         verify(applicationRepository, never()).save(any());
+        verifyNoInteractions(listingEventService);
     }
 }
