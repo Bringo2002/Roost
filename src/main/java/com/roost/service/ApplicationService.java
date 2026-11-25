@@ -1,5 +1,6 @@
 package com.roost.service;
 
+import com.roost.dto.ApplicationRequestDto;
 import com.roost.exception.ApiException;
 import com.roost.model.Application;
 import com.roost.model.Property;
@@ -11,7 +12,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Map;
 
 @Service
 @Transactional
@@ -25,9 +25,8 @@ public class ApplicationService {
         this.propertyService = propertyService;
     }
 
-    public Application submitApplication(User applicant, Map<String, Object> payload) {
-        Long propertyId = Long.valueOf(payload.get("propertyId").toString());
-        Property property = propertyService.getPropertyById(propertyId);
+    public Application submitApplication(User applicant, ApplicationRequestDto request) {
+        Property property = propertyService.getPropertyById(request.getPropertyId());
 
         if (applicationRepository.existsByPropertyAndApplicant(property, applicant)) {
             throw ApiException.badRequest("You have already applied for this property");
@@ -36,10 +35,10 @@ public class ApplicationService {
         Application application = new Application();
         application.setProperty(property);
         application.setApplicant(applicant);
-        application.setFullName(payload.get("fullName").toString());
-        application.setNationalId(payload.get("nationalId") != null ? payload.get("nationalId").toString() : "");
-        application.setEmploymentStatus(payload.get("employmentStatus") != null ? payload.get("employmentStatus").toString() : "");
-        application.setMonthlyIncome(payload.get("monthlyIncome") != null ? Double.parseDouble(payload.get("monthlyIncome").toString()) : 0.0);
+        application.setFullName(request.getFullName());
+        application.setNationalId(request.getNationalId() != null ? request.getNationalId() : "");
+        application.setEmploymentStatus(request.getEmploymentStatus() != null ? request.getEmploymentStatus() : "");
+        application.setMonthlyIncome(request.getMonthlyIncome() != null ? request.getMonthlyIncome() : 0.0);
         application.setStatus("PENDING");
         application.setCreatedAt(LocalDateTime.now());
 
