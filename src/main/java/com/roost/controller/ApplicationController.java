@@ -1,8 +1,10 @@
 package com.roost.controller;
 
+import com.roost.dto.ApplicationRequestDto;
 import com.roost.dto.ApplicationResponseDto;
 import com.roost.model.User;
 import com.roost.service.ApplicationService;
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
@@ -22,9 +24,9 @@ public class ApplicationController {
 
     @PostMapping
     public ResponseEntity<ApplicationResponseDto> submitApplication(@AuthenticationPrincipal User user,
-                                                            @RequestBody Map<String, Object> payload) {
+                                                            @Valid @RequestBody ApplicationRequestDto request) {
         if (user == null) return ResponseEntity.status(401).build();
-        return ResponseEntity.ok(ApplicationResponseDto.from(applicationService.submitApplication(user, payload)));
+        return ResponseEntity.ok(ApplicationResponseDto.from(applicationService.submitApplication(user, request)));
     }
 
     @GetMapping("/property/{propertyId}")
