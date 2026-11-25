@@ -25,13 +25,13 @@ public class NearbyFacilitiesEnricher {
 
     private static final Logger log = LoggerFactory.getLogger(NearbyFacilitiesEnricher.class);
 
-    private final NearbyFacilitiesService nearbyFacilitiesService;
+    private final FacilitySource facilitySource;
     private final PropertyRepository propertyRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public NearbyFacilitiesEnricher(NearbyFacilitiesService nearbyFacilitiesService,
+    public NearbyFacilitiesEnricher(FacilitySource facilitySource,
                                     PropertyRepository propertyRepository) {
-        this.nearbyFacilitiesService = nearbyFacilitiesService;
+        this.facilitySource = facilitySource;
         this.propertyRepository = propertyRepository;
     }
 
@@ -42,7 +42,7 @@ public class NearbyFacilitiesEnricher {
      *         listing stays eligible for the backfill to retry later.
      */
     public boolean enrich(Long propertyId, double lat, double lng) {
-        Optional<List<NearbyFacilitiesService.Facility>> facilities = nearbyFacilitiesService.lookup(lat, lng);
+        Optional<List<NearbyFacilitiesService.Facility>> facilities = facilitySource.lookup(lat, lng);
         if (facilities.isEmpty()) {
             log.warn("Nearby facilities unavailable for property {}; leaving unset to retry later", propertyId);
             return false;

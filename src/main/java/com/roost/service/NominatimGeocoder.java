@@ -30,7 +30,7 @@ import java.util.function.LongSupplier;
  * "address not found".
  */
 @Service
-public class NominatimGeocoder implements Geocoder {
+public class NominatimGeocoder implements Geocoder, PlaceFinder {
 
     private static final String ENDPOINT = "https://nominatim.openstreetmap.org/search";
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(8);
@@ -64,6 +64,17 @@ public class NominatimGeocoder implements Geocoder {
     private record CacheEntry(List<GeocodedPlace> places, long expiresAtMillis) {
     }
 
+    private record PlaceCacheEntry(List<FoundPlace> places, long expiresAtMillis) {
+    }
+
+    /** Nominatim returns at most 40 results for a search. */
+    private static final int PLACE_RESULT_LIMIT = 40;
+    /** Hospitals and malls change slowly, so a found set is kept for a day. */
+    private static final long PLACES_FOUND_TTL_MILLIS = Duration.ofHours(24).toMillis();
+    /** "Nothing found" is kept only briefly, in case the map data was just fixed. */
+    private static final long PLACES_NONE_TTL_MILLIS = Duration.ofHours(1).toMillis();
+    private static final double METERS_PER_DEGREE_LATITUDE = 111_320.0;
+
     private final Transport transport;
     private final Sleeper sleeper;
     private final LongSupplier clockMillis;
@@ -72,6 +83,14 @@ public class NominatimGeocoder implements Geocoder {
     private final Map<String, CacheEntry> cache = new LinkedHashMap<>(64, 0.75f, true) {
         @Override
         protected boolean removeEldestEntry(Map.Entry<String, CacheEntry> eldest) {
+            return size() > CACHE_MAX_ENTRIES;
+        }
+    };
+
+    // Same shape as the cache above, for place searches; guarded by "this".
+    private final Map<String, PlaceCacheEntry> placeCache = new LinkedHashMap<>(64, 0.75f, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, PlaceCacheEntry> eldest) {
             return size() > CACHE_MAX_ENTRIES;
         }
     };
@@ -213,6 +232,152 @@ public class NominatimGeocoder implements Geocoder {
         } catch (NumberFormatException e) {
             return null;
         }
+    }
+
+    @Override
+    public List<FoundPlace> findNear(PlaceKind kind, double latitude, double longitude, int radiusMeters)
+            throws GeocodingUnavailableException {
+        if (!Double.isFinite(latitude) || !Double.isFinite(longitude) || radiusMeters <= 0) {
+            throw new IllegalArgumentException("A finite position and a positive radius are required");
+        }
+        String key = String.format(Locale.ROOT, "%s|%.4f,%.4f|%d", kind, latitude, longitude, radiusMeters);
+
+        List<FoundPlace> cached = placeCacheGet(key);
+        if (cached != null) {
+            return cached;
+        }
+        List<FoundPlace> places = fetchPlaces(kind, latitude, longitude, radiusMeters);
+        placeCachePut(key, places);
+        return places;
+    }
+
+    private List<FoundPlace> fetchPlaces(PlaceKind kind, double lat, double lng, int radiusMeters)
+            throws GeocodingUnavailableException {
+        // Keyed by name and spot, so the same place found by two searches is listed once.
+        Map<String, FoundPlace> unique = new LinkedHashMap<>();
+        for (String fragment : searchFragments(kind)) {
+            URI uri = buildPlaceUri(fragment, lat, lng, radiusMeters);
+            for (FoundPlace place : parsePlaces(getBody(uri))) {
+                String id = String.format(Locale.ROOT, "%s|%.4f,%.4f",
+                        place.name().toLowerCase(Locale.ROOT), place.latitude(), place.longitude());
+                unique.putIfAbsent(id, place);
+            }
+        }
+        return List.copyOf(unique.values());
+    }
+
+    /**
+     * The search terms Nominatim understands for a kind of place. Hospitals
+     * have a precise tag; malls are found by their category name, so a mall
+     * with an unusual name is found only if the map tags it as one.
+     */
+    private static List<String> searchFragments(PlaceKind kind) {
+        return switch (kind) {
+            case HOSPITAL -> List.of("amenity=hospital");
+            case MALL -> List.of("q=mall", "q=shopping+centre");
+        };
+    }
+
+    /** One throttled round trip; any failure becomes a {@link GeocodingUnavailableException}. */
+    private String getBody(URI uri) throws GeocodingUnavailableException {
+        try {
+            awaitTurn();
+            Transport.Response response = transport.get(uri);
+            if (response.status() != 200) {
+                throw new GeocodingUnavailableException("Nominatim answered HTTP " + response.status());
+            }
+            return response.body();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new GeocodingUnavailableException("Interrupted while searching for places", e);
+        } catch (GeocodingUnavailableException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new GeocodingUnavailableException("Nominatim request failed", e);
+        }
+    }
+
+    /** A bounded search over the box around the point that covers [radiusMeters]. */
+    static URI buildPlaceUri(String fragment, double lat, double lng, int radiusMeters) {
+        double dLat = radiusMeters / METERS_PER_DEGREE_LATITUDE;
+        // Longitude degrees shrink towards the poles; keep the divisor away from zero.
+        double cos = Math.max(Math.cos(Math.toRadians(lat)), 0.01);
+        double dLng = radiusMeters / (METERS_PER_DEGREE_LATITUDE * cos);
+        // Nominatim's viewbox is west,north,east,south.
+        String viewbox = String.format(Locale.ROOT, "%.6f,%.6f,%.6f,%.6f",
+                lng - dLng, lat + dLat, lng + dLng, lat - dLat);
+        return URI.create(ENDPOINT + "?format=jsonv2&limit=" + PLACE_RESULT_LIMIT
+                + "&bounded=1&viewbox=" + viewbox + "&" + fragment);
+    }
+
+    /**
+     * Reads a {@code jsonv2} search response into named places. Results with
+     * no name are skipped. As with {@link #parse}, an empty array is a real
+     * "none found", while entries that cannot be read at all are a failure,
+     * so a format change cannot pass for "nothing nearby".
+     */
+    static List<FoundPlace> parsePlaces(String body) throws GeocodingUnavailableException {
+        JsonNode root;
+        try {
+            root = MAPPER.readTree(body);
+        } catch (JsonProcessingException e) {
+            throw new GeocodingUnavailableException("Nominatim returned unreadable JSON", e);
+        }
+        if (root == null || !root.isArray()) {
+            throw new GeocodingUnavailableException("Unexpected response from Nominatim");
+        }
+        List<FoundPlace> places = new ArrayList<>();
+        int readable = 0;
+        for (JsonNode node : root) {
+            double lat;
+            double lon;
+            try {
+                lat = Double.parseDouble(node.path("lat").asText());
+                lon = Double.parseDouble(node.path("lon").asText());
+            } catch (NumberFormatException e) {
+                continue;
+            }
+            if (!allFinite(lat, lon)) {
+                continue;
+            }
+            readable++;
+            String name = placeName(node);
+            if (!name.isEmpty()) {
+                places.add(new FoundPlace(name, lat, lon));
+            }
+        }
+        if (root.size() > 0 && readable == 0) {
+            throw new GeocodingUnavailableException("Nominatim results could not be read");
+        }
+        return places;
+    }
+
+    /** The place's own name, or the first part of its display name; empty when it has none. */
+    private static String placeName(JsonNode node) {
+        String name = node.path("name").asText("").trim();
+        if (!name.isEmpty()) {
+            return name;
+        }
+        String display = node.path("display_name").asText("").trim();
+        int comma = display.indexOf(',');
+        return (comma >= 0 ? display.substring(0, comma) : display).trim();
+    }
+
+    private synchronized List<FoundPlace> placeCacheGet(String key) {
+        PlaceCacheEntry entry = placeCache.get(key);
+        if (entry == null) {
+            return null;
+        }
+        if (entry.expiresAtMillis() <= clockMillis.getAsLong()) {
+            placeCache.remove(key);
+            return null;
+        }
+        return entry.places();
+    }
+
+    private synchronized void placeCachePut(String key, List<FoundPlace> places) {
+        long ttl = places.isEmpty() ? PLACES_NONE_TTL_MILLIS : PLACES_FOUND_TTL_MILLIS;
+        placeCache.put(key, new PlaceCacheEntry(places, clockMillis.getAsLong() + ttl));
     }
 
     private static boolean allFinite(double... values) {
