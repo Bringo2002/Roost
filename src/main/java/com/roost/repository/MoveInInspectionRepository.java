@@ -5,7 +5,10 @@ import com.roost.model.Property;
 import com.roost.model.User;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -29,4 +32,12 @@ public interface MoveInInspectionRepository extends JpaRepository<MoveInInspecti
      *  their own inspection, never one belonging to someone else who
      *  happens to guess a valid id. */
     Optional<MoveInInspection> findByIdAndTenant(Long id, User tenant);
+
+    /**
+     * Inspections past their retention period: those completed before
+     * {@code cutoff}, or, for one that was never completed, created before it.
+     * The nightly retention job deletes them.
+     */
+    @Query("SELECT i FROM MoveInInspection i WHERE COALESCE(i.completedAt, i.createdAt) < :cutoff")
+    List<MoveInInspection> findExpired(@Param("cutoff") LocalDateTime cutoff);
 }
