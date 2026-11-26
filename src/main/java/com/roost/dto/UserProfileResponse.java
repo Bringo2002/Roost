@@ -23,9 +23,14 @@ public class UserProfileResponse {
      *  delete-account screen asks for one. */
     private boolean emailVerified;
 
+    /** True when the account was created with an email + password signup
+     *  (as opposed to Google/Apple social sign-in). The app uses it to
+     *  decide whether to ask for a password on the delete-account screen. */
+    private boolean hasPassword;
+
     public UserProfileResponse() {}
 
-    public UserProfileResponse(Long id, String name, String email, String phone, boolean phoneVerified, Role role, String publicKey, String avatarUrl, LocalDateTime lastActiveAt, LocalDateTime deletionScheduledAt, boolean emailVerified) {
+    public UserProfileResponse(Long id, String name, String email, String phone, boolean phoneVerified, Role role, String publicKey, String avatarUrl, LocalDateTime lastActiveAt, LocalDateTime deletionScheduledAt, boolean emailVerified, boolean hasPassword) {
         this.id = id;
         this.name = name;
         this.email = email;
@@ -37,6 +42,7 @@ public class UserProfileResponse {
         this.lastActiveAt = lastActiveAt;
         this.deletionScheduledAt = deletionScheduledAt;
         this.emailVerified = emailVerified;
+        this.hasPassword = hasPassword;
     }
 
     public Long getId() {
@@ -127,6 +133,14 @@ public class UserProfileResponse {
         this.emailVerified = emailVerified;
     }
 
+    public boolean isHasPassword() {
+        return hasPassword;
+    }
+
+    public void setHasPassword(boolean hasPassword) {
+        this.hasPassword = hasPassword;
+    }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -143,6 +157,7 @@ public class UserProfileResponse {
         private LocalDateTime lastActiveAt;
         private LocalDateTime deletionScheduledAt;
         private boolean emailVerified;
+        private boolean hasPassword;
 
         public Builder id(Long id) {
             this.id = id;
@@ -199,8 +214,13 @@ public class UserProfileResponse {
             return this;
         }
 
+        public Builder hasPassword(boolean hasPassword) {
+            this.hasPassword = hasPassword;
+            return this;
+        }
+
         public UserProfileResponse build() {
-            return new UserProfileResponse(id, name, email, phone, phoneVerified, role, publicKey, avatarUrl, lastActiveAt, deletionScheduledAt, emailVerified);
+            return new UserProfileResponse(id, name, email, phone, phoneVerified, role, publicKey, avatarUrl, lastActiveAt, deletionScheduledAt, emailVerified, hasPassword);
         }
     }
 }

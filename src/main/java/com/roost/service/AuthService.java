@@ -220,6 +220,7 @@ public class AuthService {
                 .lastActiveAt(user.getLastActiveAt())
                 .deletionScheduledAt(user.getDeletionScheduledAt())
                 .emailVerified(user.isEmailVerified())
+                .hasPassword(!user.isEmailVerified())
                 .build();
     }
 }
