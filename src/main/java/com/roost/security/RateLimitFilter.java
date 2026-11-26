@@ -5,12 +5,14 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import io.github.bucket4j.Bandwidth;
 import io.github.bucket4j.Bucket;
 import io.github.bucket4j.ConsumptionProbe;
+import io.github.bucket4j.TimeMeter;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
@@ -83,15 +85,30 @@ public class RateLimitFilter extends OncePerRequestFilter {
             .build();
 
     private final JwtService jwtService;
+    private final TimeMeter timeMeter;
 
     /**
-     * Creates the filter.
+     * Creates the filter, refilling buckets against the system clock.
      *
      * @param jwtService used to verify the bearer token that identifies a
      *                   chat caller; no database access is involved
      */
+    @Autowired
     public RateLimitFilter(JwtService jwtService) {
+        this(jwtService, TimeMeter.SYSTEM_MILLISECONDS);
+    }
+
+    /**
+     * Creates the filter with a caller-supplied clock for the buckets'
+     * refill. Package-private: it exists so a test can hold time still (or
+     * advance it by hand) instead of racing the real clock, which a
+     * 240-per-minute bucket refilling a token every 250 ms makes flaky.
+     * {@link TimeMeter#SYSTEM_MILLISECONDS} is what Bucket4j uses when none
+     * is given, so production behaviour is unchanged.
+     */
+    RateLimitFilter(JwtService jwtService, TimeMeter timeMeter) {
         this.jwtService = jwtService;
+        this.timeMeter = timeMeter;
     }
 
     @Override
@@ -162,6 +179,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
     private Bucket createBucket(int capacity, Duration refillPeriod) {
         return Bucket.builder()
+                .withCustomTimePrecision(timeMeter)
                 .addLimit(Bandwidth.builder()
                         .capacity(capacity)
                         .refillGreedy(capacity, refillPeriod)
