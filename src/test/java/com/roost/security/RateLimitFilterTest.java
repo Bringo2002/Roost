@@ -1,5 +1,6 @@
 package com.roost.security;
 
+import io.github.bucket4j.TimeMeter;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -8,6 +9,7 @@ import org.springframework.security.core.userdetails.User;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Base64;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -23,7 +25,10 @@ class RateLimitFilterTest {
     private static final String OTHER_SECRET = base64("fedcba9876543210fedcba9876543210");
 
     private final JwtService jwtService = jwtServiceWith(SECRET);
-    private final RateLimitFilter filter = new RateLimitFilter(jwtService);
+    // Time stands still unless a test advances it, so a bucket never refills
+    // a token halfway through a burst on a slow machine.
+    private final ManualClock clock = new ManualClock();
+    private final RateLimitFilter filter = new RateLimitFilter(jwtService, clock);
 
     @Test
     void authEndpoint_allowsFirstTenRequests() throws Exception {
@@ -108,6 +113,22 @@ class RateLimitFilterTest {
         MockHttpServletResponse response = fire("GET", "/api/chat/history/5", "10.1.0.2", token);
         assertEquals(429, response.getStatus());
         assertNotNull(response.getHeader("Retry-After"));
+    }
+
+    @Test
+    void chatBucket_refillsOneRequestEveryQuarterSecond() throws Exception {
+        // 240 per minute is one token per 250 ms.
+        String token = tokenFor("chat-refill@example.com", jwtService);
+        for (int i = 0; i < 240; i++) {
+            assertEquals(200, fire("GET", "/api/chat/history/5", "10.1.0.13", token).getStatus(),
+                    "Request " + (i + 1) + " should be allowed");
+        }
+        assertEquals(429, fire("GET", "/api/chat/history/5", "10.1.0.13", token).getStatus());
+
+        clock.advance(Duration.ofMillis(250));
+
+        assertEquals(200, fire("GET", "/api/chat/history/5", "10.1.0.13", token).getStatus());
+        assertEquals(429, fire("GET", "/api/chat/history/5", "10.1.0.13", token).getStatus());
     }
 
     @Test
@@ -223,6 +244,25 @@ class RateLimitFilterTest {
         JwtService service = new JwtService();
         ReflectionTestUtils.setField(service, "secretKey", base64Secret);
         return service;
+    }
+
+    /** A clock that only moves when a test advances it. */
+    private static final class ManualClock implements TimeMeter {
+        private long nanos;
+
+        void advance(Duration amount) {
+            nanos += amount.toNanos();
+        }
+
+        @Override
+        public long currentTimeNanos() {
+            return nanos;
+        }
+
+        @Override
+        public boolean isWallClockBased() {
+            return false;
+        }
     }
 
     private static String base64(String raw) {
