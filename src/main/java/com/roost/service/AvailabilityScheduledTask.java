@@ -75,6 +75,16 @@ public class AvailabilityScheduledTask {
             try {
                 p.setAvailable(false);
                 p.setRemindedAt(null);
+                if (p.getOwner() != null) {
+                    String name = (p.getTitle() != null && !p.getTitle().isBlank())
+                            ? p.getTitle() : "Your listing";
+                    firebasePushService.sendToUser(
+                            p.getOwner(),
+                            "Listing paused",
+                            "We didn't hear back about " + name + ", so we've paused it for now. Whenever you're ready, just hop back in and confirm it's still available — it'll go live again right away.",
+                            Map.of("type", NotificationType.AVAILABILITY_EXPIRED.key(), "propertyId", String.valueOf(p.getId()))
+                    );
+                }
             } catch (Exception e) {
                 log.error("availability.expiry.failed propertyId={}", p.getId(), e);
             }

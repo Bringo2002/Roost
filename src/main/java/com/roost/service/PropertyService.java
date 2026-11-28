@@ -500,7 +500,16 @@ public class PropertyService {
         property.setAvailable(true);
         property.setLastConfirmedAt(LocalDateTime.now());
         property.setRemindedAt(null);
-        return populateRatings(propertyRepository.save(property));
+        Property saved = propertyRepository.save(property);
+        if (saved.getOwner() != null) {
+            firebasePushService.sendToUser(
+                    saved.getOwner(),
+                    "All set",
+                    "Thanks for confirming — " + listingName(saved) + " is showing as available and tenants can find it in search.",
+                    Map.of("type", NotificationType.AVAILABILITY_CONFIRMED.key(), "propertyId", String.valueOf(saved.getId()))
+            );
+        }
+        return populateRatings(saved);
     }
 
     public void saveProperty(User user, Long propertyId) {
@@ -551,7 +560,16 @@ public class PropertyService {
         existing.setAvailable(available);
         existing.setLastConfirmedAt(LocalDateTime.now());
         existing.setRemindedAt(null);
-        return populateRatings(propertyRepository.save(existing));
+        Property saved = propertyRepository.save(existing);
+        if (!available && saved.getOwner() != null) {
+            firebasePushService.sendToUser(
+                    saved.getOwner(),
+                    "Listing marked as rented",
+                    "Nice one — " + listingName(saved) + " is now marked as rented and hidden from search. Whenever you have another vacancy, you can reactivate it anytime.",
+                    Map.of("type", NotificationType.LISTING_MARKED_RENTED.key(), "propertyId", String.valueOf(saved.getId()))
+            );
+        }
+        return populateRatings(saved);
     }
 
     public Property updateProperty(Long id, Property updated) {

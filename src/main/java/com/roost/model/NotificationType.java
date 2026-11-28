@@ -21,7 +21,10 @@ public enum NotificationType {
     IDENTITY_VERIFIED("identity_verified"),
     IDENTITY_REJECTED("identity_rejected"),
     APPLICATION_RECEIVED("application_received"),
-    APPLICATION_STATUS_UPDATE("application_status_update");
+    APPLICATION_STATUS_UPDATE("application_status_update"),
+    AVAILABILITY_CONFIRMED("availability_confirmed"),
+    AVAILABILITY_EXPIRED("availability_expired"),
+    LISTING_MARKED_RENTED("listing_marked_rented");
 
     private final String key;
 
