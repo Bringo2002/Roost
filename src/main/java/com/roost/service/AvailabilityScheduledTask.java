@@ -51,8 +51,8 @@ public class AvailabilityScheduledTask {
                 if (p.getOwner() != null) {
                     firebasePushService.sendToUser(
                             p.getOwner(),
-                            "Is this property still available?",
-                            p.getTitle() + " -- confirm or mark as rented in the app",
+                            "Quick check-in",
+                            "Just checking \u2014 is " + (p.getTitle() != null ? p.getTitle() : "your listing") + " still available? Tap to confirm or mark it as rented so tenants see the latest.",
                             Map.of("type", NotificationType.AVAILABILITY_CHECK.key(), "propertyId", String.valueOf(p.getId()))
                     );
                 }

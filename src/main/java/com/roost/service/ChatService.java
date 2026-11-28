@@ -186,7 +186,7 @@ public class ChatService {
         firebasePushService.sendToUser(
                 recipient,
                 sender.getName() != null && !sender.getName().isBlank() ? sender.getName() : "New message",
-                hasAttachment ? "Sent you an attachment" : "Sent you a message",
+                hasAttachment ? "Sent you a photo" : "Sent you a message",
                 Map.of("type", NotificationType.CHAT.key(), "senderId", sender.getId().toString())
         );
 

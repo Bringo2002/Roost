@@ -147,8 +147,8 @@ public class AdminController {
         if (!enabled) {
             firebasePushService.sendToUser(
                     target,
-                    "Account Update",
-                    "Your Roost account has been temporarily deactivated. If you believe this is a mistake, please contact our support team for assistance.",
+                    "About your account",
+                    "We've had to temporarily deactivate your Roost account. If this doesn't seem right, just get in touch with our support team and we'll sort it out.",
                     Map.of("type", NotificationType.ACCOUNT_DISABLED.key())
             );
         }
@@ -174,8 +174,8 @@ public class AdminController {
         if (locked) {
             firebasePushService.sendToUser(
                     target,
-                    "Account Temporarily Suspended",
-                    "Your Roost account has been temporarily suspended while we look into recent activity. If you have questions, please reach out to our support team.",
+                    "About your account",
+                    "We've temporarily paused your Roost account while we look into some recent activity. If you have any questions, our support team is happy to help.",
                     Map.of("type", NotificationType.ACCOUNT_LOCKED.key())
             );
         }
