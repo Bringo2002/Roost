@@ -139,7 +139,7 @@ class PropertyReportTest {
         assertNotNull(result);
         assertEquals("UNDER_REVIEW", property.getStatus());
         verify(propertyRepository).save(property);
-        verify(firebasePushService).sendToUser(eq(owner), eq("Listing under review"), anyString(), anyMap());
+        verify(firebasePushService).sendToUser(eq(owner), eq("Heads up about your listing"), anyString(), anyMap());
     }
 
     @Test
