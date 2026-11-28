@@ -14,6 +14,8 @@ public class Message {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Version
+    private Long version;
     @Column(name = "reply_to_message_id")
     private Long replyToMessageId;
 

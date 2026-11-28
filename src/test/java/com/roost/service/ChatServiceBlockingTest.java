@@ -1,6 +1,7 @@
 package com.roost.service;
 
 import com.roost.dto.ConversationSummaryDto;
+import com.roost.dto.SendMessageRequestDto;
 import com.roost.exception.ApiException;
 import com.roost.model.Message;
 import com.roost.model.Role;
@@ -20,7 +21,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -73,8 +73,12 @@ class ChatServiceBlockingTest {
         return u;
     }
 
-    private Map<String, Object> messageTo(Long recipientId) {
-        return Map.of("recipientId", recipientId, "content", "ciphertext", "nonce", "nonce");
+    private SendMessageRequestDto messageTo(Long recipientId) {
+        SendMessageRequestDto dto = new SendMessageRequestDto();
+        dto.setRecipientId(recipientId);
+        dto.setContent("ciphertext");
+        dto.setNonce("nonce");
+        return dto;
     }
 
     // -- sending --------------------------------------------------------
@@ -168,12 +172,11 @@ class ChatServiceBlockingTest {
     void activeChatsSkipBlockedPartners() {
         when(messageRepository.findActiveChatPartners(me)).thenReturn(List.of(bob, carol));
         when(userBlockRepository.findBlockedIdsByBlocker(me)).thenReturn(List.of(2L));
-        when(messageRepository.findLastMessage(me, carol)).thenReturn(null);
+        when(messageRepository.findLastMessagesForPartners(me, List.of(3L))).thenReturn(List.of());
 
         List<User> active = chatService.getActiveChats(me);
 
         assertEquals(List.of(carol), active);
-        verify(messageRepository, never()).findLastMessage(me, bob);
     }
 
     @Test
@@ -181,14 +184,13 @@ class ChatServiceBlockingTest {
     void conversationsSkipBlockedPartners() {
         when(messageRepository.findActiveChatPartners(me)).thenReturn(List.of(bob, carol));
         when(userBlockRepository.findBlockedIdsByBlocker(me)).thenReturn(List.of(2L));
-        when(messageRepository.findLastMessage(me, carol)).thenReturn(null);
+        when(messageRepository.findLastMessagesForPartners(me, List.of(3L))).thenReturn(List.of());
+        when(messageRepository.countUnreadFromUsers(List.of(3L), me)).thenReturn(List.of());
 
         List<ConversationSummaryDto> conversations = chatService.getConversations(me);
 
         assertEquals(1, conversations.size());
         assertEquals(3L, conversations.get(0).getPartner().getId());
-        verify(messageRepository, never()).findLastMessage(me, bob);
-        verify(messageRepository, never()).countUnreadFromUser(bob, me);
     }
 
     @Test
@@ -196,8 +198,7 @@ class ChatServiceBlockingTest {
     void listsAreUnchangedWithNoBlocks() {
         when(messageRepository.findActiveChatPartners(me)).thenReturn(List.of(bob, carol));
         when(userBlockRepository.findBlockedIdsByBlocker(me)).thenReturn(List.of());
-        when(messageRepository.findLastMessage(me, bob)).thenReturn(null);
-        when(messageRepository.findLastMessage(me, carol)).thenReturn(null);
+        when(messageRepository.findLastMessagesForPartners(me, List.of(2L, 3L))).thenReturn(List.of());
 
         assertEquals(List.of(bob, carol), chatService.getActiveChats(me));
     }

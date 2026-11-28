@@ -48,7 +48,7 @@ class AdminControllerUserStateTest {
         userRepository = mock(UserRepository.class);
         PropertyService propertyService = mock(PropertyService.class);
 
-        AdminController controller = new AdminController(propertyService, userRepository);
+        AdminController controller = new AdminController(propertyService, userRepository, mock(com.roost.service.FirebasePushService.class));
 
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setCustomArgumentResolvers(new AuthenticationPrincipalArgumentResolver())

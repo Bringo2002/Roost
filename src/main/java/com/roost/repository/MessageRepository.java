@@ -4,17 +4,21 @@ import com.roost.model.Message;
 import com.roost.model.User;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface MessageRepository extends JpaRepository<Message, Long> {
 
-    @Query("SELECT m FROM Message m WHERE (m.sender = :user1 AND m.recipient = :user2) OR (m.sender = :user2 AND m.recipient = :user1) ORDER BY m.timestamp ASC")
-    List<Message> findChatHistory(@Param("user1") User user1, @Param("user2") User user2);
+    /** Nonce-based dedup: returns a previous message with the same sender+nonce, if any. */
+    Optional<Message> findBySenderAndNonce(User sender, String nonce);
+
+
 
     /** Most recent page of the conversation, newest first -- caller reverses for display.
      *  clearedBeforeId excludes messages at or before a user's "clear chat" cutoff (null = no cutoff). */
@@ -57,9 +61,26 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
     @Query("SELECT m FROM Message m WHERE m.sender = :sender AND m.recipient = :recipient AND m.read = false")
     List<Message> findUnreadFromUser(@Param("sender") User sender, @Param("recipient") User recipient);
 
-    @Query("SELECT m FROM Message m WHERE m.id = (SELECT MAX(m2.id) FROM Message m2 WHERE (m2.sender = :user AND m2.recipient = :partner) OR (m2.sender = :partner AND m2.recipient = :user))")
+    @Query("SELECT m FROM Message m LEFT JOIN FETCH m.sender LEFT JOIN FETCH m.recipient WHERE m.id = (SELECT MAX(m2.id) FROM Message m2 WHERE (m2.sender = :user AND m2.recipient = :partner) OR (m2.sender = :partner AND m2.recipient = :user))")
     Message findLastMessage(@Param("user") User user, @Param("partner") User partner);
 
     @Query("SELECT COUNT(m) FROM Message m WHERE m.sender = :sender AND m.recipient = :recipient AND m.read = false")
     Long countUnreadFromUser(@Param("sender") User sender, @Param("recipient") User recipient);
+
+    /** Bulk mark-as-read: single UPDATE instead of load-mutate-saveAll. */
+    @Modifying
+    @Query("UPDATE Message m SET m.read = true WHERE m.sender = :sender AND m.recipient = :recipient AND m.read = false")
+    int markAllAsRead(@Param("sender") User sender, @Param("recipient") User recipient);
+
+    /** Batch: last message for each partner in a single query. Returns [partnerId, Message]. */
+    @Query("SELECT m.sender.id, m FROM Message m LEFT JOIN FETCH m.sender LEFT JOIN FETCH m.recipient " +
+           "WHERE m.id IN (SELECT MAX(m2.id) FROM Message m2 " +
+           "WHERE (m2.sender = :user AND m2.recipient.id IN :partnerIds) OR (m2.sender.id IN :partnerIds AND m2.recipient = :user) " +
+           "GROUP BY CASE WHEN m2.sender = :user THEN m2.recipient.id ELSE m2.sender.id END)")
+    List<Object[]> findLastMessagesForPartners(@Param("user") User user, @Param("partnerIds") List<Long> partnerIds);
+
+    /** Batch: unread counts from each partner in a single query. Returns [senderId, count]. */
+    @Query("SELECT m.sender.id, COUNT(m) FROM Message m WHERE m.recipient = :recipient AND m.read = false " +
+           "AND m.sender.id IN :senderIds GROUP BY m.sender.id")
+    List<Object[]> countUnreadFromUsers(@Param("senderIds") List<Long> senderIds, @Param("recipient") User recipient);
 }

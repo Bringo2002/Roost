@@ -1,5 +1,6 @@
 package com.roost.service;
 
+import com.roost.model.NotificationType;
 import com.roost.model.Property;
 import com.roost.repository.PropertyRepository;
 import org.slf4j.Logger;
@@ -43,20 +44,26 @@ public class AvailabilityScheduledTask {
         LocalDateTime sevenDaysAgo = LocalDateTime.now().minusDays(7);
         List<Property> due = propertyRepository.findByAvailableTrueAndRemindedAtIsNullAndLastConfirmedAtBefore(sevenDaysAgo);
 
+        int sent = 0;
         for (Property p : due) {
-            p.setRemindedAt(LocalDateTime.now());
-            if (p.getOwner() != null) {
-                firebasePushService.sendToUser(
-                        p.getOwner(),
-                        "Is this property still available?",
-                        p.getTitle() + " -- confirm or mark as rented in the app",
-                        Map.of("type", "availability_check", "propertyId", String.valueOf(p.getId()))
-                );
+            try {
+                p.setRemindedAt(LocalDateTime.now());
+                if (p.getOwner() != null) {
+                    firebasePushService.sendToUser(
+                            p.getOwner(),
+                            "Quick check-in",
+                            "Just checking \u2014 is " + (p.getTitle() != null ? p.getTitle() : "your listing") + " still available? Tap to confirm or mark it as rented so tenants see the latest.",
+                            Map.of("type", NotificationType.AVAILABILITY_CHECK.key(), "propertyId", String.valueOf(p.getId()))
+                    );
+                }
+                sent++;
+            } catch (Exception e) {
+                log.error("availability.reminder.failed propertyId={}", p.getId(), e);
             }
-            log.info("Sent availability reminder for listing {} ({})", p.getId(), p.getTitle());
         }
         if (!due.isEmpty()) {
             propertyRepository.saveAll(due);
+            log.info("availability.reminders sent={} total={}", sent, due.size());
         }
     }
 
@@ -65,12 +72,26 @@ public class AvailabilityScheduledTask {
         List<Property> expired = propertyRepository.findByAvailableTrueAndRemindedAtIsNotNullAndRemindedAtBefore(gracePeriodEnd);
 
         for (Property p : expired) {
-            p.setAvailable(false);
-            p.setRemindedAt(null);
-            log.info("Listing {} ({}) hidden -- no response to availability reminder", p.getId(), p.getTitle());
+            try {
+                p.setAvailable(false);
+                p.setRemindedAt(null);
+                if (p.getOwner() != null) {
+                    String name = (p.getTitle() != null && !p.getTitle().isBlank())
+                            ? p.getTitle() : "Your listing";
+                    firebasePushService.sendToUser(
+                            p.getOwner(),
+                            "Listing paused",
+                            "We didn't hear back about " + name + ", so we've paused it for now. Whenever you're ready, just hop back in and confirm it's still available — it'll go live again right away.",
+                            Map.of("type", NotificationType.AVAILABILITY_EXPIRED.key(), "propertyId", String.valueOf(p.getId()))
+                    );
+                }
+            } catch (Exception e) {
+                log.error("availability.expiry.failed propertyId={}", p.getId(), e);
+            }
         }
         if (!expired.isEmpty()) {
             propertyRepository.saveAll(expired);
+            log.info("availability.expired count={}", expired.size());
         }
     }
 }

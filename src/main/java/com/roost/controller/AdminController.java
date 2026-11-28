@@ -2,9 +2,11 @@ package com.roost.controller;
 
 import com.roost.dto.PropertyReportResponseDto;
 import com.roost.dto.PropertyResponseDto;
+import com.roost.model.NotificationType;
 import com.roost.model.Property;
 import com.roost.model.Role;
 import com.roost.model.User;
+import com.roost.service.FirebasePushService;
 import com.roost.service.PropertyService;
 import com.roost.repository.UserRepository;
 import org.springframework.http.ResponseEntity;
@@ -28,10 +30,13 @@ public class AdminController {
 
     private final PropertyService propertyService;
     private final UserRepository userRepository;
+    private final FirebasePushService firebasePushService;
 
-    public AdminController(PropertyService propertyService, UserRepository userRepository) {
+    public AdminController(PropertyService propertyService, UserRepository userRepository,
+                           FirebasePushService firebasePushService) {
         this.propertyService = propertyService;
         this.userRepository = userRepository;
+        this.firebasePushService = firebasePushService;
     }
 
     @GetMapping("/pending-verifications")
@@ -139,6 +144,14 @@ public class AdminController {
                 .orElseThrow(() -> com.roost.exception.ApiException.notFound("User not found"));
         target.setEnabled(enabled);
         userRepository.save(target);
+        if (!enabled) {
+            firebasePushService.sendToUser(
+                    target,
+                    "About your account",
+                    "We've had to temporarily deactivate your Roost account. If this doesn't seem right, just get in touch with our support team and we'll sort it out.",
+                    Map.of("type", NotificationType.ACCOUNT_DISABLED.key())
+            );
+        }
         return ResponseEntity.ok(Map.of("id", id, "enabled", enabled));
     }
 
@@ -158,6 +171,14 @@ public class AdminController {
                 .orElseThrow(() -> com.roost.exception.ApiException.notFound("User not found"));
         target.setAccountNonLocked(!locked); // locked=true means accountNonLocked=false
         userRepository.save(target);
+        if (locked) {
+            firebasePushService.sendToUser(
+                    target,
+                    "About your account",
+                    "We've temporarily paused your Roost account while we look into some recent activity. If you have any questions, our support team is happy to help.",
+                    Map.of("type", NotificationType.ACCOUNT_LOCKED.key())
+            );
+        }
         return ResponseEntity.ok(Map.of("id", id, "locked", locked));
     }
 }

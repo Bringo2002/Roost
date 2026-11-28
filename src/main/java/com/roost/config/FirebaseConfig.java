@@ -5,14 +5,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.auth.oauth2.ServiceAccountCredentials;
 import com.google.firebase.FirebaseApp;
 import com.google.firebase.FirebaseOptions;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 /**
  * Initializes the shared FirebaseApp at startup, parsing the service-account
@@ -23,11 +22,11 @@ import java.util.logging.Logger;
 @Configuration
 public class FirebaseConfig {
 
-    private static final Logger log = Logger.getLogger(FirebaseConfig.class.getName());
+    private static final Logger log = LoggerFactory.getLogger(FirebaseConfig.class);
 
     public FirebaseConfig(@Value("${firebase.service-account-json:}") String serviceAccountJson) {
         if (serviceAccountJson == null || serviceAccountJson.isBlank()) {
-            log.warning("Firebase disabled: no FIREBASE_SERVICE_ACCOUNT_JSON configured");
+            log.warn("Firebase disabled: no FIREBASE_SERVICE_ACCOUNT_JSON configured");
             return;
         }
 
@@ -56,9 +55,9 @@ public class FirebaseConfig {
                     .setCredentials(credentials)
                     .setProjectId(node.get("project_id").asText())
                     .build());
-            log.info("Firebase initialized for project: " + node.get("project_id").asText());
-        } catch (IOException | RuntimeException e) {
-            log.log(Level.WARNING, "Firebase init failed", e);
+            log.info("Firebase initialized for project: {}", node.get("project_id").asText());
+        } catch (Exception e) {
+            log.warn("Firebase init failed", e);
         }
     }
 }

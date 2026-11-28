@@ -119,6 +119,25 @@ public class GlobalExceptionHandler {
         errorResponse.put("error", "Method not allowed");
         return new ResponseEntity<>(errorResponse, HttpStatus.METHOD_NOT_ALLOWED);
     }
+    /**
+     * Optimistic-lock conflict: two concurrent edits to the same message.
+     * The loser gets a 409 and can retry with the latest version.
+     */
+    @ExceptionHandler(jakarta.persistence.OptimisticLockException.class)
+    public ResponseEntity<Map<String, String>> handleOptimisticLock(jakarta.persistence.OptimisticLockException ex) {
+        log.warn("Optimistic lock conflict: {}", ex.getMessage());
+        Map<String, String> errorResponse = new HashMap<>();
+        errorResponse.put("error", "This record was modified by another request. Please retry.");
+        return new ResponseEntity<>(errorResponse, HttpStatus.CONFLICT);
+    }
+
+    @ExceptionHandler(org.hibernate.StaleObjectStateException.class)
+    public ResponseEntity<Map<String, String>> handleStaleObject(org.hibernate.StaleObjectStateException ex) {
+        log.warn("Stale object conflict: {}", ex.getMessage());
+        Map<String, String> errorResponse = new HashMap<>();
+        errorResponse.put("error", "This record was modified by another request. Please retry.");
+        return new ResponseEntity<>(errorResponse, HttpStatus.CONFLICT);
+    }
 
     @ExceptionHandler(RuntimeException.class)
     public ResponseEntity<Map<String, String>> handleRuntimeException(RuntimeException ex) {

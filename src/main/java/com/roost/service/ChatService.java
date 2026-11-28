@@ -2,17 +2,22 @@ package com.roost.service;
 
 import com.roost.dto.ChatUserDto;
 import com.roost.dto.ConversationSummaryDto;
+import com.roost.dto.SendMessageRequestDto;
 import com.roost.exception.ApiException;
 import com.roost.model.ChatVisibility;
 import com.roost.model.Message;
 import com.roost.model.MessageReaction;
+import com.roost.model.NotificationType;
 import com.roost.model.User;
 import com.roost.repository.ChatVisibilityRepository;
 import com.roost.repository.MessageReactionRepository;
 import com.roost.repository.MessageRepository;
 import com.roost.repository.UserBlockRepository;
 import com.roost.repository.UserRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,6 +25,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -35,9 +41,13 @@ import java.util.concurrent.TimeUnit;
 @Transactional
 public class ChatService {
 
+    private static final Logger log = LoggerFactory.getLogger(ChatService.class);
+
     /** Base64 attachment payload cap (~5MB raw file after base64 overhead). */
     private static final int MAX_ATTACHMENT_BASE64_CHARS = 7_000_000;
     private static final int TYPING_INDICATOR_TTL_SECONDS = 4;
+    /** Messages older than this cannot be edited — matches WhatsApp. */
+    private static final int EDIT_WINDOW_MINUTES = 15;
 
     /**
      * Chat history used to download every message's attachment from R2
@@ -82,15 +92,19 @@ public class ChatService {
         this.firebasePushService = firebasePushService;
     }
 
-    public Message sendMessage(User sender, Map<String, Object> payload) {
-        Long recipientId = parseRecipientId(payload.get("recipientId"));
+    /**
+     * Sends an end-to-end-encrypted message from [sender] to the
+     * recipient identified by the DTO's recipientId.
+     */
+    public Message sendMessage(User sender, SendMessageRequestDto dto) {
+        Long recipientId = dto.getRecipientId();
 
-        String content = stringOrNull(payload.get("content"));
-        String nonce = stringOrNull(payload.get("nonce"));
-        String attachmentData = stringOrNull(payload.get("attachmentData"));
-        String attachmentNonce = stringOrNull(payload.get("attachmentNonce"));
-        String attachmentMeta = stringOrNull(payload.get("attachmentMeta"));
-        String attachmentMetaNonce = stringOrNull(payload.get("attachmentMetaNonce"));
+        String content = dto.getContent();
+        String nonce = dto.getNonce();
+        String attachmentData = dto.getAttachmentData();
+        String attachmentNonce = dto.getAttachmentNonce();
+        String attachmentMeta = dto.getAttachmentMeta();
+        String attachmentMetaNonce = dto.getAttachmentMetaNonce();
 
         boolean hasContent = isPresent(content) && isPresent(nonce);
         boolean hasAttachment = isPresent(attachmentData) && isPresent(attachmentNonce)
@@ -104,6 +118,16 @@ public class ChatService {
         }
         if (sender.getId().equals(recipientId)) {
             throw ApiException.badRequest("Cannot message yourself");
+        }
+
+        // Idempotency: if the client retries with the same nonce, return
+        // the previously saved message rather than creating a duplicate.
+        if (isPresent(nonce)) {
+            Optional<Message> existing = messageRepository.findBySenderAndNonce(sender, nonce);
+            if (existing.isPresent()) {
+                log.info("msg.dedup sender={} nonce={} existingId={}", sender.getId(), nonce, existing.get().getId());
+                return existing.get();
+            }
         }
 
         User recipient = userRepository.findById(recipientId)
@@ -143,7 +167,7 @@ public class ChatService {
             attachMessageFile(message, attachmentData, attachmentNonce, attachmentMeta, attachmentMetaNonce);
         }
         message.setTimestamp(LocalDateTime.now());
-        message.setReplyToMessageId(parseReplyToId(payload.get("replyToMessageId")));
+        message.setReplyToMessageId(dto.getReplyToMessageId());
 
         Message savedMessage = messageRepository.save(message);
         if (hasAttachment) {
@@ -153,14 +177,17 @@ public class ChatService {
             savedMessage.setAttachmentData(attachmentData);
         }
 
+        log.info("msg.sent id={} sender={} recipient={} hasAttachment={}",
+                savedMessage.getId(), sender.getId(), recipientId, hasAttachment);
+
         // Notify the recipient's device. The body is intentionally generic
         // -- messages are E2EE, so the server never has the keys to read
         // content and must not attempt to summarize it in a push payload.
         firebasePushService.sendToUser(
                 recipient,
                 sender.getName() != null && !sender.getName().isBlank() ? sender.getName() : "New message",
-                hasAttachment ? "Sent you an attachment" : "Sent you a message",
-                Map.of("type", "chat", "senderId", sender.getId().toString())
+                hasAttachment ? "Sent you a photo" : "Sent you a message",
+                Map.of("type", NotificationType.CHAT.key(), "senderId", sender.getId().toString())
         );
 
         return savedMessage;
@@ -186,6 +213,7 @@ public class ChatService {
      *       oldest first. Used for the initial load of a conversation.</li>
      * </ul>
      */
+    @Transactional(readOnly = true)
     public List<Message> getChatHistory(User user, Long otherUserId, Long beforeId, Long afterId, Integer limit) {
         User otherUser = userRepository.findById(otherUserId)
                 .orElseThrow(() -> ApiException.badRequest("User not found"));
@@ -237,9 +265,8 @@ public class ChatService {
                         byte[] bytes = r2StorageService.download(message.getAttachmentStorageKey());
                         message.setAttachmentData(Base64.getEncoder().encodeToString(bytes));
                     } catch (Exception e) {
-                        // Leave attachmentData null -- the client shows a
-                        // "couldn't load attachment" state rather than the
-                        // whole history request failing over one bad file.
+                        log.warn("attachment.download.failed key={} msgId={}",
+                                message.getAttachmentStorageKey(), message.getId(), e);
                     }
                 }, attachmentDownloadExecutor))
                 .toList();
@@ -314,15 +341,21 @@ public class ChatService {
                 .orElse(false);
     }
 
+    @Transactional(readOnly = true)
     public List<User> getActiveChats(User user) {
         List<User> partners = messageRepository.findActiveChatPartners(user);
         Set<Long> blockedIds = new HashSet<>(userBlockRepository.findBlockedIdsByBlocker(user));
+        List<User> filtered = partners.stream()
+                .filter(p -> !blockedIds.contains(p.getId()))
+                .toList();
+        if (filtered.isEmpty()) return new ArrayList<>();
+
+        List<Long> partnerIds = filtered.stream().map(User::getId).toList();
+        Map<Long, Message> lastMessages = batchLastMessages(user, partnerIds);
+
         List<User> visible = new ArrayList<>();
-        for (User partner : partners) {
-            if (blockedIds.contains(partner.getId())) {
-                continue;
-            }
-            Message lastMsg = messageRepository.findLastMessage(user, partner);
+        for (User partner : filtered) {
+            Message lastMsg = lastMessages.get(partner.getId());
             if (!isHidden(user, partner, lastMsg)) {
                 visible.add(partner);
             }
@@ -330,6 +363,7 @@ public class ChatService {
         return visible;
     }
 
+    @Transactional(readOnly = true)
     public long getUnreadCount(User user) {
         Long count = messageRepository.countUnreadNotBlocked(user);
         return count != null ? count : 0;
@@ -338,13 +372,7 @@ public class ChatService {
     public int markAsRead(User user, Long senderId) {
         User sender = userRepository.findById(senderId)
                 .orElseThrow(() -> ApiException.badRequest("User not found"));
-
-        List<Message> unread = messageRepository.findUnreadFromUser(sender, user);
-        for (Message m : unread) {
-            m.setRead(true);
-        }
-        messageRepository.saveAll(unread);
-        return unread.size();
+        return messageRepository.markAllAsRead(sender, user);
     }
 
     public Message editMessage(User user, Long messageId, String content, String nonce) {
@@ -355,10 +383,15 @@ public class ChatService {
         if (!isPresent(content) || !isPresent(nonce)) {
             throw ApiException.badRequest("Edited content and nonce are required");
         }
+        if (message.getTimestamp() != null
+                && message.getTimestamp().plusMinutes(EDIT_WINDOW_MINUTES).isBefore(LocalDateTime.now())) {
+            throw ApiException.forbidden("Edit window has expired");
+        }
         message.setContent(content);
         message.setNonce(nonce);
         message.setEdited(true);
         message.setEditedAt(LocalDateTime.now());
+        log.info("msg.edited id={} by={}", messageId, user.getId());
         return messageRepository.save(message);
     }
 
@@ -369,30 +402,38 @@ public class ChatService {
         if (message.hasAttachment()) {
             try {
                 r2StorageService.delete(message.getAttachmentStorageKey());
-            } catch (Exception ignored) {
-                // Orphaned blob in storage is preferable to blocking the delete.
+            } catch (Exception e) {
+                log.warn("attachment.cleanup.failed key={} msgId={}", message.getAttachmentStorageKey(), messageId, e);
             }
         }
         messageRepository.delete(message);
+        log.info("msg.deleted id={} by={}", messageId, user.getId());
     }
 
+    @Transactional(readOnly = true)
     public List<ConversationSummaryDto> getConversations(User user) {
         List<User> partners = messageRepository.findActiveChatPartners(user);
         Set<Long> blockedIds = new HashSet<>(userBlockRepository.findBlockedIdsByBlocker(user));
+        List<User> filtered = partners.stream()
+                .filter(p -> !blockedIds.contains(p.getId()))
+                .toList();
+        if (filtered.isEmpty()) return new ArrayList<>();
+
+        List<Long> partnerIds = filtered.stream().map(User::getId).toList();
+        Map<Long, Message> lastMessages = batchLastMessages(user, partnerIds);
+        Map<Long, Long> unreadCounts = batchUnreadCounts(partnerIds, user);
+
         List<ConversationSummaryDto> summaries = new ArrayList<>();
-        for (User partner : partners) {
-            if (blockedIds.contains(partner.getId())) {
-                continue;
-            }
-            Message lastMsg = messageRepository.findLastMessage(user, partner);
+        for (User partner : filtered) {
+            Message lastMsg = lastMessages.get(partner.getId());
             if (isHidden(user, partner, lastMsg)) {
                 continue;
             }
-            Long unread = messageRepository.countUnreadFromUser(partner, user);
+            long unread = unreadCounts.getOrDefault(partner.getId(), 0L);
 
             ConversationSummaryDto dto = new ConversationSummaryDto();
             dto.setPartner(ChatUserDto.from(partner));
-            dto.setUnreadCount(unread != null ? unread : 0);
+            dto.setUnreadCount(unread);
             if (lastMsg != null) {
                 dto.setLastMessageContent(lastMsg.getContent());
                 dto.setLastMessageNonce(lastMsg.getNonce());
@@ -444,6 +485,13 @@ public class ChatService {
         return lastTyped != null && lastTyped.isAfter(LocalDateTime.now().minusSeconds(TYPING_INDICATOR_TTL_SECONDS));
     }
 
+    /** Evicts stale typing indicators every 60s to prevent unbounded memory growth. */
+    @Scheduled(fixedRate = 60_000)
+    void evictStaleTypingIndicators() {
+        LocalDateTime cutoff = LocalDateTime.now().minusSeconds(TYPING_INDICATOR_TTL_SECONDS);
+        typingTimestamps.entrySet().removeIf(e -> e.getValue().isBefore(cutoff));
+    }
+
     // -- helpers --------------------------------------------------------
 
     private void attachMessageFile(Message message, String attachmentData, String attachmentNonce,
@@ -459,6 +507,7 @@ public class ChatService {
         try {
             storageKey = r2StorageService.upload(rawBytes);
         } catch (IllegalStateException e) {
+            log.error("attachment.upload.failed bytes={}", rawBytes.length, e);
             throw ApiException.serviceUnavailable(e.getMessage());
         }
 
@@ -466,6 +515,28 @@ public class ChatService {
         message.setAttachmentNonce(attachmentNonce);
         message.setAttachmentMeta(attachmentMeta);
         message.setAttachmentMetaNonce(attachmentMetaNonce);
+    }
+
+    /** Batch-loads the last message for each partner in one query, keyed by partner id. */
+    private Map<Long, Message> batchLastMessages(User user, List<Long> partnerIds) {
+        Map<Long, Message> result = new HashMap<>();
+        for (Object[] row : messageRepository.findLastMessagesForPartners(user, partnerIds)) {
+            Message msg = (Message) row[1];
+            Long partnerId = msg.getSender().getId().equals(user.getId())
+                    ? msg.getRecipient().getId()
+                    : msg.getSender().getId();
+            result.put(partnerId, msg);
+        }
+        return result;
+    }
+
+    /** Batch-loads unread counts from each partner in one query, keyed by sender id. */
+    private Map<Long, Long> batchUnreadCounts(List<Long> senderIds, User recipient) {
+        Map<Long, Long> result = new HashMap<>();
+        for (Object[] row : messageRepository.countUnreadFromUsers(senderIds, recipient)) {
+            result.put((Long) row[0], (Long) row[1]);
+        }
+        return result;
     }
 
     private Message getMessageOrThrow(Long messageId) {
@@ -481,28 +552,7 @@ public class ChatService {
         }
     }
 
-    private Long parseRecipientId(Object rawId) {
-        try {
-            return Long.valueOf(rawId.toString());
-        } catch (Exception e) {
-            throw ApiException.badRequest("Invalid recipientId");
-        }
-    }
-
-    private Long parseReplyToId(Object rawId) {
-        if (rawId == null) return null;
-        try {
-            return Long.valueOf(rawId.toString());
-        } catch (NumberFormatException ignored) {
-            return null;
-        }
-    }
-
     private static boolean isPresent(String value) {
         return value != null && !value.isBlank();
-    }
-
-    private static String stringOrNull(Object value) {
-        return value != null ? value.toString() : null;
     }
 }

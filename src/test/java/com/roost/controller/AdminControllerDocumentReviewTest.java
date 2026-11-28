@@ -49,7 +49,7 @@ class AdminControllerDocumentReviewTest {
     @BeforeEach
     void setUp() {
         propertyService = mock(PropertyService.class);
-        AdminController controller = new AdminController(propertyService, mock(UserRepository.class));
+        AdminController controller = new AdminController(propertyService, mock(UserRepository.class), mock(com.roost.service.FirebasePushService.class));
 
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setCustomArgumentResolvers(new AuthenticationPrincipalArgumentResolver())
