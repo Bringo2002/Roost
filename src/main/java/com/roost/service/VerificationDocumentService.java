@@ -2,6 +2,7 @@ package com.roost.service;
 
 import com.roost.exception.ApiException;
 import com.roost.model.IdentityStatus;
+import com.roost.model.NotificationType;
 import com.roost.model.Role;
 import com.roost.model.User;
 import com.roost.model.VerificationAuditEvent;
@@ -21,6 +22,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Lets a lister submit the documents that prove who they are (national ID
@@ -44,17 +46,20 @@ public class VerificationDocumentService {
     private final VerificationAuditEventRepository auditEvents;
     private final UserRepository users;
     private final RateLimiterService rateLimiter;
+    private final FirebasePushService firebasePushService;
 
     public VerificationDocumentService(PrivateDocumentStorage storage,
                                        VerificationDocumentRepository documents,
                                        VerificationAuditEventRepository auditEvents,
                                        UserRepository users,
-                                       RateLimiterService rateLimiter) {
+                                       RateLimiterService rateLimiter,
+                                       FirebasePushService firebasePushService) {
         this.storage = storage;
         this.documents = documents;
         this.auditEvents = auditEvents;
         this.users = users;
         this.rateLimiter = rateLimiter;
+        this.firebasePushService = firebasePushService;
     }
 
     /**
@@ -247,6 +252,12 @@ public class VerificationDocumentService {
         }
         owner.setIdentityStatus(IdentityStatus.VERIFIED);
         users.save(owner);
+        firebasePushService.sendToUser(
+                owner,
+                "Identity verified",
+                "We've reviewed your identity documents and everything checks out. You're now verified on Roost — this helps build trust with tenants browsing your listings.",
+                Map.of("type", NotificationType.IDENTITY_VERIFIED.key())
+        );
     }
 
     /**
@@ -284,6 +295,12 @@ public class VerificationDocumentService {
         }
         owner.setIdentityStatus(IdentityStatus.REJECTED);
         users.save(owner);
+        firebasePushService.sendToUser(
+                owner,
+                "Quick update on your documents",
+                "We reviewed your identity documents but weren't able to verify them — " + cleaned + ". You can submit new ones anytime and we'll take another look right away.",
+                Map.of("type", NotificationType.IDENTITY_REJECTED.key())
+        );
     }
 
     /** The lister under review, checked to be someone else and still waiting. */

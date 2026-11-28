@@ -53,7 +53,7 @@ class VerificationDocumentServiceTest {
         auditEvents = mock(VerificationAuditEventRepository.class);
         users = mock(UserRepository.class);
         rateLimiter = mock(RateLimiterService.class);
-        service = new VerificationDocumentService(storage, documents, auditEvents, users, rateLimiter);
+        service = new VerificationDocumentService(storage, documents, auditEvents, users, rateLimiter, mock(FirebasePushService.class));
 
         lister = new User();
         lister.setId(7L);

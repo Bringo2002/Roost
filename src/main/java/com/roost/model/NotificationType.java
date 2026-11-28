@@ -17,7 +17,11 @@ public enum NotificationType {
     LISTING_NEEDS_CHANGES("listing_needs_changes"),
     AVAILABILITY_CHECK("availability_check"),
     ACCOUNT_DISABLED("account_disabled"),
-    ACCOUNT_LOCKED("account_locked");
+    ACCOUNT_LOCKED("account_locked"),
+    IDENTITY_VERIFIED("identity_verified"),
+    IDENTITY_REJECTED("identity_rejected"),
+    APPLICATION_RECEIVED("application_received"),
+    APPLICATION_STATUS_UPDATE("application_status_update");
 
     private final String key;
 
