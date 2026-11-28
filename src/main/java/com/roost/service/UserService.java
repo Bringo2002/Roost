@@ -56,12 +56,18 @@ public class UserService {
         return target.getPublicKey() == null ? "" : target.getPublicKey();
     }
 
+    /** Max length for an FCM device token. Real tokens are ~163 chars; 4KB is generous. */
+    private static final int MAX_DEVICE_TOKEN_LENGTH = 4096;
+
     /** Registers/updates this device's FCM token for push notifications. */
     public void setDeviceToken(User user, String token) {
         if (token == null || token.isBlank()) {
             throw ApiException.badRequest("fcmToken is required");
         }
-        user.setDeviceToken(token);
+        if (token.length() > MAX_DEVICE_TOKEN_LENGTH) {
+            throw ApiException.badRequest("fcmToken is too long");
+        }
+        user.setDeviceToken(token.trim());
         userRepository.save(user);
     }
 

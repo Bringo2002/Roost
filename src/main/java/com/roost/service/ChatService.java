@@ -7,6 +7,7 @@ import com.roost.exception.ApiException;
 import com.roost.model.ChatVisibility;
 import com.roost.model.Message;
 import com.roost.model.MessageReaction;
+import com.roost.model.NotificationType;
 import com.roost.model.User;
 import com.roost.repository.ChatVisibilityRepository;
 import com.roost.repository.MessageReactionRepository;
@@ -186,7 +187,7 @@ public class ChatService {
                 recipient,
                 sender.getName() != null && !sender.getName().isBlank() ? sender.getName() : "New message",
                 hasAttachment ? "Sent you an attachment" : "Sent you a message",
-                Map.of("type", "chat", "senderId", sender.getId().toString())
+                Map.of("type", NotificationType.CHAT.key(), "senderId", sender.getId().toString())
         );
 
         return savedMessage;

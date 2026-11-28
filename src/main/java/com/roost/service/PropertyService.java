@@ -4,6 +4,7 @@ import com.roost.exception.ApiException;
 import com.roost.exception.PublicationPolicyException;
 import com.roost.exception.PublicationViolation;
 import com.roost.model.CommunityCheck;
+import com.roost.model.NotificationType;
 import com.roost.model.Property;
 import com.roost.model.PropertyReport;
 import com.roost.model.User;
@@ -772,7 +773,7 @@ public class PropertyService {
                     saved.getOwner(),
                     "Photos approved",
                     saved.getTitle() + " -- your photos are verified and live",
-                    Map.of("type", "photo_approved", "propertyId", String.valueOf(saved.getId()))
+                    Map.of("type", NotificationType.PHOTO_APPROVED.key(), "propertyId", String.valueOf(saved.getId()))
             );
         }
         return saved;
@@ -797,7 +798,7 @@ public class PropertyService {
                     saved.getTitle() + " -- " + (reason != null && !reason.isBlank()
                             ? reason
                             : "your photos were not approved. Please re-upload."),
-                    Map.of("type", "photo_rejected", "propertyId", String.valueOf(saved.getId()))
+                    Map.of("type", NotificationType.PHOTO_REJECTED.key(), "propertyId", String.valueOf(saved.getId()))
             );
         }
         return saved;
@@ -887,7 +888,7 @@ public class PropertyService {
                     property.getOwner(),
                     "Listing under review",
                     property.getTitle() + " has been temporarily hidden pending a quick review",
-                    Map.of("type", "listing_under_review", "propertyId", String.valueOf(property.getId()))
+                    Map.of("type", NotificationType.LISTING_UNDER_REVIEW.key(), "propertyId", String.valueOf(property.getId()))
             );
         }
 
@@ -944,7 +945,7 @@ public class PropertyService {
                     saved.getOwner(),
                     "Listing under review",
                     saved.getTitle() + " has been temporarily hidden pending a quick review",
-                    Map.of("type", "listing_under_review", "propertyId", String.valueOf(saved.getId()))
+                    Map.of("type", NotificationType.LISTING_UNDER_REVIEW.key(), "propertyId", String.valueOf(saved.getId()))
             );
         }
         return saved;
@@ -982,7 +983,7 @@ public class PropertyService {
                     saved.getOwner(),
                     "Listing needs changes",
                     name + " was cleared by the review, but it can't go live until you fix this: " + reasons,
-                    Map.of("type", "listing_needs_changes", "propertyId", String.valueOf(saved.getId()))
+                    Map.of("type", NotificationType.LISTING_NEEDS_CHANGES.key(), "propertyId", String.valueOf(saved.getId()))
             );
         }
         return saved;
@@ -1015,7 +1016,7 @@ public class PropertyService {
                         saved.getOwner(),
                         "Listing restored",
                         saved.getTitle() + " is back live -- the reports against it were reviewed and dismissed",
-                        Map.of("type", "listing_restored", "propertyId", String.valueOf(saved.getId()))
+                        Map.of("type", NotificationType.LISTING_RESTORED.key(), "propertyId", String.valueOf(saved.getId()))
                 );
             }
             return saved;
