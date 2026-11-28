@@ -1,5 +1,6 @@
 package com.roost.service;
 
+import com.roost.dto.SendMessageRequestDto;
 import com.roost.exception.ApiException;
 import com.roost.model.Role;
 import com.roost.model.User;
@@ -17,7 +18,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 
-import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -48,7 +48,7 @@ class ChatServiceDeletedRecipientTest {
 
     private User sender;
     private User recipient;
-    private Map<String, Object> payload;
+    private SendMessageRequestDto payload;
 
     @BeforeEach
     void setUp() {
@@ -60,7 +60,10 @@ class ChatServiceDeletedRecipientTest {
         recipient.setId(2L);
         recipient.setRole(Role.LANDLORD);
 
-        payload = Map.of("recipientId", 2L, "content", "ciphertext", "nonce", "nonce");
+        payload = new SendMessageRequestDto();
+        payload.setRecipientId(2L);
+        payload.setContent("ciphertext");
+        payload.setNonce("nonce");
         when(userRepository.findById(2L)).thenReturn(Optional.of(recipient));
     }
 

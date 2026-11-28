@@ -2,9 +2,13 @@ package com.roost.controller;
 
 import com.roost.dto.ConversationSummaryDto;
 import com.roost.dto.ChatUserDto;
+import com.roost.dto.EditMessageRequestDto;
 import com.roost.dto.MessageResponseDto;
+import com.roost.dto.ReactionRequestDto;
+import com.roost.dto.SendMessageRequestDto;
 import com.roost.model.User;
 import com.roost.service.ChatService;
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
@@ -22,11 +26,12 @@ public class ChatController {
         this.chatService = chatService;
     }
 
+    /** Sends an end-to-end-encrypted message. */
     @PostMapping
     public ResponseEntity<MessageResponseDto> sendMessage(@AuthenticationPrincipal User sender,
-                                                @RequestBody Map<String, Object> payload) {
+                                                @Valid @RequestBody SendMessageRequestDto dto) {
         if (sender == null) return ResponseEntity.status(401).build();
-        return ResponseEntity.ok(MessageResponseDto.from(chatService.sendMessage(sender, payload)));
+        return ResponseEntity.ok(MessageResponseDto.from(chatService.sendMessage(sender, dto)));
     }
 
     @GetMapping("/history/{userId}")
@@ -58,17 +63,14 @@ public class ChatController {
         return ResponseEntity.ok(Map.of("marked", chatService.markAsRead(user, userId)));
     }
 
+    /** Edits the ciphertext and nonce of a previously sent message. */
     @PutMapping("/{messageId}")
     public ResponseEntity<MessageResponseDto> editMessage(@AuthenticationPrincipal User user,
                                                 @PathVariable Long messageId,
-                                                @RequestBody Map<String, Object> payload) {
+                                                @Valid @RequestBody EditMessageRequestDto dto) {
         if (user == null) return ResponseEntity.status(401).build();
-        Object content = payload.get("content");
-        Object nonce = payload.get("nonce");
         return ResponseEntity.ok(MessageResponseDto.from(chatService.editMessage(
-                user, messageId,
-                content != null ? content.toString() : null,
-                nonce != null ? nonce.toString() : null)));
+                user, messageId, dto.getContent(), dto.getNonce())));
     }
 
     @DeleteMapping("/{messageId}")
@@ -85,12 +87,13 @@ public class ChatController {
         return ResponseEntity.ok(chatService.getConversations(user));
     }
 
+    /** Toggles an emoji reaction on a message. */
     @PostMapping("/react/{messageId}")
     public ResponseEntity<Map<String, String>> toggleReaction(@AuthenticationPrincipal User user,
                                                                 @PathVariable Long messageId,
-                                                                @RequestBody Map<String, String> payload) {
+                                                                @Valid @RequestBody ReactionRequestDto dto) {
         if (user == null) return ResponseEntity.status(401).build();
-        String action = chatService.toggleReaction(user, messageId, payload.get("emoji"));
+        String action = chatService.toggleReaction(user, messageId, dto.getEmoji());
         return ResponseEntity.ok(Map.of("action", action));
     }
 
