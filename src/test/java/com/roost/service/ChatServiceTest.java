@@ -155,7 +155,7 @@ class ChatServiceTest {
 
             assertNotNull(sent);
             assertEquals("", sent.getContent());  // empty content, not null
-            verify(firebasePushService).sendToUser(eq(bob), eq("Alice"), eq("Sent you an attachment"), anyMap());
+            verify(firebasePushService).sendToUser(eq(bob), eq("Alice"), eq("Sent you a photo"), anyMap());
         }
 
         @Test
@@ -171,7 +171,7 @@ class ChatServiceTest {
 
             assertNotNull(sent);
             assertEquals("cipher", sent.getContent());
-            verify(firebasePushService).sendToUser(eq(bob), eq("Alice"), eq("Sent you an attachment"), anyMap());
+            verify(firebasePushService).sendToUser(eq(bob), eq("Alice"), eq("Sent you a photo"), anyMap());
         }
 
         @Test

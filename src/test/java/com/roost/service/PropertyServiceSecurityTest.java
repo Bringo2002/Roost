@@ -701,7 +701,7 @@ class PropertyServiceSecurityTest {
         assertEquals("PUBLISHED", result.getStatus());
         assertNotNull(result.getReportsReviewedAt());
         verify(firebasePushService).sendToUser(
-                eq(verifiedOwner), eq("Listing restored"), anyString(), anyMap());
+                eq(verifiedOwner), eq("Your listing is back up"), anyString(), anyMap());
     }
 
     @Test
@@ -715,10 +715,10 @@ class PropertyServiceSecurityTest {
         assertEquals("DRAFT", result.getStatus());
         assertNotNull(result.getReportsReviewedAt());
         verify(firebasePushService).sendToUser(
-                eq(verifiedOwner), eq("Listing needs changes"),
+                eq(verifiedOwner), eq("Almost there"),
                 contains("Give your listing a title."), anyMap());
         verify(firebasePushService, never()).sendToUser(
-                any(User.class), eq("Listing restored"), anyString(), anyMap());
+                any(User.class), eq("Your listing is back up"), anyString(), anyMap());
     }
 
     @Test
@@ -731,12 +731,12 @@ class PropertyServiceSecurityTest {
 
         assertEquals("DRAFT", result.getStatus());
         verify(firebasePushService).sendToUser(
-                eq(verifiedOwner), eq("Listing needs changes"),
+                eq(verifiedOwner), eq("Almost there"),
                 contains("Verify your phone number"), anyMap());
     }
 
     @Test
-    @DisplayName("resolveReportedListing leaves a listing hidden, and tells no one, when not restoring")
+    @DisplayName("resolveReportedListing leaves a listing hidden and tells the owner it stays paused when not restoring")
     void resolveReportedListing_leavesItHiddenWhenNotRestoring() {
         reportedListing();
 
@@ -744,6 +744,7 @@ class PropertyServiceSecurityTest {
 
         assertEquals("UNDER_REVIEW", result.getStatus());
         assertNotNull(result.getReportsReviewedAt());
-        verifyNoInteractions(firebasePushService);
+        verify(firebasePushService).sendToUser(
+                eq(verifiedOwner), eq("Update on your listing"), anyString(), anyMap());
     }
 }
