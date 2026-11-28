@@ -762,6 +762,11 @@ public class PropertyService {
         return populateRatings(propertyRepository.save(existing));
     }
 
+    /** Null-safe listing name for push notification bodies. */
+    private static String listingName(Property p) {
+        return (p.getTitle() != null && !p.getTitle().isBlank()) ? p.getTitle() : "Your listing";
+    }
+
     /** Admin marks a listing's photos as reviewed and genuine. */
     public Property approvePhotos(Long id) {
         Property property = getPropertyById(id);
@@ -771,8 +776,8 @@ public class PropertyService {
         if (saved.getOwner() != null) {
             firebasePushService.sendToUser(
                     saved.getOwner(),
-                    "Photos approved",
-                    saved.getTitle() + " -- your photos are verified and live",
+                    "Photos Verified ✅",
+                    "Great news! The photos for " + listingName(saved) + " have been reviewed and approved. Your listing now shows the verified badge.",
                     Map.of("type", NotificationType.PHOTO_APPROVED.key(), "propertyId", String.valueOf(saved.getId()))
             );
         }
@@ -792,12 +797,13 @@ public class PropertyService {
         recomputeVerification(property);
         Property saved = propertyRepository.save(property);
         if (saved.getOwner() != null) {
+            String detail = (reason != null && !reason.isBlank())
+                    ? reason
+                    : "They didn't meet our quality guidelines.";
             firebasePushService.sendToUser(
                     saved.getOwner(),
-                    "Photos rejected",
-                    saved.getTitle() + " -- " + (reason != null && !reason.isBlank()
-                            ? reason
-                            : "your photos were not approved. Please re-upload."),
+                    "Photos Need Resubmission",
+                    "The photos for " + listingName(saved) + " were not approved. " + detail + " Please upload new photos and we'll review them again promptly.",
                     Map.of("type", NotificationType.PHOTO_REJECTED.key(), "propertyId", String.valueOf(saved.getId()))
             );
         }
@@ -832,7 +838,16 @@ public class PropertyService {
         }
         property.setDocumentVerified(true);
         recomputeVerification(property);
-        return propertyRepository.save(property);
+        Property saved = propertyRepository.save(property);
+        if (saved.getOwner() != null) {
+            firebasePushService.sendToUser(
+                    saved.getOwner(),
+                    "Documents Verified ✅",
+                    "The ownership documents for " + listingName(saved) + " have been reviewed and accepted. Your listing now carries the document-verified badge.",
+                    Map.of("type", NotificationType.DOCUMENTS_APPROVED.key(), "propertyId", String.valueOf(saved.getId()))
+            );
+        }
+        return saved;
     }
 
     /**
@@ -886,8 +901,8 @@ public class PropertyService {
             // the reports haven't been judged yet.
             firebasePushService.sendToUser(
                     property.getOwner(),
-                    "Listing under review",
-                    property.getTitle() + " has been temporarily hidden pending a quick review",
+                    "Listing Temporarily Paused",
+                    listingName(property) + " has been temporarily hidden while our team reviews recent feedback. This is a routine check and we'll update you with the outcome shortly.",
                     Map.of("type", NotificationType.LISTING_UNDER_REVIEW.key(), "propertyId", String.valueOf(property.getId()))
             );
         }
@@ -943,8 +958,8 @@ public class PropertyService {
         if (saved.getOwner() != null) {
             firebasePushService.sendToUser(
                     saved.getOwner(),
-                    "Listing under review",
-                    saved.getTitle() + " has been temporarily hidden pending a quick review",
+                    "Listing Temporarily Paused",
+                    listingName(saved) + " has been temporarily hidden while our team reviews recent feedback. This is a routine check and we'll update you with the outcome shortly.",
                     Map.of("type", NotificationType.LISTING_UNDER_REVIEW.key(), "propertyId", String.valueOf(saved.getId()))
             );
         }
@@ -974,15 +989,14 @@ public class PropertyService {
         property.setStatus("DRAFT");
         Property saved = propertyRepository.save(property);
         if (saved.getOwner() != null) {
-            String name = saved.getTitle() == null || saved.getTitle().isBlank()
-                    ? "Your listing" : saved.getTitle();
+            String name = listingName(saved);
             String reasons = violations.stream()
                     .map(PublicationViolation::message)
-                    .collect(Collectors.joining(" "));
+                    .collect(Collectors.joining(". "));
             firebasePushService.sendToUser(
                     saved.getOwner(),
-                    "Listing needs changes",
-                    name + " was cleared by the review, but it can't go live until you fix this: " + reasons,
+                    "Action Required",
+                    "Good news — " + name + " passed the review. However, it needs a small update before it can go live: " + reasons + ". Once updated, it will be published automatically.",
                     Map.of("type", NotificationType.LISTING_NEEDS_CHANGES.key(), "propertyId", String.valueOf(saved.getId()))
             );
         }
@@ -1014,14 +1028,24 @@ public class PropertyService {
             if (saved.getOwner() != null) {
                 firebasePushService.sendToUser(
                         saved.getOwner(),
-                        "Listing restored",
-                        saved.getTitle() + " is back live -- the reports against it were reviewed and dismissed",
+                        "Listing Restored ✅",
+                        listingName(saved) + " is back live. Our team reviewed the reports and found no issues — your listing is in good standing.",
                         Map.of("type", NotificationType.LISTING_RESTORED.key(), "propertyId", String.valueOf(saved.getId()))
                 );
             }
             return saved;
         }
-        return propertyRepository.save(property);
+        // Admin decided to keep the listing hidden — notify the owner.
+        Property saved = propertyRepository.save(property);
+        if (saved.getOwner() != null) {
+            firebasePushService.sendToUser(
+                    saved.getOwner(),
+                    "Listing Update",
+                    listingName(saved) + " remains hidden following our review. If you believe this is an error, please contact support and we'll be happy to help.",
+                    Map.of("type", NotificationType.LISTING_KEPT_HIDDEN.key(), "propertyId", String.valueOf(saved.getId()))
+            );
+        }
+        return saved;
     }
 
     /**

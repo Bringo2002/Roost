@@ -10,10 +10,14 @@ public enum NotificationType {
     CHAT("chat"),
     PHOTO_APPROVED("photo_approved"),
     PHOTO_REJECTED("photo_rejected"),
+    DOCUMENTS_APPROVED("documents_approved"),
     LISTING_UNDER_REVIEW("listing_under_review"),
+    LISTING_KEPT_HIDDEN("listing_kept_hidden"),
     LISTING_RESTORED("listing_restored"),
     LISTING_NEEDS_CHANGES("listing_needs_changes"),
-    AVAILABILITY_CHECK("availability_check");
+    AVAILABILITY_CHECK("availability_check"),
+    ACCOUNT_DISABLED("account_disabled"),
+    ACCOUNT_LOCKED("account_locked");
 
     private final String key;
 
