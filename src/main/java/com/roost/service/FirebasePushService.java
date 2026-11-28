@@ -9,6 +9,7 @@ import com.roost.model.User;
 import com.roost.repository.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.DependsOn;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -54,6 +55,7 @@ public class FirebasePushService {
     private final UserRepository userRepository;
     private final FcmSender fcmSender;
 
+    @Autowired
     public FirebasePushService(UserRepository userRepository, FcmSender fcmSender) {
         this.userRepository = userRepository;
         this.fcmSender = fcmSender;
