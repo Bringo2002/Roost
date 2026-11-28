@@ -1,13 +1,6 @@
 package com.roost.service;
 
-import com.google.api.core.ApiFuture;
-import com.google.api.core.ApiFutureCallback;
-import com.google.api.core.ApiFutures;
-import com.google.auth.oauth2.GoogleCredentials;
-import com.google.common.util.concurrent.MoreExecutors;
 import com.google.firebase.FirebaseApp;
-import com.google.firebase.FirebaseOptions;
-import com.google.firebase.messaging.FirebaseMessaging;
 import com.google.firebase.messaging.FirebaseMessagingException;
 import com.google.firebase.messaging.Message;
 import com.google.firebase.messaging.MessagingErrorCode;
@@ -17,8 +10,8 @@ import com.roost.repository.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.DependsOn;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Map;
 import java.util.Set;
@@ -46,26 +39,38 @@ public class FirebasePushService {
     private static final Logger log = LoggerFactory.getLogger(FirebasePushService.class);
 
     /** FCM error codes that mean the token is permanently invalid. */
-    private static final Set<MessagingErrorCode> EVICTABLE_ERRORS = Set.of(
+    static final Set<MessagingErrorCode> EVICTABLE_ERRORS = Set.of(
             MessagingErrorCode.UNREGISTERED,
             MessagingErrorCode.INVALID_ARGUMENT
     );
 
     /** Max pushes per user per minute before throttling kicks in. */
-    private static final int MAX_PUSHES_PER_MINUTE = 10;
+    static final int MAX_PUSHES_PER_MINUTE = 10;
 
     /** Per-user send counters, reset every 60s by {@link #resetPushCounters()}. */
     private final ConcurrentHashMap<Long, AtomicInteger> pushCounters = new ConcurrentHashMap<>();
 
     private final boolean configured;
     private final UserRepository userRepository;
+    private final FcmSender fcmSender;
 
-    public FirebasePushService(UserRepository userRepository) {
+    public FirebasePushService(UserRepository userRepository, FcmSender fcmSender) {
         this.userRepository = userRepository;
+        this.fcmSender = fcmSender;
         this.configured = !FirebaseApp.getApps().isEmpty();
         if (!configured) {
             log.warn("Firebase push disabled: FirebaseApp not initialized");
         }
+    }
+
+    /**
+     * Package-private constructor for unit tests that need to control the
+     * configured flag without a live FirebaseApp.
+     */
+    FirebasePushService(UserRepository userRepository, FcmSender fcmSender, boolean configured) {
+        this.userRepository = userRepository;
+        this.fcmSender = fcmSender;
+        this.configured = configured;
     }
 
     /** True once a valid service account credential has been loaded. */
@@ -104,21 +109,16 @@ public class FirebasePushService {
                 .putAllData(data)
                 .build();
 
-        ApiFuture<String> future = FirebaseMessaging.getInstance().sendAsync(message);
-        ApiFutures.addCallback(future, new ApiFutureCallback<String>() {
-            @Override
-            public void onSuccess(String result) {
-                log.info("push.sent userId={} type={}", recipient.getId(),
-                        data.getOrDefault("type", "unknown"));
-            }
-
-            @Override
-            public void onFailure(Throwable t) {
-                log.warn("push.failed userId={} type={} error={}", recipient.getId(),
-                        data.getOrDefault("type", "unknown"), t.getMessage());
-                evictStaleToken(recipient, t);
-            }
-        }, MoreExecutors.directExecutor());
+        fcmSender.sendAsync(
+                message,
+                () -> log.info("push.sent userId={} type={}", recipient.getId(),
+                        data.getOrDefault("type", "unknown")),
+                t -> {
+                    log.warn("push.failed userId={} type={} error={}", recipient.getId(),
+                            data.getOrDefault("type", "unknown"), t.getMessage());
+                    evictStaleToken(recipient, t);
+                }
+        );
     }
 
     /**
@@ -126,7 +126,7 @@ public class FirebasePushService {
      * rotated), null it out so we stop wasting round-trips on every future
      * push to this user. The user's next app launch will register a fresh token.
      */
-    private void evictStaleToken(User recipient, Throwable t) {
+    void evictStaleToken(User recipient, Throwable t) {
         if (!(t instanceof FirebaseMessagingException fme)) return;
         if (!EVICTABLE_ERRORS.contains(fme.getMessagingErrorCode())) return;
         try {
@@ -139,7 +139,7 @@ public class FirebasePushService {
     }
 
     /** Resets per-user push counters every 60 seconds. */
-    @org.springframework.scheduling.annotation.Scheduled(fixedRate = 60_000)
+    @Scheduled(fixedRate = 60_000)
     void resetPushCounters() {
         pushCounters.clear();
     }
